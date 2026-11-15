@@ -15,7 +15,7 @@ Env vars (all optional): `PORT`, `BASE_URL`, `ADMIN_KEY` (default `cad-admin`), 
 - CAD members get 25% off published rates ($200/month prepaid credit).
 - An additional 10% off for orders of $1,000 or more applies only to jobs that are all furniture and/or décor (the footnote is on the Furniture & Décor card).
 - Declared value is required per piece (in-CA jobs). Pieces up to $50,000: mandatory declared value protection at 1.5%. Over $50,000: no protection; high-value handling +100% to +600% on that piece's price.
-- Crating & Shipping and any job with an address outside California: custom quote from Samantha, fully insured through CAD's shipping partners.
+- Shipping (out-of-state only) and any job with an address outside California: custom quote from Samantha, fully insured through CAD's shipping partners. Within California, CAD always provides white-glove delivery.
 
 ## Payment
 - Paid in full at booking.

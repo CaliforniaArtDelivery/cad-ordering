@@ -75,7 +75,7 @@ function approveBox(o) {
   const mid = q.quoteRange ? Math.round((q.quoteRange.low + q.quoteRange.high) / 2) : (q.total || 0);
   if (q.shipping) return `<div class="approve" id="approveBox">
     <h3>Samantha — price this shipping quote</h3>
-    <p class="muted" style="margin:0 0 12px">Crating &amp; Shipping request${o.outOfState ? ' (an address is outside California, so it became a shipping quote automatically)' : ''}. There is no rate card: set the full price for crating, shipping, destination service and the shipping partner’s insurance on the declared value (no declared value protection or high-value markup on shipping). Approving writes a payment-link email to the outbox (not sent).</p>
+    <p class="muted" style="margin:0 0 12px">Shipping request${o.outOfState ? ' (an address is outside California, so it became a shipping quote automatically)' : ''}. There is no rate card: set the full price for packing, shipping, destination service and the shipping partner’s insurance on the declared value (no declared value protection or high-value markup on shipping). Approving writes a payment-link email to the outbox (not sent).</p>
     <div class="row">
       <div class="field" style="margin:0"><label class="f">Final price ($)</label><input type="number" id="approvePrice" min="1" step="1" value=""></div>
       <div class="field" style="margin:0"><label class="f">Note (optional)</label><input type="text" id="approveNote" placeholder="Carrier, crate specs, transit time…"></div>

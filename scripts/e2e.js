@@ -53,7 +53,7 @@ const readOrders = () => JSON.parse(fs.readFileSync(path.join(ROOT, 'data', 'ord
   await shot(page, '01-what-service');
   if (await page.locator('[data-path="items.0.description"]').count()) errors.push('item fields should appear only after a service is picked');
   const svcIds = await page.$$eval('[data-service]', (els) => els.map((e) => e.dataset.service));
-  if (svcIds.join(',') !== 'pickup_delivery,delivery_install,install_only,crating_shipping') errors.push('services must be Pickup + Delivery / Pickup, Delivery + Install / Install only / Crating & Shipping, got ' + svcIds);
+  if (svcIds.join(',') !== 'pickup_delivery,delivery_install,install_only,crating_shipping') errors.push('services must be Pickup + Delivery / Pickup, Delivery + Install / Install only / Shipping, got ' + svcIds);
   await expect(/door[ -]to[ -]door/i, 'never say door to door', true);
   await expect(/White-glove pickup and delivery/, 'Pickup + Delivery card should use white-glove copy');
   await expect(/>Delivery<\/b>|>Pickup<\/b>/, 'delivery-only / pickup-only must not be offered', true);
@@ -294,10 +294,11 @@ const readOrders = () => JSON.parse(fs.readFileSync(path.join(ROOT, 'data', 'ord
   const toggleOn = (p) => page.click(`label.toggle:has([data-path="${p}"])`);
   const nextDisabled = async () => page.$eval('#nextBtn', (b) => b.disabled);
 
-  // ---- Order 9: Crating & Shipping, international destination, technical carry photos ----
+  // ---- Order 9: Shipping, international destination, technical carry photos ----
   await startFresh(page);
   await page.click('[data-service="crating_shipping"]'); await page.waitForTimeout(300);
-  await expect(/Expert crating and shipping anywhere in the United States and abroad/, 'shipping card subtitle missing');
+  await expect(/Out-of-state shipping by air or ground/, 'shipping card subtitle missing');
+  await expect(/Within California we always provide white-glove delivery/, 'shipping card should say California jobs are always white-glove');
   await expect(/Custom quote/, 'shipping card should say Custom quote');
   await fill(page, 'items.0.description', 'Large abstract, oil on linen'); await frame(page, 0, 'no');
   await fill(page, 'items.0.w', 60); await fill(page, 'items.0.h', 48); await fill(page, 'items.0.d', 3); await fill(page, 'items.0.weight', 35); await fill(page, 'items.0.value', 20000);
@@ -342,7 +343,7 @@ const readOrders = () => JSON.parse(fs.readFileSync(path.join(ROOT, 'data', 'ord
   const shipHtml = shipMail ? fs.readFileSync(path.join(ROOT, 'outbox', shipMail), 'utf8') : '';
   if (!/Shipping quote request received/.test(shipHtml) || !/France/.test(shipHtml) || !/Inside delivery/.test(shipHtml)) errors.push('shipping quote email should be labeled shipping and list destination + service level');
 
-  // ---- Order 10: Pickup + Delivery to Nevada → automatically a Crating & Shipping quote; fragile needs photos ----
+  // ---- Order 10: Pickup + Delivery to Nevada → automatically a Shipping quote; fragile needs photos ----
   await startFresh(page);
   await page.click('[data-service="pickup_delivery"]'); await page.waitForTimeout(300);
   await page.click('[data-itemtype="0"] button[data-v="decor"]'); await page.waitForTimeout(200);
@@ -358,7 +359,8 @@ const readOrders = () => JSON.parse(fs.readFileSync(path.join(ROOT, 'data', 'ord
   await fillSite(page, 'pickup', { street: '8678 Melrose Ave', city: 'West Hollywood', zip: '90069', contactName: 'Sam Reyes', contactPhone: '310-555-0177' });
   await fillSite(page, 'dropoff', { street: '3600 Las Vegas Blvd S', city: 'Las Vegas', zip: '89109', contactName: 'Front desk', contactPhone: '702-555-0100' });
   await fill(page, 'dropoff.state', 'NV'); await page.press('[data-path="dropoff.state"]', 'Tab'); await page.waitForTimeout(400);
-  await expect(/outside California are custom quoted as Crating &amp; Shipping/, 'out-of-state job should explain the custom quote');
+  await expect(/outside California are custom quoted as Shipping/, 'out-of-state job should explain the custom quote');
+  await expect(/Within California we always provide white-glove delivery/, 'shipping copy should say California jobs are always white-glove');
   await shot(page, '25-out-of-state-where');
   await next(page);
   await expect(/Shipping details/, 'out-of-state job should go to Shipping details');
@@ -369,7 +371,7 @@ const readOrders = () => JSON.parse(fs.readFileSync(path.join(ROOT, 'data', 'ord
   await expect(/data-wallet/, 'out-of-state job must not show payment buttons', true);
   await page.click('#nextBtn'); await page.waitForSelector('.check'); await page.waitForTimeout(400);
   const oos = readOrders()[0];
-  if (oos.service !== 'crating_shipping' || !oos.outOfState || oos.requestedService !== 'pickup_delivery' || oos.status !== 'pending_approval') errors.push('Nevada delivery should become a pending Crating & Shipping quote: ' + JSON.stringify({ s: oos.service, o: oos.outOfState, r: oos.requestedService, st: oos.status }));
+  if (oos.service !== 'crating_shipping' || !oos.outOfState || oos.requestedService !== 'pickup_delivery' || oos.status !== 'pending_approval') errors.push('Nevada delivery should become a pending Shipping quote: ' + JSON.stringify({ s: oos.service, o: oos.outOfState, r: oos.requestedService, st: oos.status }));
 
   // ---- Photo rules via API ----
   const post = async (body) => fetch(BASE + '/api/orders', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
@@ -491,7 +493,7 @@ const readOrders = () => JSON.parse(fs.readFileSync(path.join(ROOT, 'data', 'ord
   await page.goto(`${BASE}/?order=${encodeURIComponent(shipOrder.id)}&pay=1`); await page.waitForSelector('#nextBtn'); await page.waitForTimeout(500);
   await page.click('#nextBtn'); await page.waitForSelector('.check'); await page.waitForTimeout(400);
   const csv2 = fs.readFileSync(path.join(ROOT, 'data', 'schedule-2026.csv'), 'utf8');
-  if (!/CRATE \+ SHIP/.test(csv2)) errors.push('paid shipping job should write a CRATE + SHIP schedule row');
+  if (!/SHIPPING/.test(csv2)) errors.push('paid shipping job should write a SHIPPING schedule row');
 
   await browser.close();
   console.log(JSON.stringify({ engine: process.env.E2E_BROWSER || 'chromium', id1, id2, id3, errors }, null, 2));

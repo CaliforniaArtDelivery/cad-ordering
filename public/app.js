@@ -86,7 +86,7 @@ const payload = () => {
 const esc = (v) => String(v ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const fmt = (n) => '$' + Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
 const svc = () => (CFG && CFG.services[S.service]) || {};
-// Out-of-state rule (mirrors lib/geo.js): any pickup or delivery outside California is a Crating & Shipping custom quote.
+// Out-of-state rule (mirrors lib/geo.js): any pickup or delivery outside California is a Shipping custom quote.
 const US_RX = /^(us|u\.s\.a?\.?|usa|united states( of america)?|america)$/i;
 const intlDest = (a) => !!(a && a.country && String(a.country).trim() && !US_RX.test(String(a.country).trim()));
 const outsideCA = (a) => {
@@ -131,12 +131,20 @@ const api = async (url, body) => {
   }
 };
 
-const ICONS = { pickup_delivery: '⇄', delivery_install: '✦', install_only: '◇', crating_shipping: '✈' };
+const iconSvg = (label, body) => `<svg viewBox="0 0 32 32" role="img" aria-label="${label}" width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><title>${label}</title>${body}</svg>`;
+const ICONS = {
+  // One-piece high-roof cargo van (Sprinter-style): same roof height over the cab, short hood, sloped windshield. Not a box truck.
+  pickup_delivery: iconSvg('High-roof cargo van', '<circle cx="10.2" cy="24.4" r="2.55"/><circle cx="22.8" cy="24.4" r="2.55"/><path d="M3.6 22.2V8.6q0-1.6 1.6-1.6h15.4L25.6 12.8h2.5q.8 0 .8 1V22.2Z"/><path d="M21.3 8.5 25.2 12.8H21.3Z"/><path d="M6.2 13.2h14.2"/>'),
+  delivery_install: iconSvg('Cargo van and framed painting', '<circle cx="7.1" cy="26.6" r="1.95"/><circle cx="15.8" cy="26.6" r="1.95"/><path d="M2.3 24.9V16.4q0-1.15 1.15-1.15h10.6L17.4 19.1h1.8v5.8Z"/><path d="M14.3 16.6 17.1 19.1h-2.8Z"/><rect x="16.2" y="2.3" width="13.5" height="16.6" rx="1.1"/><rect x="18" y="4.1" width="9.9" height="13" rx=".4"/><path d="M18 13.5 20.9 9.7l2.5 2.8 1.6-2 2.9 3H18z"/><circle cx="25.5" cy="7" r="1.15"/>'),
+  install_only: iconSvg('Framed painting held for installation', '<rect x="8.6" y="1.8" width="14.8" height="18.8" rx="1.2"/><rect x="10.5" y="3.7" width="11" height="15" rx=".4"/><path d="M10.5 14.8 13.8 10.6l2.7 3.1 1.8-2.1 3.7 3.2h-8.2z"/><circle cx="20.2" cy="7.2" r="1.25"/><path d="M8.6 20.3c-2 0-2.8-1.8-1.4-2.8 1.3-1 2.8.2 2 1.6"/><path d="M8.6 20.8c-1.6.2-2.2 1.8-1 2.8 1 .9 2.6 1 3.8.2.8.8 2 .8 2.8-.2"/><path d="M23.4 20.3c2 0 2.8-1.8 1.4-2.8-1.3-1-2.8.2-2 1.6"/><path d="M23.4 20.8c1.6.2 2.2 1.8 1 2.8-1 .9-2.6 1-3.8.2-.8.8-2 .8-2.8-.2"/>'),
+  crating_shipping: iconSvg('Airplane and truck, air or ground shipping', '<path d="M2.2 12.2 5 12.2 6.1 6.8 8.4 12.1 15.2 11.6 18.2 8.8 19.2 8.8 16.4 13.4 18.2 17.2 16.6 17.2 14.4 13.8 7.2 14.2 5.2 18.6 3.8 18.6 5.4 14.4 2.2 14.4Z"/><path d="M14.4 20.2h11.2v6.6H14.4z"/><path d="M25.6 22.4h3.1l1.7 2.3v2.1h-4.8"/><circle cx="17.6" cy="27.2" r="1.85"/><circle cx="26.4" cy="27.2" r="1.85"/>'),
+};
+
 const DESC = {
   pickup_delivery: 'White-glove pickup and delivery for fine art, sculpture, luxury furniture, décor and antiques, placed exactly where you want it.',
   delivery_install: 'Everything above, plus expert installation of paintings, mirrors and wall décor.',
   install_only: 'Already on site. We hang paintings, mirrors and wall décor.',
-  crating_shipping: 'Expert crating and shipping anywhere in the United States and abroad.',
+  crating_shipping: 'Out-of-state shipping by air or ground. Within California we always provide white-glove delivery.',
 };
 const ITEM_TYPES = [['painting', 'Painting'], ['mirror', 'Mirror'], ['wallart', 'Other wall art'], ['sculpture', 'Sculpture'], ['furniture', 'Furniture'], ['decor', 'Décor'], ['other', 'Other fragile or valuable item'], ['custom', 'Other request']];
 const INSTALL_TYPES = ['painting', 'mirror', 'wallart', 'decor', 'custom'];
@@ -267,7 +275,7 @@ function updateItemHints(i) {
 }
 const reqLine = (txt) => `<p class="mini req-line" data-photoreq>${esc(txt)}</p>`;
 
-// ---------- shipping (Crating & Shipping, or any job outside California) ----------
+// ---------- shipping (Shipping service, or any job outside California) ----------
 const req = ' <span class="req">Required</span>';
 const framingBlock = (item, i) => {
   if (!FRAMING_TYPES.includes(item.type || 'painting')) return '';
@@ -290,7 +298,7 @@ const LEVELS = [['curbside', 'Curbside', 'Delivered to the curb or loading dock.
 const levelText = (v) => (LEVELS.find((l) => l[0] === v) || [, '—'])[1];
 const timingText = (s) => [s.shipBy && `Ship by ${shortDate(s.shipBy)}`, s.arriveBy && `Arrive by ${shortDate(s.arriveBy)}`, s.flexible ? 'Flexible' : ''].filter(Boolean).join(' · ') || 'Flexible';
 const destText = (a) => [a.street, [a.city, intlDest(a) ? '' : a.state].filter(Boolean).join(', '), a.zip, intlDest(a) ? a.country : ''].filter(Boolean).map(esc).join(', ');
-const OOS_NOTE = 'Pickups and deliveries outside California are custom quoted as Crating & Shipping. Samantha prices your job and emails you a quote; nothing is charged until you approve it.';
+const OOS_NOTE = 'Pickups and deliveries outside California are custom quoted as Shipping. Within California we always provide white-glove delivery. Samantha prices your job and emails you a quote; nothing is charged until you approve it.';
 
 // ---------- views ----------
 const views = {
@@ -339,8 +347,8 @@ const views = {
         <span class="ico">${ICONS[k]}</span><span class="txt"><b>${v.label}</b><span class="d">${DESC[k]}</span></span><span class="from">${base[k] == null ? 'Custom quote' : 'from ' + fmt(base[k])}</span></button>`).join('')}</div>
       ${S.service ? `<h2 id="pieces">The pieces</h2>${S.items.map(it).join('')}
         <button type="button" class="add" id="addItem">＋ Add another piece</button>
-        ${shipService() ? '<p class="mini">Tell us whether each piece is already crated or needs custom crating. Samantha prices crating, shipping and destination service together.</p>' : S.service === 'install_only' ? `<p class="mini">To move or place sculpture, furniture or other pieces already on site, call us: ${esc((CFG.company && CFG.company.phone) || '')}.</p>` : `<div class="card" style="margin-top:12px">${toggle('crating', 'Need custom crating?', 'Built by our trusted partner. This turns your booking into a quick quote request; nothing is charged until CAD sets the price.', true, 'first')}</div>`}
-        <p class="mini">${shipService() ? 'Crating & Shipping is always custom quoted. Nothing is charged until you approve Samantha’s quote.' : `Prices shown are published 2025 rates. ${esc(CFG.notice || '')} Jobs with an address outside California are custom quoted as Crating & Shipping.`}</p>` : ''}`;
+        ${shipService() ? '<p class="mini">Tell us whether each piece is already crated or needs custom crating. Samantha prices packing, shipping and destination service together. Pieces may be crated or soft-packed as needed.</p>' : S.service === 'install_only' ? `<p class="mini">To move or place sculpture, furniture or other pieces already on site, call us: ${esc((CFG.company && CFG.company.phone) || '')}.</p>` : `<div class="card" style="margin-top:12px">${toggle('crating', 'Need custom crating?', 'Built by our trusted partner. This turns your booking into a quick quote request; nothing is charged until CAD sets the price.', true, 'first')}</div>`}
+        <p class="mini">${shipService() ? 'Shipping is for out-of-state orders and is always custom quoted. Within California we always provide white-glove delivery. Nothing is charged until you approve Samantha’s quote.' : `Prices shown are published 2025 rates. ${esc(CFG.notice || '')} Jobs with an address outside California are custom quoted as Shipping. Within California we always provide white-glove delivery.`}</p>` : ''}`;
   },
 
   Where() {
@@ -470,11 +478,11 @@ const views = {
     const sh = S.shipping, d = S.dropoff;
     const declared = S.items.reduce((s, it) => s + (Number(it.value) || 0) * (Number(it.qty) || 1), 0);
     const crate = { needs: 'needs crating', crated: 'already crated', not_sure: 'crating not sure' };
-    return `<h1>Review your shipping request</h1><p class="sub">Samantha prices crating and shipping and emails you a quote. Nothing is charged until you approve it.</p>
+    return `<h1>Review your shipping request</h1><p class="sub">Samantha prices shipping and emails you a quote. Nothing is charged until you approve it.</p>
       ${outOfState() ? `<p class="note" data-oos>${OOS_NOTE}</p>` : ''}
       <div class="promise quote" style="margin-top:0"><span class="pi">✈</span><span><b>${esc(timingText(sh))}</b><span>${esc(levelText(sh.serviceLevel))}</span></span></div>
       <div class="card">
-        <div class="sum-row"><span>Service</span><span>Crating &amp; Shipping <button type="button" class="edit" data-goto="0">Edit</button></span></div>
+        <div class="sum-row"><span>Service</span><span>Shipping <button type="button" class="edit" data-goto="0">Edit</button></span></div>
         <div class="sum-row"><span>Pieces</span><span>${S.items.map((i) => `${esc(i.qty)}× ${esc(i.description)}<br><span class="muted">${[i.w, i.h, i.d].filter(Boolean).map(esc).join(' × ')} in · ${esc(i.weight)} lb · ${esc(TYPE_LABEL(i.type))}${framingText(i) ? ' · ' + esc(framingText(i)) : ''}${i.fragile ? ' · fragile' : ''} · ${crate[i.crateStatus] || crate.not_sure}</span>`).join('<br>')}</span></div>
         <div class="sum-row"><span>Pickup</span><span>${destText(S.pickup)}<br><span class="muted">${esc(S.pickup.contactName)} · ${esc(S.pickup.contactPhone)}</span></span></div>
         <div class="sum-row"><span>Destination</span><span>${destText(d)}${d.locationType ? ` · ${esc(d.locationType)}` : ''}<br><span class="muted">${esc(d.contactName)} · ${esc(d.contactPhone)}</span> <button type="button" class="edit" data-goto="1">Edit</button></span></div>
@@ -485,10 +493,10 @@ const views = {
       ${siteReview('Pickup special instructions', S.pickup)}
       ${siteReview('Destination special instructions', S.dropoff)}
       <h2>Price</h2><div class="card">
-        <div class="sum-row"><span>Crating &amp; shipping</span><span>Custom quote</span></div>
+        <div class="sum-row"><span>Shipping</span><span>Custom quote</span></div>
         <div class="sum-row"><span>Insurance</span><span>Fully insured through our shipping partners</span></div>
         <p class="mini" style="margin:4px 0 0">Declared value: $${declared.toLocaleString()}.</p>
-        <p class="mini" style="margin:6px 0 0">Samantha sets the price for crating, shipping and destination service before anything is charged.</p>
+        <p class="mini" style="margin:6px 0 0">Samantha sets the price for packing, shipping and destination service before anything is charged. Pieces may be crated or soft-packed as needed.</p>
       </div>
       <h2>Who’s paying?</h2><div class="card">${seg('payer', S.referral ? [['me', 'Me'], ['partner', 'Referring partner'], ['other', 'Someone else']] : [['me', 'Me'], ['other', 'Someone else']])}
         ${S.payer === 'other' ? `<div class="row" style="margin-top:12px">${input('payerOther.name', 'Payer name')}${input('payerOther.email', 'Payer email', { type: 'email', attrs: 'autocapitalize="off"' })}</div>` : ''}</div>
@@ -509,10 +517,10 @@ const views = {
     const o = confirmed;
     if (o.status === 'pending_approval' && o.service === 'crating_shipping') {
       return `<div class="done"><div class="check">✓</div><h1>Shipping quote request received</h1>
-        <p class="sub">Request <b>${esc(o.id)}</b> is with Samantha. She’ll email ${esc(o.contact.email)} your crating and shipping quote with a payment link. Nothing has been charged.</p></div>
+        <p class="sub">Request <b>${esc(o.id)}</b> is with Samantha. She’ll email ${esc(o.contact.email)} your shipping quote with a payment link. Nothing has been charged.</p></div>
         ${o.outOfState ? `<p class="note">${OOS_NOTE}</p>` : ''}
         <div class="card">
-          <div class="sum-row"><span>Service</span><span>Crating &amp; Shipping</span></div>
+          <div class="sum-row"><span>Service</span><span>Shipping</span></div>
           <div class="sum-row"><span>Destination</span><span>${destText(o.dropoff)}</span></div>
           <div class="sum-row"><span>Timing</span><span>${esc(timingText(o.shipping || {}))}</span></div>
           <div class="sum-row"><span>At destination</span><span>${esc(levelText((o.shipping || {}).serviceLevel))}</span></div>
@@ -539,7 +547,7 @@ const views = {
     const how = p.method && p.method.includes('apple') ? 'Apple Pay' : p.method && p.method.includes('google') ? 'Google Pay' : p.method && p.method.includes('ach') ? 'Bank (ACH)' : 'Card';
     const shipDone = o.service === 'crating_shipping';
     return `<div class="done"><div class="check">✓</div><h1>${shipDone ? 'Your shipment is confirmed.' : `You’re booked for ${esc(longDate(o.schedule.date))}, ${esc(windowText(o.schedule.window))}.`}</h1>${o.schedule.deliveryLater && o.schedule.deliveryDate ? `<p class="sub" style="margin:-4px 0 10px"><strong>Delivery: ${esc(longDate(o.schedule.deliveryDate))}</strong>, same arrival window.</p>` : ''}
-      <p class="sub">Order <b>${esc(o.id)}</b> is confirmed. A confirmation is on its way to ${esc(o.contact.email)}. ${shipDone ? 'Samantha will confirm crating and pickup dates by email.' : 'We’ll send a reminder the day before and a live ETA when we’re close.'}</p></div>
+      <p class="sub">Order <b>${esc(o.id)}</b> is confirmed. A confirmation is on its way to ${esc(o.contact.email)}. ${shipDone ? 'Samantha will confirm packing and pickup dates by email.' : 'We’ll send a reminder the day before and a live ETA when we’re close.'}</p></div>
       <div class="card"><div class="sum-row"><span>Service</span><span>${esc(o.serviceLabel)}</span></div>
       ${shipDone ? `<div class="sum-row"><span>Timing</span><span>${esc(timingText(o.shipping || {}))}</span></div><div class="sum-row"><span>Destination</span><span>${destText(o.dropoff)}</span></div>` : `<div class="sum-row"><span>Route</span><span>${esc(o.schedule.region)}</span></div>`}
       <div class="sum-row"><span>Payment</span><span>${ach ? `<b>ACH processing</b> · ${fmt(p.amount)}` : `Paid ${fmt(p.amount)}`} · ${how}${p.method && p.method.startsWith('mock') ? ' (test)' : ''}${p.saved ? ' · saved' : ''}</span></div>
@@ -686,7 +694,7 @@ app.addEventListener('change', (e) => {
   if (e.target.dataset.upload != null) uploadPhotos(+e.target.dataset.upload, e.target.files);
   if (e.target.dataset.wallupload) uploadWallPhotos(e.target.dataset.wallupload, e.target.files);
   if (e.target.dataset.siteupload) uploadSitePhotos(e.target.dataset.siteupload, e.target.files);
-  // Country / state / ZIP can flip a job to Crating & Shipping (outside California) or to an international address.
+  // Country / state / ZIP can flip a job to Shipping (outside California) or to an international address.
   // Value / weight hints update in place (no re-render), so a tap on the next control is never lost.
   const im = (e.target.dataset.path || '').match(/^items\.(\d+)\.(weight|value)$/);
   if (im) updateItemHints(+im[1]);

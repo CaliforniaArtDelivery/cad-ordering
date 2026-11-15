@@ -1,4 +1,4 @@
-// Layout QA for the Crating & Shipping path (incl. international destination) at iPhone sizes.
+// Layout QA for the Shipping path (incl. international destination) at iPhone sizes.
 const pw = require('playwright');
 const path = require('path');
 const BASE = process.env.BASE_URL || 'http://localhost:3000';

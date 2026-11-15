@@ -11,7 +11,7 @@ Three services, because CAD has no delivery-only or pickup-only job (everything 
 - **Pickup + Delivery** (from $200): white-glove pickup and delivery for fine art, sculpture, luxury furniture, décor and antiques, placed exactly where you want it.
 - **Pickup, Delivery + Install** (from $275): everything above, plus expert installation of paintings, mirrors and wall décor.
 - **Install only** (from $75): already on site; we hang paintings, mirrors and wall décor (item types limited to Painting, Mirror, Other wall art, wall-hung Décor and Other request).
-- **Crating & Shipping** (custom quote): expert crating and shipping anywhere in the United States and abroad. Always a quote request priced by Samantha; never instant payment.
+- **Shipping** (custom quote): out-of-state shipping by air or ground (pieces may be crated or soft-packed as needed). Always a quote request priced by Samantha; never instant payment. Within California, CAD always provides white-glove delivery.
 
 Copy: fine art, luxury furniture and décor are CAD's core, and we handle anything fragile or valuable.
 
@@ -80,12 +80,12 @@ Each piece has Duplicate and Remove. Custom crating is a toggle (not for Install
 ## Quote path (rush / dedicated / crating)
 Step 4 shows "Review your request", the quoted range and "no payment due yet", and no payment buttons. The button reads "**Request a rush quote**" (or "Request a quote" for a dedicated trip) and leads to "**Quote request received**". Samantha approves and prices it in admin. The payment-link email (outbox) opens a "Pay to confirm" screen.
 
-## Crating & Shipping (quote only)
+## Shipping (quote only)
 - **Pieces:** type, qty, description, W × H × D and weight (required), declared value (required), framed with glass, uniquely fragile, crating (needs crating / already crated / not sure), photos.
 - **Where:** full pickup site card (access, dock, elevator, stairs, hours, on-site contact). Destination: country (default United States). International addresses switch to a free-form address plus city, with a customs / import contact (name, phone, email). Residential or commercial. Same access fields at both ends.
 - **Step 3 becomes "Shipping details":** service at the destination (curbside, inside delivery, inside + unpack & install, unpack + install + debris removal), ship-by and arrive-by dates, "My dates are flexible" toggle.
 - **Review:** "Review your shipping request", price shown as "Custom quote", "Insurance: Fully insured through our shipping partners" with the total declared value (declared value is required per piece for the insurance quote; no declared value protection and no high-value markup on shipping), payer. Button: "Request a shipping quote". No wallets or card form.
-- **After:** "Shipping quote request received"; quote email labeled shipping with all details; admin shows SHIPPING, a "Shipping details" panel and "Samantha — price this shipping quote" (no rate-card estimate). Once paid, the CSV gets a "CRATE + SHIP" row with the shipping details in Update Notes.
+- **After:** "Shipping quote request received"; quote email labeled shipping with all details; admin shows SHIPPING, a "Shipping details" panel and "Samantha — price this shipping quote" (no rate-card estimate). Once paid, the CSV gets a "SHIPPING" row with the shipping details in Update Notes.
 
 ## Declared value rules (Chad; in-California white-glove jobs only)
 - Declared value per piece is **required** on every item.
@@ -103,10 +103,10 @@ Step 4 shows "Review your request", the quoted range and "no payment due yet", a
 
   With a note: "CAD doesn't offer declared value protection on pieces valued over $50,000… Please cover them with your own fine art insurance."
 - The markup is added after the furniture & décor 10% discount and is not discounted.
-- Shipping quotes (Crating & Shipping or out of state): none of the above; "Fully insured through our shipping partners."
+- Shipping quotes (Shipping service or out of state): none of the above; "Fully insured through our shipping partners."
 
 ## Out-of-state rule (Chad)
-Any job with a pickup or delivery address outside California (state field, a non-CA ZIP, or a non-US country) automatically becomes a Crating & Shipping custom quote, even if the customer picked Pickup + Delivery. A short note explains it ("Pickups and deliveries outside California are custom quoted as Crating & Shipping…"). Step 3 switches to Shipping details (adds dims/weight/crating per piece and destination type). The order is saved as Crating & Shipping with `outOfState: true` and the service the customer originally picked.
+Any job with a pickup or delivery address outside California (state field, a non-CA ZIP, or a non-US country) automatically becomes a Shipping custom quote, even if the customer picked Pickup + Delivery. A short note explains it ("Pickups and deliveries outside California are custom quoted as Shipping… Within California we always provide white-glove delivery."). Step 3 switches to Shipping details (adds dims/weight/crating per piece and destination type). The order is saved as `crating_shipping` (display label: Shipping) with `outOfState: true` and the service the customer originally picked.
 
 ## Photo rules (Chad)
 Photos are optional by default (deliveries and shipping). They're required, with a one-line reason shown, when:
