@@ -46,6 +46,9 @@ module.exports = {
     // Oversize add-ons from the rate-card footnotes
     largePainting: { overInches: 72, deliveryFee: 100, installFee: 200 }, // per painting 72" or larger
     largeWallDecor: { overInches: 48, deliveryFee: 100, installFee: 200 }, // per wall-décor piece 48" or larger
+    // Frame type is asked when a framed painting, photograph or other wall-art piece is over 48" on W or H.
+    // Only "Large / heavy / ornate" is surcharged. Small / Medium add nothing.
+    heavyFrame: { askOverInches: 48, largeInstallOverInches: 72, deliveryFee: 25, installFee: 25, largeInstallFee: 100 },
     // Optional declared value protection, offered at intake (Aerena is auto-included operationally)
     valuation: { optional: true, rate: 0.015, label: 'Declared value protection (1.5%)' },
     // Member plan

@@ -120,7 +120,7 @@ async function inStepToggleKeepsScroll(page, selector, label, problems) {
     const ov = await page.evaluate(() => { window.scrollTo(0, 0); document.documentElement.style.setProperty('--sat', '60px'); const r = document.querySelector('.brand').getBoundingClientRect().top; document.documentElement.style.removeProperty('--sat'); return r; });
     if (ov < 60) problems.push(L(`header content not below a 60px top inset (${ov})`));
     await page.click('[data-service="pickup_delivery"]'); await page.waitForTimeout(700);
-    await fill(page, 'items.0.description', 'Oil on canvas'); await fill(page, 'items.0.value', 5000); await page.click('[data-seg="items.0.framed"] [data-v="yes"]'); await page.waitForTimeout(150); await page.click('[data-seg="items.0.glazing"] [data-v="yes"]'); await page.waitForTimeout(150); await page.click('[data-dup="0"]'); await page.waitForTimeout(200);
+    await fill(page, 'items.0.description', 'Oil on canvas'); await fill(page, 'items.0.value', 5000); await page.click('[data-seg="items.0.framed"] [data-v="yes"]'); await page.waitForTimeout(150); await page.click('[data-dup="0"]'); await page.waitForTimeout(200);
     await page.click('[data-itemtype="1"] button[data-v="sculpture"]'); await page.waitForTimeout(200);
     await inStepToggleKeepsScroll(page, '[data-itemtype="1"] button[data-v="furniture"]', L('1 What'), problems);
     await checkStep(page, L('1 What (items)'), problems);

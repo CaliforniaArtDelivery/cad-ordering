@@ -33,7 +33,7 @@ const migrateAddr = (a = {}) => {
     notes: extras.join(' · '),
   };
 };
-const emptyItem = () => ({ qty: 1, type: 'painting', furnitureKind: 'Sofa', sizeClass: 'medium', description: '', w: '', h: '', d: '', weight: '', framed: '', glazing: '', framedGlass: false, fragile: false, crateStatus: 'not_sure', value: '', photos: [] });
+const emptyItem = () => ({ qty: 1, type: 'painting', furnitureKind: 'Sofa', sizeClass: 'medium', description: '', w: '', h: '', d: '', weight: '', framed: '', glazing: '', frameType: '', framedGlass: false, fragile: false, weightUnsure: false, crateStatus: 'not_sure', value: '', photos: [] });
 
 let CFG = null;
 let step = 0;
@@ -79,12 +79,41 @@ const payload = () => {
   if (intlDest(o.dropoff)) o.dropoff.state = '';
   if (isShipState()) { o.schedule = { date: '', window: '', deliveryLater: false, deliveryDate: '' }; o.rush = false; o.dedicated = false; o.crating = false; clearInstall(o.dropoff); if (!intlDest(o.dropoff)) o.shipping.customs = { name: '', phone: '', email: '' }; }
   else delete o.shipping;
-  o.items.forEach((it) => { if (!FRAMING_TYPES.includes(it.type)) { it.framed = ''; it.glazing = ''; } else if (it.framed !== 'yes') it.glazing = ''; delete it.framedGlass; });
+  o.items.forEach((it) => { cleanFraming(it); delete it.framedGlass; if (it.weightUnsure) it.weight = ''; else it.weightUnsure = false; });
   if (!o.referral) { o.partner = { type: 'None', name: '', email: '' }; if (o.payer === 'partner') o.payer = 'me'; }
   return o;
 };
 const esc = (v) => String(v ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const fmt = (n) => '$' + Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+const uncomma = (s) => String(s ?? '').replace(/,/g, '');
+const num = (s) => { const n = Number(uncomma(s)); return Number.isFinite(n) ? n : 0; };
+const fmtNum = (s) => {
+  if (s == null || s === '') return '';
+  const raw = uncomma(s);
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return String(s);
+  const neg = raw.trim().startsWith('-');
+  const [i, d] = raw.replace(/^-/, '').split('.');
+  const grouped = (i || '0').replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  return (neg ? '-' : '') + grouped + (d != null ? '.' + d : '');
+};
+const COMMA_PATH = /\.(value|weight|qty)$/;
+const DEC_PATH = /\.weight$/;
+const formatGrouped = (raw, allowDecimal) => {
+  const s = uncomma(raw);
+  if (s === '') return '';
+  const neg = s.startsWith('-');
+  const body = neg ? s.slice(1) : s;
+  if (allowDecimal) {
+    const m = body.match(/^(\d*)(\.(\d*)?)?$/);
+    if (!m) return null;
+    const int = m[1] || (m[2] ? '0' : '');
+    return (neg ? '-' : '') + int.replace(/\B(?=(\d{3})+(?!\d))/g, ',') + (m[2] || '');
+  }
+  if (!/^\d*$/.test(body)) return null;
+  return (neg ? '-' : '') + body.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+};
+const commaDisplay = (path, val) => { const f = formatGrouped(val, DEC_PATH.test(path)); return f == null ? String(val ?? '') : f; };
 const svc = () => (CFG && CFG.services[S.service]) || {};
 // Out-of-state rule (mirrors lib/geo.js): any pickup or delivery outside California is a Shipping custom quote.
 const US_RX = /^(us|u\.s\.a?\.?|usa|united states( of america)?|america)$/i;
@@ -110,12 +139,43 @@ const hasInstall = () => !!svc().install;
 // Only wall-hung pieces get hung. Sculpture, furniture and freestanding pieces are placed (never hung or installed).
 const HUNG_DECOR = ['Wall Decor', 'Mirror', 'Chandelier'];
 // Wall pieces: Painting, Mirror, Other wall art (incl. wall sculpture) hang on a wall, so they're installable.
-const WALL_TYPES = ['painting', 'mirror', 'wallart'];
-const FRAMING_TYPES = ['painting', 'wallart'];
+const WALL_TYPES = ['painting', 'photograph', 'mirror', 'wallart'];
+const FRAMING_TYPES = ['painting', 'photograph', 'wallart'];
+const GLASS_TYPES = ['photograph', 'wallart'];
+const FRAME_TYPE_OPTS = [['small', 'Small / lightweight'], ['medium', 'Medium'], ['large', 'Large / heavy / ornate']];
+const FRAME_TYPE_ASK_OVER = 48;
 const isHung = (it) => WALL_TYPES.includes(it.type || 'painting') || (it.type === 'decor' && HUNG_DECOR.includes(it.furnitureKind));
-const framingOk = (it) => !FRAMING_TYPES.includes(it.type || 'painting') || it.framed === 'no' || (it.framed === 'yes' && ['yes', 'no'].includes(it.glazing));
+const maxWH = (it) => Math.max(Number(it.w) || 0, Number(it.h) || 0);
+const needsGlass = (it) => GLASS_TYPES.includes(it.type) && it.framed === 'yes';
+const needsFrameType = (it) => FRAMING_TYPES.includes(it.type || 'painting') && it.framed === 'yes' && maxWH(it) > FRAME_TYPE_ASK_OVER;
+const cleanFraming = (it) => {
+  if (!FRAMING_TYPES.includes(it.type)) { it.framed = ''; it.glazing = ''; it.frameType = ''; }
+  else {
+    if (it.framed !== 'yes') { it.glazing = ''; it.frameType = ''; }
+    if (!needsGlass(it)) it.glazing = '';
+    if (!needsFrameType(it)) it.frameType = '';
+  }
+};
+const framingOk = (it) => {
+  if (!FRAMING_TYPES.includes(it.type || 'painting')) return true;
+  if (it.framed === 'no') return true;
+  if (it.framed !== 'yes') return false;
+  if (needsGlass(it) && !['yes', 'no'].includes(it.glazing)) return false;
+  if (needsFrameType(it) && !FRAME_TYPE_OPTS.some(([v]) => v === it.frameType)) return false;
+  return true;
+};
 const TYPE_LABEL = (t) => (ITEM_TYPES.find(([v]) => v === (t || 'painting')) || [, t])[1];
-const framingText = (it) => (it.type === 'mirror' ? 'Glass (mirror)' : !FRAMING_TYPES.includes(it.type || 'painting') ? '' : it.framed === 'yes' ? `Framed · ${it.glazing === 'yes' ? 'glass/acrylic glazing' : 'no glazing'}` : it.framed === 'no' ? 'Unframed' : '');
+const framingText = (it) => {
+  if (it.type === 'mirror') return 'Glass (mirror)';
+  if (!FRAMING_TYPES.includes(it.type || 'painting')) return '';
+  if (it.framed === 'yes') {
+    const bits = ['Framed'];
+    if (needsGlass(it)) bits.push(it.glazing === 'yes' ? 'glass' : it.glazing === 'no' ? 'no glass' : '');
+    if (it.frameType) { const lab = (FRAME_TYPE_OPTS.find(([v]) => v === it.frameType) || [])[1]; if (lab) bits.push(lab); }
+    return bits.filter(Boolean).join(' · ');
+  }
+  return it.framed === 'no' ? 'Unframed' : '';
+};
 const hasHanging = () => hasInstall() && S.items.some(isHung);
 const isPlaced = (it) => !isHung(it);
 const longDate = (iso) => (iso ? new Date(iso + 'T12:00:00Z').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', timeZone: 'UTC' }) : '');
@@ -152,19 +212,36 @@ const DESC = {
   install_only: 'Already on site. We hang paintings, mirrors and wall décor.',
   crating_shipping: 'Out-of-state shipping by air or ground. Within California we always provide white-glove delivery.',
 };
-const ITEM_TYPES = [['painting', 'Painting'], ['mirror', 'Mirror'], ['wallart', 'Other wall art'], ['sculpture', 'Sculpture'], ['furniture', 'Furniture'], ['decor', 'Décor'], ['other', 'Other fragile or valuable item'], ['custom', 'Other request']];
-const INSTALL_TYPES = ['painting', 'mirror', 'wallart', 'decor', 'custom'];
+const ITEM_TYPES = [['painting', 'Painting'], ['photograph', 'Photograph'], ['mirror', 'Mirror'], ['wallart', 'Other wall art'], ['sculpture', 'Sculpture'], ['furniture', 'Furniture'], ['decor', 'Décor'], ['other', 'Other fragile or valuable item'], ['custom', 'Other request']];
+const INSTALL_TYPES = ['painting', 'photograph', 'mirror', 'wallart', 'decor', 'custom'];
 // Install only = hanging wall pieces already on site. Sculpture, furniture and other pieces are placed during a delivery, not hung.
 const itemTypes = () => (S.service === 'install_only' ? ITEM_TYPES.filter(([v]) => INSTALL_TYPES.includes(v)) : ITEM_TYPES);
 const decorKinds = () => (S.service === 'install_only' ? (CFG.pricing.decorKinds || []).filter((k) => HUNG_DECOR.includes(k)) : (CFG.pricing.decorKinds || []));
 
 // ---------- field helpers ----------
-const input = (path, label, opts = {}) => `<div class="field">${label ? `<label class="f" for="f-${path}">${label}${opts.req ? ' <span class="req">Required</span>' : ''}</label>` : ''}
-  <input id="f-${path}" type="${opts.type || 'text'}" data-path="${path}" value="${esc(get(path))}" placeholder="${esc(opts.ph || '')}" ${opts.attrs || ''}></div>`;
+const pieceName = (i) => `Piece ${Number(i) + 1}`;
+const qualifyLabel = (path, label) => {
+  if (!label) return label;
+  const m = String(path).match(/^items\.(\d+)\.(value|weight)$/);
+  if (!m) return label;
+  const piece = pieceName(m[1]);
+  if (m[2] === 'value') return /Declared value/.test(label) ? `Declared value — ${piece} ($)` : `${label} — ${piece}`;
+  if (/Approx\. weight/.test(label) || /Approx/.test(label)) return `Approx. weight — ${piece} (lb)`;
+  if (/Weight/.test(label)) return `Weight — ${piece} (lb)`;
+  return `${label} — ${piece}`;
+};
+const input = (path, label, opts = {}) => {
+  const comma = opts.comma || COMMA_PATH.test(path);
+  const typ = comma ? 'text' : (opts.type || 'text');
+  const val = comma ? esc(commaDisplay(path, get(path))) : esc(get(path));
+  const lab = qualifyLabel(path, label);
+  return `<div class="field">${lab ? `<label class="f" for="f-${path}">${lab}${opts.req ? ' <span class="req">Required</span>' : ''}</label>` : ''}
+  <input id="f-${path}" type="${typ}" data-path="${path}" inputmode="${opts.mode || (comma ? (DEC_PATH.test(path) ? 'decimal' : 'numeric') : '')}" value="${val}" placeholder="${esc(opts.ph || '')}" ${opts.attrs || ''} ${comma ? 'data-comma="1"' : ''}></div>`;
+};
 const select = (path, label, options) => `<div class="field"><label class="f" for="f-${path}">${label}</label><select id="f-${path}" data-path="${path}">${options.map((o) => `<option ${get(path) === o ? 'selected' : ''}>${esc(o)}</option>`).join('')}</select></div>`;
 const toggle = (path, label, hint = '', rerender = false, cls = '') => `<label class="toggle ${cls}"><span>${label}${hint ? `<small>${hint}</small>` : ''}</span>
   <span class="sw"><input type="checkbox" data-path="${path}" ${get(path) ? 'checked' : ''} ${rerender ? 'data-rerender' : ''}><i></i></span></label>`;
-const seg = (path, options) => `<div class="seg" data-seg="${path}">${options.map(([v, l]) => `<button type="button" class="${String(get(path)) === String(v) ? 'on' : ''}" data-v="${v}">${l}</button>`).join('')}</div>`;
+const seg = (path, options, cls = '') => `<div class="seg${cls ? ' ' + cls : ''}" data-seg="${path}">${options.map(([v, l]) => `<button type="button" class="${String(get(path)) === String(v) ? 'on' : ''}" data-v="${v}">${l}</button>`).join('')}</div>`;
 
 const stairsText = (a) => {
   const n = Number(a.stairs) || 0;
@@ -263,42 +340,75 @@ async function loadDelivery() {
 }
 
 // ---------- photo rules (Chad): optional unless the job needs eyes on it first ----------
-const HEAVY_LB = 300;
-const itemPhotoReason = (it) => (Number(it.weight) >= HEAVY_LB ? `Photos required: pieces ${HEAVY_LB} lb or heavier.`
-  : it.type === 'other' ? 'Photos required: out-of-the-ordinary items.'
-  : it.fragile ? 'Photos required: uniquely fragile pieces.' : '');
+const HEAVY_LB = 500;
+const itemPhotoReason = (it) => (num(it.weight) > HEAVY_LB ? 'Photo required for items over 500 lb.'
+  : it.type === 'other' ? 'Photos required: out-of-the-ordinary items.' : '');
 const photosOk = (it) => !itemPhotoReason(it) || (it.photos || []).length > 0;
 const sitePhotosOk = (a) => (!a.technicalCarry || (a.sitePhotos || []).length > 0);
 const wallPhotosOk = (a) => (!a.highInstall || !hasHanging() || isShip() || (a.wallPhotos || []).length > 0);
-const valueHint = (it) => (shipService() ? '' : Number(it.value) > 50000 ? 'Over $50,000: high-value handling applies and declared value protection isn’t offered. Please use your own fine art insurance.'
-  : Number(it.value) > 0 ? 'Declared value protection (1.5%) is included.' : '');
+const valueHint = (it) => (shipService() ? 'What this piece is worth, for shipping insurance.'
+  : num(it.value) > 50000 ? 'Over $50,000: high-value handling applies and declared value protection isn’t offered. Please use your own fine art insurance.'
+  : num(it.value) > 0 ? 'Declared value protection (1.5%) is included.' : 'What this piece is worth. Used for insurance.');
+const weightRequired = (it) => shipService() || it.type === 'sculpture' || it.type === 'other';
+const weightOk = (it) => !weightRequired(it) || !!it.weightUnsure || num(it.weight) > 0;
 function updateItemHints(i) {
   const it = S.items[i]; if (!it) return;
   const vh = app.querySelector(`[data-valhint="${i}"]`); if (vh) vh.textContent = valueHint(it);
   const r = itemPhotoReason(it);
   app.querySelectorAll(`[data-photoreq="${i}"]`).forEach((el) => { el.textContent = r; el.hidden = !r; });
   app.querySelectorAll(`[data-photolbl="${i}"]`).forEach((el) => { el.innerHTML = r ? req : ' (optional)'; });
+  app.querySelectorAll(`[data-photonote="${i}"]`).forEach((el) => { el.hidden = !(it.fragile && !r); });
 }
 const reqLine = (txt) => `<p class="mini req-line" data-photoreq>${esc(txt)}</p>`;
 
 // ---------- shipping (Shipping service, or any job outside California) ----------
 const req = ' <span class="req">Required</span>';
+const frameTypeField = (item, i) => `<div class="field" data-frametype="${i}"><label class="f">Frame type — ${pieceName(i)}${req}</label>${seg(`items.${i}.frameType`, FRAME_TYPE_OPTS, 'stack')}<p class="mini">This helps us plan the right crew and vehicle.</p></div>`;
 const framingBlock = (item, i) => {
   if (!FRAMING_TYPES.includes(item.type || 'painting')) return '';
   const p = `items.${i}`;
-  return `<div class="field" style="margin-top:6px" data-framing="${i}"><label class="f">Framed?${req}</label>${seg(`${p}.framed`, [['yes', 'Yes'], ['no', 'No']])}</div>
-    ${item.framed === 'yes' ? `<div class="field"><label class="f">Glass or acrylic glazing?${req}</label>${seg(`${p}.glazing`, [['yes', 'Yes'], ['no', 'No']])}</div>` : ''}`;
+  const glass = needsGlass(item) ? `<div class="field" data-glass="${i}"><label class="f">Glass? — ${pieceName(i)}${req}</label>${seg(`${p}.glazing`, [['yes', 'Yes'], ['no', 'No']])}<p class="mini">Does this piece have a glass front?</p></div>` : '';
+  return `<div class="field" style="margin-top:6px" data-framing="${i}"><label class="f">Framed? — ${pieceName(i)}${req}</label>${seg(`${p}.framed`, [['yes', 'Yes'], ['no', 'No']])}</div>
+    ${glass}
+    <div data-frametype-wrap="${i}">${needsFrameType(item) ? frameTypeField(item, i) : ''}</div>`;
+};
+const syncFrameType = (i) => {
+  const it = S.items[i]; if (!it) return;
+  if (!needsFrameType(it) && it.frameType) { it.frameType = ''; persist(); }
+  const wrap = app.querySelector(`[data-frametype-wrap="${i}"]`);
+  if (!wrap) return;
+  const show = needsFrameType(it);
+  const has = !!wrap.querySelector('[data-frametype]');
+  if (show && !has) wrap.innerHTML = frameTypeField(it, i);
+  else if (!show && has) wrap.innerHTML = '';
+  updateNext();
+};
+const handlingBlock = (item, i) => `${toggle(`items.${i}.fragile`, 'Special handling needed', 'We handle every piece with care. Select this only if it has fragile protrusions, delicate raised surfaces, or is made of glass or ceramic.', true)}
+    <p class="mini" style="margin:-6px 0 10px">Standard paintings, framed art and solid bronze sculpture don't need this.</p>`;
+const weightField = (item, i, { required = false, approx = false } = {}) => {
+  const p = `items.${i}`;
+  const label = approx ? `Approx. weight — ${pieceName(i)} (lb)` : `Weight — ${pieceName(i)} (lb)`;
+  const reqMark = required && !item.weightUnsure ? req : '';
+  return `<div class="field" data-weight="${i}">
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:6px">
+      <label class="f" for="f-${p}.weight" style="margin:0">${label}${reqMark}</label>
+      <button type="button" class="pill-btn ${item.weightUnsure ? 'on' : ''}" data-weightunsure="${i}">${item.weightUnsure ? '✓ Not sure' : 'Not sure'}</button>
+    </div>
+    ${item.weightUnsure ? '<p class="mini" style="margin:0 0 8px">We’ll confirm the weight. This won’t hold up your order.</p>' : input(`${p}.weight`, '', { ph: approx ? 'e.g. 200' : 'e.g. 40', attrs: `inputmode="decimal" aria-label="${label}"` }) + '<p class="mini">Pounds. Approximate is fine.</p>'}
+  </div>`;
 };
 const shipExtras = (item, i) => {
-  const p = `items.${i}`, type = item.type || 'painting';
+  const p = `items.${i}`;
   return `<label class="f">Size in inches (W × H × D)${req}</label>
     <div class="row3">${input(`${p}.w`, '', { type: 'number', ph: 'W', attrs: 'inputmode="decimal" aria-label="Width"' })}${input(`${p}.h`, '', { type: 'number', ph: 'H', attrs: 'inputmode="decimal" aria-label="Height"' })}${input(`${p}.d`, '', { type: 'number', ph: 'D', attrs: 'inputmode="decimal" aria-label="Depth"' })}</div>
-    <div class="row keep">${input(`${p}.weight`, 'Weight (lb)' + req, { type: 'number', ph: 'e.g. 40', attrs: 'inputmode="decimal"' })}${input(`${p}.value`, 'Declared value ($)' + req, { type: 'number', ph: 'e.g. 12000', attrs: 'inputmode="numeric"' })}</div>
+    <p class="mini" style="margin:-4px 0 10px">Approximate inches are fine.</p>
+    ${weightField(item, i, { required: true })}
+    ${input(`${p}.value`, 'Declared value ($)', { ph: 'e.g. 12,000', attrs: 'inputmode="numeric"', req: true })}
     ${framingBlock(item, i)}
-    ${toggle(`${p}.fragile`, 'Uniquely fragile', 'Glass, ceramic, delicate surfaces or projecting parts.', true)}
+    ${handlingBlock(item, i)}
     <div class="field" style="margin-top:10px"><label class="f">Crating</label>${seg(`${p}.crateStatus`, [['needs', 'Needs crating'], ['crated', 'Already crated'], ['not_sure', 'Not sure']])}</div>`;
 };
-const shipReady = () => S.items.every((it) => Number(it.weight) > 0 && Number(it.value) > 0 && (Number(it.w) > 0 || Number(it.h) > 0))
+const shipReady = () => S.items.every((it) => weightOk(it) && num(it.value) > 0 && (Number(it.w) > 0 || Number(it.h) > 0))
   && !!S.shipping.serviceLevel && !!(S.shipping.shipBy || S.shipping.flexible);
 const LEVELS = [['curbside', 'Curbside', 'Delivered to the curb or loading dock.'], ['inside', 'Inside delivery', 'Carried in and placed in the room of your choice.'], ['unpack', 'Inside + unpack & install', 'We unpack, place or hang, and check every piece.'], ['unpack_debris', 'Unpack, install + debris removal', 'Full white-glove: crate and packing removed.']];
 const levelText = (v) => (LEVELS.find((l) => l[0] === v) || [, '—'])[1];
@@ -314,17 +424,18 @@ const views = {
       const type = item.type || 'painting';
       const p = `items.${i}`;
       const dims = `<label class="f">Size in inches (W × H × D)</label>
-        <div class="row3">${input(`${p}.w`, '', { type: 'number', ph: 'W', attrs: 'inputmode="decimal" aria-label="Width"' })}${input(`${p}.h`, '', { type: 'number', ph: 'H', attrs: 'inputmode="decimal" aria-label="Height"' })}${input(`${p}.d`, '', { type: 'number', ph: 'D', attrs: 'inputmode="decimal" aria-label="Depth"' })}</div>`;
-      const value = input(`${p}.value`, 'Declared value per piece ($)', { type: 'number', ph: 'e.g. 12000', attrs: 'inputmode="numeric"', req: true })
+        <div class="row3">${input(`${p}.w`, '', { type: 'number', ph: 'W', attrs: 'inputmode="decimal" aria-label="Width"' })}${input(`${p}.h`, '', { type: 'number', ph: 'H', attrs: 'inputmode="decimal" aria-label="Height"' })}${input(`${p}.d`, '', { type: 'number', ph: 'D', attrs: 'inputmode="decimal" aria-label="Depth"' })}</div>
+        <p class="mini" style="margin:-4px 0 10px">Approximate inches are fine.</p>`;
+      const value = input(`${p}.value`, 'Declared value per piece ($)', { ph: 'e.g. 12,000', attrs: 'inputmode="numeric"', req: true })
         + `<p class="mini" style="margin:-4px 0 8px" data-valhint="${i}">${valueHint(item)}</p>`;
-      const weight = input(`${p}.weight`, 'Weight (lb)', { type: 'number', ph: 'e.g. 200', attrs: 'inputmode="decimal"' });
-      const ph = { painting: 'e.g. Oil on canvas by J. Smith', mirror: 'e.g. Venetian mirror, gilt', wallart: 'e.g. Signed photograph, mixed media', sculpture: 'e.g. Bronze on plinth', furniture: 'e.g. Walnut credenza', decor: 'e.g. Pair of table lamps', other: 'e.g. Antique clock, wine collection', custom: 'e.g. Pick up 3 crates from storage and hold them' }[type];
+      const ph = { painting: 'e.g. Oil on canvas by J. Smith', photograph: 'e.g. Signed gelatin silver print', mirror: 'e.g. Venetian mirror, gilt', wallart: 'e.g. Mixed media, wall sculpture', sculpture: 'e.g. Bronze on plinth', furniture: 'e.g. Walnut credenza', decor: 'e.g. Pair of table lamps', other: 'e.g. Antique clock, wine collection', custom: 'e.g. Pick up 3 crates from storage and hold them' }[type];
       const kinds = type === 'furniture' ? (CFG.pricing.furnitureKinds || []) : decorKinds();
       const kindRow = (type === 'furniture' || type === 'decor') ? `<div class="row keep">${select(`${p}.furnitureKind`, type === 'decor' ? 'Type of décor' : 'Item', kinds)}${select(`${p}.sizeClass`, 'Size', ['small', 'medium', 'large'])}</div>` : '';
       const needsWeight = type === 'sculpture' || type === 'other';
+      const showApproxWeight = type === 'furniture' || type === 'decor' || type === 'custom';
       const rateBlock = `
         ${type === 'custom' ? '' : type === 'furniture' ? value : dims}
-        ${needsWeight ? `<div class="row keep">${weight.replace('Weight (lb)', 'Weight (lb) <span class="req">Required</span>')}${value}</div>` : ''}
+        ${needsWeight ? weightField(item, i, { required: true }) + value : ''}
         ${type === 'decor' ? value : ''}
         ${FRAMING_TYPES.includes(type) ? framingBlock(item, i) + value : ''}
         ${type === 'mirror' ? value + '<p class="mini" style="margin:0 0 6px">Glass is assumed for mirrors.</p>' : ''}
@@ -333,17 +444,20 @@ const views = {
         ${type === 'sculpture' ? '<p class="mini" style="margin:0 0 6px">One weight-based price covers pickup, delivery and placement wherever you want it: a home, gallery, warehouse, hotel or sculpture garden. Same price either way.</p>' : ''}
         ${hasInstall() && type === 'decor' && item.furnitureKind === 'Chandelier' ? '<p class="mini" style="margin:0 0 6px">Chandelier hanging isn’t on our rate card, so this becomes a quick quote request.</p>' : ''}
         ${type === 'furniture' ? '<p class="mini" style="margin:0 0 6px">One price covers pickup, delivery and placement wherever you want it.</p>' : ''}
-        ${toggle(`${p}.fragile`, 'Uniquely fragile', 'Glass, ceramic, delicate surfaces or projecting parts.', true)}
+        ${showApproxWeight ? weightField(item, i, { approx: true }) : ''}
+        ${handlingBlock(item, i)}
 `;
       return `<div class="card"><div class="item-head"><b>Piece ${i + 1}</b><span class="item-actions">
           <button type="button" class="link" data-dup="${i}">Duplicate</button>
           ${S.items.length > 1 ? `<button type="button" class="link muted" data-remove="${i}">Remove</button>` : ''}</span></div>
         <div class="field"><div class="chips" data-itemtype="${i}">${itemTypes().map(([v, l]) => `<button type="button" class="chip ${type === v ? 'on' : ''}" data-v="${v}">${l}</button>`).join('')}</div></div>
-        ${type === 'wallart' ? '<p class="mini" style="margin:-4px 0 10px">Photography, mixed media, wall sculpture, etc. Hung on a wall, so we can install it.</p>' : ''}
+        ${type === 'photograph' ? '<p class="mini" style="margin:-4px 0 10px">Prints and photographs. Hung on a wall, so we can install it.</p>' : ''}
+        ${type === 'wallart' ? '<p class="mini" style="margin:-4px 0 10px">Mixed media, wall sculpture, etc. Hung on a wall, so we can install it.</p>' : ''}
         ${kindRow}
         <div class="row qty">${input(`${p}.qty`, 'Qty', { type: 'number', attrs: 'min="1" inputmode="numeric"' })}${input(`${p}.description`, type === 'custom' ? 'Your request' : 'Description', { ph, req: true })}</div>
         ${shipService() ? shipExtras(item, i) : rateBlock}
         <p class="mini req-line" data-photoreq="${i}" ${itemPhotoReason(item) ? '' : 'hidden'}>${esc(itemPhotoReason(item))}</p>
+        <p class="mini" data-photonote="${i}" ${item.fragile && !itemPhotoReason(item) ? '' : 'hidden'}>Add a photo if you have one, or send it later.</p>
         <div class="photos">${(item.photos || []).map((ph2) => `<img src="${esc(ph2)}" alt="">`).join('')}
           <label class="upload">＋ Photos<span data-photolbl="${i}">${itemPhotoReason(item) ? req : ' (optional)'}</span><input type="file" accept="image/*" multiple data-upload="${i}"></label></div>
       </div>`;
@@ -389,6 +503,7 @@ const views = {
         ${input('shipping.customs.email', 'Email', { type: 'email', attrs: 'autocapitalize="off"' })}` : ''}
         ${key === 'dropoff' && hasHanging() && !isShip() ? `<div class="sub-head"><span>Hanging</span></div>
         <div class="row keep" style="grid-template-columns:120px 1fr">${input(`${key}.centerHeight`, 'Center height (in)', { type: 'number', ph: '57', attrs: 'inputmode="decimal"' })}${select(`${key}.wallType`, 'Wall type', ['Not sure', 'Drywall', 'Plaster', 'Concrete / brick', 'Wood', 'Tile / stone', 'Glass'])}</div>
+        <p class="mini" style="margin:-6px 0 10px">Typical hanging height is 57 inches to the center.</p>
         <p class="mini" style="margin:-4px 0 10px">Museum standard is 57" to the center of the piece. Leave blank to use it.</p>
         <div class="field"><label class="f">Hanging hardware</label>${seg(`${key}.hardware`, [['CAD brings it', 'CAD brings it'], ['On site', 'On site'], ['Not sure', 'Not sure']])}</div>
         ${toggle(`${key}.highInstall`, 'High or above a stairwell', 'Above eye level, over stairs, or needing a tall ladder or lift.', true)}
@@ -424,7 +539,7 @@ const views = {
     const sel = [...avail.days, ...avail.rush].find((d) => d.date === S.schedule.date && !!S.rush === !!d.rush);
     return `<h1>Choose your date</h1><p class="sub">${svc().needsPickup ? 'We pick up and deliver on the same route day. Pick a day and an arrival window.' : 'Our van follows a weekly route. Pick a route day and an arrival window.'}</p>
       <div class="region">● ${esc(avail.zone ? avail.zone + ' · ' : '')}${esc(region)} route</div>
-      <div class="days">${avail.days.map(card).join('')}</div>
+      <div class="days" data-reqblock="date">${avail.days.map(card).join('')}</div>
       <p class="mini">${intro}</p>
       <h2>Arrival window</h2><div class="chips" data-chips="schedule.window">${CFG.timeWindows.map((w) => `<button type="button" class="chip ${S.schedule.window === w ? 'on' : ''}" data-v="${esc(w)}">${esc(w)}</button>`).join('')}</div>
       ${sel && S.schedule.window ? promiseCard(sel.routeLabel || region + ' route') : ''}
@@ -440,9 +555,9 @@ const views = {
     const today = new Date().toISOString().slice(0, 10);
     return `<h1>Shipping details</h1><p class="sub">Everything Samantha needs to price your shipment, with no back-and-forth.</p>
       ${outOfState() ? `<p class="note" data-oos>${OOS_NOTE}</p>` : ''}
-      ${outOfState() ? `<h2>The pieces</h2>${S.items.map((it, i) => `<div class="card"><div class="item-head"><b>${esc(it.qty)}× ${esc(it.description || 'Piece ' + (i + 1))}</b></div>${shipExtras(it, i)}</div>`).join('')}` : ''}
+      ${outOfState() ? `<h2>The pieces</h2>${S.items.map((it, i) => `<div class="card"><div class="item-head"><b>${esc(fmtNum(it.qty) || it.qty)}× ${esc(it.description || 'Piece ' + (i + 1))}</b></div>${shipExtras(it, i)}</div>`).join('')}` : ''}
       ${outOfState() ? `<h2>Destination type</h2><div class="card">${seg('dropoff.locationType', [['residential', 'Residential'], ['commercial', 'Commercial']])}</div>` : ''}
-      <h2>Service at the destination</h2><div class="choices">${LEVELS.map(lvl).join('')}</div>
+      <h2>Service at the destination</h2><div class="choices" data-reqblock="serviceLevel">${LEVELS.map(lvl).join('')}</div>
       <h2>Timing</h2><div class="card">
         <div class="row keep">${input('shipping.shipBy', 'Ship by', { type: 'date', attrs: `min="${today}"` })}${input('shipping.arriveBy', 'Arrive by (optional)', { type: 'date', attrs: `min="${today}"` })}</div>
         ${toggle('shipping.flexible', 'My dates are flexible', 'Flexible dates usually mean a better shipping rate.', true)}
@@ -462,7 +577,7 @@ const views = {
       ${promiseCard((date && date.routeLabel) || (avail && avail.region ? avail.region + ' route' : 'Route day'), 'margin-top:0')}
       <div class="card">
         <div class="sum-row"><span>Service</span><span>${esc(svc().label)}${S.crating ? ' + crating quote' : ''}${S.rush ? ' · rush' : ''}${S.dedicated ? ' · dedicated trip' : ''} <button type="button" class="edit" data-goto="0">Edit</button></span></div>
-        <div class="sum-row"><span>Pieces</span><span>${S.items.map((i) => `${esc(i.qty)}× ${esc(i.description)}<br><span class="muted">${esc([TYPE_LABEL(i.type), framingText(i)].filter(Boolean).join(' · '))}</span>`).join('<br>')}</span></div>
+        <div class="sum-row"><span>Pieces</span><span>${S.items.map((i) => `${esc(fmtNum(i.qty) || i.qty)}× ${esc(i.description)}<br><span class="muted">${esc([TYPE_LABEL(i.type), framingText(i), i.weightUnsure ? 'weight not sure' : (i.weight ? fmtNum(i.weight) + ' lb' : ''), i.fragile ? 'special handling' : ''].filter(Boolean).join(' · '))}</span>`).join('<br>')}</span></div>
         ${svc().needsPickup ? siteRows('Pickup', S.pickup) : ''}
         ${siteRows(S.service === 'install_only' ? 'Install at' : 'Delivery', S.dropoff)}
         <div class="sum-row"><span>Booked by</span><span>${esc(S.contact.name)}<br><span class="muted">${esc(S.contact.email)}</span> <button type="button" class="edit" data-goto="1">Edit</button></span></div>
@@ -482,14 +597,14 @@ const views = {
 
   ShipPay() {
     const sh = S.shipping, d = S.dropoff;
-    const declared = S.items.reduce((s, it) => s + (Number(it.value) || 0) * (Number(it.qty) || 1), 0);
+    const declared = S.items.reduce((s, it) => s + num(it.value) * (num(it.qty) || 1), 0);
     const crate = { needs: 'needs crating', crated: 'already crated', not_sure: 'crating not sure' };
     return `<h1>Review your shipping request</h1><p class="sub">Samantha prices shipping and emails you a quote. Nothing is charged until you approve it.</p>
       ${outOfState() ? `<p class="note" data-oos>${OOS_NOTE}</p>` : ''}
       <div class="promise quote" style="margin-top:0"><span class="pi">✈</span><span><b>${esc(timingText(sh))}</b><span>${esc(levelText(sh.serviceLevel))}</span></span></div>
       <div class="card">
         <div class="sum-row"><span>Service</span><span>Shipping <button type="button" class="edit" data-goto="0">Edit</button></span></div>
-        <div class="sum-row"><span>Pieces</span><span>${S.items.map((i) => `${esc(i.qty)}× ${esc(i.description)}<br><span class="muted">${[i.w, i.h, i.d].filter(Boolean).map(esc).join(' × ')} in · ${esc(i.weight)} lb · ${esc(TYPE_LABEL(i.type))}${framingText(i) ? ' · ' + esc(framingText(i)) : ''}${i.fragile ? ' · fragile' : ''} · ${crate[i.crateStatus] || crate.not_sure}</span>`).join('<br>')}</span></div>
+        <div class="sum-row"><span>Pieces</span><span>${S.items.map((i) => `${esc(fmtNum(i.qty) || i.qty)}× ${esc(i.description)}<br><span class="muted">${[i.w, i.h, i.d].filter(Boolean).map(esc).join(' × ')} in · ${i.weightUnsure ? 'weight not sure' : (i.weight ? esc(fmtNum(i.weight)) + ' lb' : '')} · ${esc(TYPE_LABEL(i.type))}${framingText(i) ? ' · ' + esc(framingText(i)) : ''}${i.fragile ? ' · special handling' : ''} · ${crate[i.crateStatus] || crate.not_sure}</span>`).join('<br>')}</span></div>
         <div class="sum-row"><span>Pickup</span><span>${destText(S.pickup)}<br><span class="muted">${esc(S.pickup.contactName)} · ${esc(S.pickup.contactPhone)}</span></span></div>
         <div class="sum-row"><span>Destination</span><span>${destText(d)}${d.locationType ? ` · ${esc(d.locationType)}` : ''}<br><span class="muted">${esc(d.contactName)} · ${esc(d.contactPhone)}</span> <button type="button" class="edit" data-goto="1">Edit</button></span></div>
         ${intlDest(d) && (sh.customs.name || sh.customs.phone) ? `<div class="sum-row"><span>Customs contact</span><span>${esc([sh.customs.name, sh.customs.phone, sh.customs.email].filter(Boolean).join(' · '))}</span></div>` : ''}
@@ -501,7 +616,7 @@ const views = {
       <h2>Price</h2><div class="card">
         <div class="sum-row"><span>Shipping</span><span>Custom quote</span></div>
         <div class="sum-row"><span>Insurance</span><span>Fully insured through our shipping partners</span></div>
-        <p class="mini" style="margin:4px 0 0">Declared value: $${declared.toLocaleString()}.</p>
+        <p class="mini" style="margin:4px 0 0">Declared value: ${fmt(declared)}.</p>
         <p class="mini" style="margin:6px 0 0">Samantha sets the price for packing, shipping and destination service before anything is charged. Pieces may be crated or soft-packed as needed.</p>
       </div>
       <h2>Who’s paying?</h2><div class="card">${seg('payer', S.referral ? [['me', 'Me'], ['partner', 'Referring partner'], ['other', 'Someone else']] : [['me', 'Me'], ['other', 'Someone else']])}
@@ -514,7 +629,7 @@ const views = {
     return `<h1>Pay to confirm</h1><p class="sub">Your quote is approved. Your job is confirmed the moment you pay.</p>
       <div class="promise" style="margin-top:0"><span class="pi">✓</span><span><b>${o.service === 'crating_shipping' ? esc(timingText(o.shipping || {})) : `${esc(longDate(o.schedule.date))}, ${esc(windowText(o.schedule.window))}`}</b><span>Order ${esc(o.id)}</span></span></div>
       <div class="card"><div class="sum-row"><span>Service</span><span>${esc(o.serviceLabel)}${o.rush ? ' · rush' : ''}${o.dedicated ? ' · dedicated trip' : ''}</span></div>
-        <div class="sum-row"><span>Pieces</span><span>${(o.items || []).map((i) => `${esc(i.qty)}× ${esc(i.description)}`).join('<br>')}</span></div></div>
+        <div class="sum-row"><span>Pieces</span><span>${(o.items || []).map((i) => `${esc(fmtNum(i.qty) || i.qty)}× ${esc(i.description)}`).join('<br>')}</span></div></div>
       ${priceCard(q, false)}
       <h2>Payment</h2>${paymentBlock(q)}`;
   },
@@ -577,19 +692,156 @@ const siteReview = (title, a) => {
   return `<h2>${esc(title)}</h2><div class="card">${rows.map(([k, v]) => `<div class="sum-row"><span>${k}</span><span>${v}</span></div>`).join('')}</div>`;
 };
 
-// ---------- validation ----------
+// ---------- validation + required-field guidance ----------
 const filled = (a) => a && String(a.street || '').trim() && String(a.city || '').trim();
 const hasContact = (a) => String(a.contactName || '').trim() && String(a.contactPhone || '').trim();
 const siteReady = (a, required) => (required ? filled(a) && hasContact(a) : !filled(a) || hasContact(a));
 const contactReady = () => S.contact.name.trim() && /\S+@\S+\.\S+/.test(S.contact.email) && String(S.contact.phone || '').replace(/\D/g, '').length >= 7;
-function canContinue() {
-  switch (STEPS[step]) {
-    case 'What': return !!S.service && S.items.every((i) => String(i.description || '').trim() && Number(i.qty) > 0 && photosOk(i) && framingOk(i) && (shipService() ? Number(i.weight) > 0 && Number(i.value) > 0 && (Number(i.w) > 0 || Number(i.h) > 0) : (i.type === 'custom' || Number(i.value) > 0) && (!['sculpture', 'other'].includes(i.type) || Number(i.weight) > 0)));
-    case 'Where': return contactReady() && (!svc().needsPickup || sitePhotosOk(S.pickup)) && sitePhotosOk(S.dropoff) && wallPhotosOk(S.dropoff) && (!svc().needsPickup || siteReady(S.pickup, true)) && (shipService() ? !!(String(S.dropoff.country || '').trim() && filled(S.dropoff) && hasContact(S.dropoff)) : siteReady(S.dropoff, true));
-    case 'When': if (isShip()) return shipReady() && S.items.every(photosOk); return !!(S.schedule.date && S.schedule.window && (!laterOn() || (S.schedule.deliveryDate && S.schedule.deliveryDate > S.schedule.date)));
-    case 'Pay': return existing ? true : (S.payer !== 'other' || !!String(S.payerOther.name || '').trim()) && (S.payer !== 'partner' || !!(S.referral && S.partner.name));
-    default: return true;
+
+function missingFields() {
+  const out = [];
+  const add = (sel, label, msg) => { if (sel && label) out.push({ sel, label, msg }); };
+  const itemGaps = (it, i) => {
+    const p = pieceName(i);
+    if (!(num(it.qty) > 0)) add(`#f-items.${i}.qty`, `Qty — ${p}`, 'Please enter how many of this piece.');
+    if (!String(it.description || '').trim()) add(`#f-items.${i}.description`, `Description — ${p}`, 'Please add a short description of this piece.');
+    if (shipService() || (STEPS[step] === 'When' && isShip())) {
+      if (!(Number(it.w) > 0 || Number(it.h) > 0)) add(`#f-items.${i}.w`, `Size — ${p}`, 'Please enter the width or height in inches.');
+      if (!weightOk(it)) add(`[data-weight="${i}"]`, `Weight — ${p}`, 'Please enter the weight, or tap Not sure.');
+      if (!(num(it.value) > 0)) add(`#f-items.${i}.value`, `Declared value — ${p}`, 'Please enter the value of this piece.');
+    } else {
+      if (it.type !== 'custom' && !(num(it.value) > 0)) add(`#f-items.${i}.value`, `Declared value — ${p}`, 'Please enter the value of this piece.');
+      if (!weightOk(it)) add(`[data-weight="${i}"]`, `Weight — ${p}`, 'Please enter the weight, or tap Not sure.');
+    }
+    if (FRAMING_TYPES.includes(it.type || 'painting')) {
+      if (it.framed !== 'yes' && it.framed !== 'no') add(`[data-framing="${i}"]`, `Framed? — ${p}`, 'Please tell us if this piece is framed.');
+      else if (needsGlass(it) && !['yes', 'no'].includes(it.glazing)) add(`[data-glass="${i}"]`, `Glass — ${p}`, 'Please tell us if this piece has a glass front.');
+      if (needsFrameType(it) && !FRAME_TYPE_OPTS.some(([v]) => v === it.frameType)) add(`[data-frametype="${i}"]`, `Frame type — ${p}`, 'Please choose a frame type.');
+    }
+    if (!photosOk(it)) add(`[data-photolbl="${i}"]`, `Photos — ${p}`, 'Please add a photo of this piece.');
+  };
+  const name = STEPS[step];
+  if (name === 'What') {
+    if (!S.service) { add('.choices', 'Service type', 'Please choose a service.'); return out; }
+    S.items.forEach(itemGaps);
+    return out;
   }
+  if (name === 'Where') {
+    if (!String(S.contact.name || '').trim()) add('#f-contact.name', 'Full name', 'Please enter your full name.');
+    if (!/\S+@\S+\.\S+/.test(S.contact.email || '')) add('#f-contact.email', 'Email', 'Please enter a valid email address.');
+    if (String(S.contact.phone || '').replace(/\D/g, '').length < 7) add('#f-contact.phone', 'Mobile', 'Please enter a mobile number.');
+    const siteMiss = (key, title, required) => {
+      const a = S[key] || {};
+      if (!required && !filled(a)) return;
+      if (key === 'dropoff' && shipService() && !String(a.country || '').trim()) add('#f-dropoff.country', 'Country', 'Please enter the country.');
+      if (!String(a.street || '').trim()) add(`#f-${key}.street`, `Street address — ${title}`, `Please enter the ${title.toLowerCase()} street address.`);
+      if (!String(a.city || '').trim()) add(`#f-${key}.city`, `City — ${title}`, `Please enter the ${title.toLowerCase()} city.`);
+      if (!String(a.contactName || '').trim()) add(`#f-${key}.contactName`, `On-site name — ${title}`, 'Please enter the on-site contact’s name.');
+      if (!String(a.contactPhone || '').trim()) add(`#f-${key}.contactPhone`, `On-site phone — ${title}`, 'Please enter the on-site contact’s phone number.');
+      if (!sitePhotosOk(a)) add(`[data-siteupload="${key}"]`, `Photos of the path — ${title}`, 'Please add a photo of the carry path.');
+    };
+    if (svc().needsPickup) siteMiss('pickup', 'Pickup', true);
+    const dropTitle = shipService() ? 'Destination' : S.service === 'install_only' ? 'Installation' : 'Delivery';
+    siteMiss('dropoff', dropTitle, true);
+    if (!wallPhotosOk(S.dropoff)) add('[data-wallupload="dropoff"]', 'Photo of the wall', 'Please add a photo of the wall.');
+    return out;
+  }
+  if (name === 'When') {
+    if (isShip()) {
+      if (outOfState()) S.items.forEach(itemGaps);
+      if (!S.shipping.serviceLevel) add('[data-reqblock="serviceLevel"]', 'Service at the destination', 'Please choose how the piece should be handled at the destination.');
+      if (!S.shipping.shipBy && !S.shipping.flexible) add('#f-shipping.shipBy', 'Ship by', 'Please pick a ship-by date, or tap that your dates are flexible.');
+      return out;
+    }
+    if (!S.schedule.date) add('[data-reqblock="date"]', 'Date', 'Please pick a date.');
+    if (!S.schedule.window) add('[data-chips="schedule.window"]', 'Arrival window', 'Please pick an arrival window.');
+    if (laterOn() && !(S.schedule.deliveryDate && S.schedule.deliveryDate > S.schedule.date)) add('[data-deldate]', 'Delivery day', 'Please pick a delivery day.');
+    return out;
+  }
+  if (name === 'Pay') {
+    if (existing) return out;
+    if (S.payer === 'other' && !String(S.payerOther.name || '').trim()) add('#f-payerOther.name', 'Payer name', 'Please enter the payer’s name.');
+    if (S.payer === 'partner' && !(S.referral && S.partner.name)) add('[data-goto="1"]', 'Referring partner', 'Please add the referring partner in Where so we know who to bill.');
+    return out;
+  }
+  return out;
+}
+const canContinue = () => missingFields().length === 0;
+
+function reqEl(sel) {
+  if (!sel) return null;
+  if (sel.startsWith('#') && /[.]/.test(sel)) return document.getElementById(sel.slice(1));
+  try { return (app && app.querySelector(sel)) || document.querySelector(sel); } catch (e) { return null; }
+}
+function reqWrap(el) {
+  if (!el) return null;
+  return el.closest('.field') || el.closest('.photos') || el.closest('[data-reqblock]') || el.closest('.choices') || el.closest('.days') || el.closest('.chips') || el.closest('.upload') || el;
+}
+function setReqMsg(wrap, text) {
+  if (!wrap) return;
+  let m = wrap.querySelector(':scope > .req-msg');
+  if (!text) { if (m) m.remove(); return; }
+  if (!m) { m = document.createElement('p'); m.className = 'req-msg'; wrap.appendChild(m); }
+  m.textContent = text;
+}
+let lastMissingSels = new Set();
+const okUntil = new Map();
+let okTimer;
+function paintRequired() {
+  const miss = missingFields();
+  const missSels = new Set(miss.map((m) => m.sel));
+  const now = Date.now();
+  lastMissingSels.forEach((sel) => { if (!missSels.has(sel)) okUntil.set(sel, now + 1200); });
+  missSels.forEach((sel) => okUntil.delete(sel));
+  lastMissingSels = missSels;
+  const wrapFor = (m) => reqWrap(reqEl(m.sel));
+  document.querySelectorAll('.need, .need-ok').forEach((el) => {
+    el.classList.remove('need', 'need-ok');
+  });
+  miss.forEach((m) => {
+    const w = wrapFor(m);
+    if (!w) return;
+    w.classList.add('need');
+    w.classList.remove('need-ok');
+    setReqMsg(w, m.msg || '');
+  });
+  okUntil.forEach((exp, sel) => {
+    if (exp <= now) { okUntil.delete(sel); return; }
+    const w = reqWrap(reqEl(sel));
+    if (!w) return;
+    w.classList.remove('need');
+    w.classList.add('need-ok');
+    setReqMsg(w, '');
+  });
+  clearTimeout(okTimer);
+  if (okUntil.size) {
+    const nextExp = Math.min(...okUntil.values());
+    okTimer = setTimeout(paintRequired, Math.max(40, nextExp - Date.now()));
+  }
+  const line = $('#needLine');
+  if (line) {
+    if (!miss.length || STEPS[step] === 'Done') { line.hidden = true; line.textContent = ''; }
+    else {
+      const names = miss.map((m) => m.label);
+      const n = names.length;
+      const listed = names.slice(0, 3).join(', ') + (n > 3 ? '…' : '');
+      line.hidden = false;
+      line.textContent = n === 1 ? `1 field left: ${names[0]}` : `${n} fields left: ${listed}`;
+    }
+  }
+  measureDock();
+}
+function revealFirstMissing() {
+  const miss = missingFields();
+  if (!miss.length) return;
+  const el = reqEl(miss[0].sel);
+  const wrap = reqWrap(el) || el;
+  if (!wrap) return;
+  wrap.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  wrap.classList.add('pulse-need');
+  const focusable = (el && el.matches && el.matches('input,select,textarea,button')) ? el : (wrap.querySelector && wrap.querySelector('input,select,textarea,button'));
+  setTimeout(() => { if (focusable && focusable.focus) focusable.focus({ preventScroll: true }); }, 280);
+  setTimeout(() => wrap.classList.remove('pulse-need'), 900);
 }
 
 // ---------- estimate (dock) ----------
@@ -625,7 +877,10 @@ function paintButton() {
     if (existing || !special()) btn.textContent = CFG.stripe ? `Pay ${q ? fmt(q.dueNow) : ''} on Stripe` : `Pay ${q ? fmt(q.dueNow) : ''}`;
     else btn.textContent = isShip() ? (innerWidth < 360 ? 'Request quote' : 'Request a shipping quote') : S.rush ? 'Request a rush quote' : 'Request a quote';
   } else btn.textContent = 'Continue';
-  btn.disabled = busy || !canContinue();
+  const wait = !canContinue();
+  if (busy) { btn.disabled = true; btn.classList.remove('is-wait'); btn.removeAttribute('aria-disabled'); }
+  else { btn.disabled = false; btn.classList.toggle('is-wait', wait); if (wait) btn.setAttribute('aria-disabled', 'true'); else btn.removeAttribute('aria-disabled'); }
+  paintRequired();
 }
 
 // ---------- render ----------
@@ -662,7 +917,7 @@ function wrapPriceCard() {
   const card = h2s[0].nextElementSibling;
   if (card && card.classList.contains('card')) { const w = document.createElement('div'); w.setAttribute('data-price', ''); card.replaceWith(w); w.appendChild(card); }
 }
-const updateNext = () => { $('#nextBtn').disabled = busy || !canContinue(); };
+const updateNext = () => { paintButton(); };
 
 // Measure the dock so page padding and scroll-padding exactly clear it on every device (incl. home-indicator inset).
 function measureDock() {
@@ -686,12 +941,31 @@ const syncSameAsMe = () => {
 app.addEventListener('input', (e) => {
   if (e.target.id === 'saveMethod') { saveMethod = e.target.checked; return; }
   const p = e.target.dataset.path; if (!p) return;
-  set(p, e.target.type === 'checkbox' ? e.target.checked : e.target.value);
+  if (e.target.dataset.comma || COMMA_PATH.test(p)) {
+    const allowDec = DEC_PATH.test(p);
+    const caret = e.target.selectionStart;
+    const digitsBefore = e.target.value.slice(0, caret).replace(/[^\d.]/g, '').length;
+    const formatted = formatGrouped(e.target.value, allowDec);
+    if (formatted == null) { e.target.value = commaDisplay(p, get(p)); return; }
+    set(p, uncomma(formatted));
+    e.target.value = formatted;
+    let seen = 0, pos = formatted.length;
+    for (let i = 0; i < formatted.length; i++) {
+      if (/[\d.]/.test(formatted[i])) { seen++; if (seen >= digitsBefore) { pos = i + 1; break; } }
+    }
+    try { e.target.setSelectionRange(pos, pos); } catch (err) {}
+  } else {
+    set(p, e.target.type === 'checkbox' ? e.target.checked : e.target.value);
+  }
   if (p === 'contact.name' || p === 'contact.phone') syncSameAsMe();
   if (p === 'referral') { if (S.referral) { if (S.partner.type === 'None') S.partner.type = 'Gallery'; } else { S.partner = { type: 'None', name: '', email: '' }; if (S.payer === 'partner') S.payer = 'me'; } persist(); }
   const m = p.match(/^(pickup|dropoff)\.contact(Name|Phone)$/);
   if (m && S[m[1]].sameAsMe) { S[m[1]].sameAsMe = false; persist(); const b = app.querySelector(`[data-same="${m[1]}"]`); if (b) { b.classList.remove('on'); b.textContent = 'Same as me'; } }
+  const hint = p.match(/^items\.(\d+)\.(weight|value)$/);
+  if (hint) updateItemHints(+hint[1]);
   updateNext(); refreshQuote();
+  const dim = p.match(/^items\.(\d+)\.(w|h)$/);
+  if (dim) syncFrameType(+dim[1]);
   if ('rerender' in e.target.dataset) render();
   if (p === 'schedule.deliveryLater') { if (S.schedule.deliveryLater) loadDelivery(); else { S.schedule.deliveryDate = ''; persist(); } }
 });
@@ -715,7 +989,7 @@ function syncOosNote() {
   if (outOfState() && !cur) sub.insertAdjacentHTML('afterend', `<p class="note" data-oos>${OOS_NOTE}</p>`);
   else if (!outOfState() && cur) cur.remove();
 }
-const itemKey = () => S.items.map((i) => itemPhotoReason(i) + (Number(i.value) > 50000 ? 2 : Number(i.value) > 0 ? 1 : 0)).join('|');
+const itemKey = () => S.items.map((i) => itemPhotoReason(i) + (num(i.value) > 50000 ? 2 : num(i.value) > 0 ? 1 : 0)).join('|');
 const shipKey = () => `${isShip()}|${intlDest(S.dropoff)}`;
 let lastShipKey = '', lastPhotoKey = '';
 app.addEventListener('click', async (e) => {
@@ -731,7 +1005,13 @@ app.addEventListener('click', async (e) => {
   const itc = t.closest('[data-itemtype]');
   if (itc) {
     const it = S.items[+itc.dataset.itemtype]; const v = t.dataset.v;
-    if (it.type !== v) { it.type = v; it.furnitureKind = v === 'decor' ? decorKinds()[0] : v === 'furniture' ? (CFG.pricing.furnitureKinds || [])[0] : it.furnitureKind; }
+    if (it.type !== v) { it.type = v; it.furnitureKind = v === 'decor' ? decorKinds()[0] : v === 'furniture' ? (CFG.pricing.furnitureKinds || [])[0] : it.furnitureKind; cleanFraming(it); }
+    persist(); render(); return;
+  }
+  if (t.dataset.weightunsure != null) {
+    const it = S.items[+t.dataset.weightunsure];
+    it.weightUnsure = !it.weightUnsure;
+    if (it.weightUnsure) it.weight = '';
     persist(); render(); return;
   }
   if (t.id === 'addItem') { S.items.push(emptyItem()); persist(); render(); return; }
@@ -806,8 +1086,12 @@ async function pay(method) {
 }
 
 $('#backBtn').addEventListener('click', () => { step = Math.max(0, step - 1); render(); });
+const needLine = $('#needLine');
+if (needLine) needLine.addEventListener('click', () => revealFirstMissing());
+
 $('#nextBtn').addEventListener('click', async () => {
-  if (!canContinue() || busy) return;
+  if (busy) return;
+  if (!canContinue()) { revealFirstMissing(); return; }
   const name = STEPS[step];
   if (name === 'Pay') return pay(CFG.stripe ? 'stripe' : payMethod);
   if (name === 'Where' && isShip()) { step++; render(); return; }

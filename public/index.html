@@ -7,7 +7,7 @@
 <title>Book with California Art Delivery</title>
 <link rel="icon" type="image/png" href="/cad-logo.jpg">
 <link rel="apple-touch-icon" href="/cad-logo.jpg">
-<link rel="stylesheet" href="/styles.css?v=20">
+<link rel="stylesheet" href="/styles.css?v=22">
 </head>
 <body>
 <!-- Header is in normal document flow (not fixed/sticky), so page content can never sit underneath it. -->
@@ -20,15 +20,18 @@
 </header>
 <main id="app" class="app"></main>
 <footer class="dock" id="dock">
-  <div class="estimate">
-    <div class="est-label" id="estLabel">Estimate</div>
-    <div class="est-total" id="estTotal">—</div>
-  </div>
-  <div class="dock-actions">
-    <button class="btn back" id="backBtn" type="button" aria-label="Back">Back</button>
-    <button class="btn primary" id="nextBtn" type="button">Continue</button>
+  <button class="need-line" id="needLine" type="button" hidden></button>
+  <div class="dock-row">
+    <div class="estimate">
+      <div class="est-label" id="estLabel">Estimate</div>
+      <div class="est-total" id="estTotal">—</div>
+    </div>
+    <div class="dock-actions">
+      <button class="btn back" id="backBtn" type="button" aria-label="Back">Back</button>
+      <button class="btn primary" id="nextBtn" type="button">Continue</button>
+    </div>
   </div>
 </footer>
-<script src="/app.js?v=20"></script>
+<script src="/app.js?v=22"></script>
 </body>
 </html>

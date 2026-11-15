@@ -84,7 +84,7 @@ function validate(o) {
   if (!SERVICES[o.service] || SERVICES[o.service].legacy) errs.push('service');
   if (!o.items || !o.items.length || o.items.some((it) => !String(it.description || '').trim())) errs.push('items');
   if ((o.items || []).some((it) => !TYPES[it.type || 'painting'])) errs.push('item type');
-  if (framingErrors(o.items || [])) errs.push('Framed? (and glazing if framed) for paintings and other wall art');
+  if (framingErrors(o.items || [])) errs.push('Framed? (and Glass? / Frame type when they apply) for paintings, photographs and other wall art');
   const siteContact = (a) => a && String(a.contactName || '').trim() && String(a.contactPhone || '').trim();
   if (SERVICES[o.service]?.needsPickup) {
     if (!o.pickup?.street) errs.push('pickup');
@@ -95,23 +95,24 @@ function validate(o) {
     if (!siteContact(o.dropoff)) errs.push('dropoff contact');
   }
   if (!o.contact?.name || !o.contact?.email) errs.push('contact');
-  // Photo rules: required for 300+ lb, 'other' items, uniquely fragile pieces, technical carries and high installs.
-  const needsPhoto = (it) => Number(it.weight) >= 300 || it.type === 'other' || !!it.fragile;
-  if ((o.items || []).some((it) => needsPhoto(it) && !(it.photos || []).length)) errs.push('photos (heavy, unusual or fragile piece)');
+  // Photo rules: required for items over 500 lb and 'other' items (special handling does not require photos). Technical carries and high installs are below.
+  const numVal = (s) => { const n = Number(String(s ?? '').replace(/,/g, '')); return Number.isFinite(n) ? n : 0; };
+  const needsPhoto = (it) => numVal(it.weight) > 500 || it.type === 'other';
+  if ((o.items || []).some((it) => needsPhoto(it) && !(it.photos || []).length)) errs.push('photos (items over 500 lb or unusual pieces)');
   for (const k of ['pickup', 'dropoff']) if (o[k]?.technicalCarry && !(o[k].sitePhotos || []).length) errs.push(`${k} carry-path photos`);
   if (SERVICES[o.service]?.install && o.dropoff?.highInstall && !(o.dropoff.wallPhotos || []).length) errs.push('wall photo (high install)');
   const ship = SERVICES[o.service]?.shipping || isOutOfState(o);
   if (ship) {
     // Samantha prices shipping without follow-up, so collect what she needs.
     if (!String(o.dropoff?.country || 'United States').trim()) errs.push('destination country');
-    if ((o.items || []).some((it) => !(Number(it.weight) > 0) || !(Number(it.w) > 0 || Number(it.h) > 0))) errs.push('piece dimensions and weight');
-    if ((o.items || []).some((it) => !(Number(it.value) > 0))) errs.push('declared value for every piece (for the shipping insurance)');
+    if ((o.items || []).some((it) => (!(it.weightUnsure || numVal(it.weight) > 0) || !(Number(it.w) > 0 || Number(it.h) > 0)))) errs.push('piece dimensions and weight');
+    if ((o.items || []).some((it) => !(numVal(it.value) > 0))) errs.push('declared value for every piece (for the shipping insurance)');
     if (!o.shipping?.serviceLevel) errs.push('destination service level');
     if (!o.shipping?.shipBy && !o.shipping?.flexible) errs.push('ship date or flexibility');
   } else {
     if (!o.schedule?.date) errs.push('schedule');
     // In-California white-glove jobs: every piece needs a declared value (protection / high-value handling depend on it).
-    if ((o.items || []).some((it) => it.type !== 'custom' && !(Number(it.value) > 0))) errs.push('declared value for every piece');
+    if ((o.items || []).some((it) => it.type !== 'custom' && !(numVal(it.value) > 0))) errs.push('declared value for every piece');
   }
   if (!ship && o.schedule?.deliveryLater && (!o.schedule.deliveryDate || o.schedule.deliveryDate <= o.schedule.date)) errs.push('delivery date');
   return errs;

@@ -17,8 +17,16 @@ const shot = async (page, name, { full = true, top = true } = {}) => {
 };
 const docShot = async (page, name) => page.screenshot({ path: path.join(SHOTS, name + '.png'), fullPage: true });
 const fill = (page, p, v) => page.fill(`[data-path="${p}"]`, String(v));
-const frame = async (page, i, framed, glazing) => { await page.click(`[data-seg="items.${i}.framed"] [data-v="${framed}"]`); await page.waitForTimeout(150); if (glazing) { await page.click(`[data-seg="items.${i}.glazing"] [data-v="${glazing}"]`); await page.waitForTimeout(150); } };
-const next = async (page) => { await page.click('#nextBtn:not([disabled])'); await page.waitForTimeout(450); };
+const frame = async (page, i, framed, glazing) => {
+  await page.click(`[data-seg="items.${i}.framed"] [data-v="${framed}"]`);
+  await page.waitForTimeout(150);
+  if (glazing) {
+    const sel = `[data-seg="items.${i}.glazing"] [data-v="${glazing}"]`;
+    if (await page.locator(sel).count()) { await page.click(sel); await page.waitForTimeout(150); }
+  }
+};
+const isBlocked = async (page) => page.$eval('#nextBtn', (b) => !!(b.disabled || b.getAttribute('aria-disabled') === 'true' || b.classList.contains('is-wait')));
+const next = async (page) => { await page.click('#nextBtn:not([disabled]):not([aria-disabled="true"])'); await page.waitForTimeout(450); };
 const hasText = async (page, re) => re.test(await page.content());
 const startFresh = async (page) => { await page.goto(BASE); await page.evaluate(() => sessionStorage.clear()); await page.goto(BASE); await page.waitForSelector('[data-service]'); };
 const me = async (page, name, email, phone) => { await fill(page, 'contact.name', name); await fill(page, 'contact.email', email); await fill(page, 'contact.phone', phone); };
@@ -67,12 +75,13 @@ const readOrders = () => JSON.parse(fs.readFileSync(path.join(ROOT, 'data', 'ord
   if (await page.locator('[data-path="items.0.framedGlass"]').count()) errors.push('old Framed with glass toggle must be gone for paintings');
   if (!(await page.$('[data-seg="items.0.framed"]'))) errors.push('painting must ask Framed?');
   if (await page.$('[data-seg="items.0.framed"] button.on')) errors.push('Framed? must have no default');
-  if (!(await page.$eval('#nextBtn', (b) => b.disabled))) errors.push('Continue must be blocked until Framed? is answered');
+  if (!(await isBlocked(page))) errors.push('Continue must be blocked until Framed? is answered');
   await frame(page, 0, 'yes');
-  if (!(await page.$('[data-seg="items.0.glazing"]'))) errors.push('Framed = Yes must ask Glass or acrylic glazing?');
-  if (!(await page.$eval('#nextBtn', (b) => b.disabled))) errors.push('Continue must be blocked until glazing is answered');
-  await frame(page, 0, 'yes', 'yes');
-  if (await page.$eval('#nextBtn', (b) => b.disabled)) errors.push('Continue should enable once Framed + glazing are answered');
+  if (await page.$('[data-seg="items.0.glazing"]')) errors.push('Paintings must not ask Glass?');
+  if (!(await page.$('[data-seg="items.0.frameType"]'))) errors.push('Framed painting over 48" must ask Frame type');
+  if (!(await isBlocked(page))) errors.push('Continue must be blocked until Frame type is answered');
+  await page.click('[data-seg="items.0.frameType"] [data-v="medium"]'); await page.waitForTimeout(150);
+  if (await isBlocked(page)) errors.push('Continue should enable once Framed + Frame type are answered');
   await page.evaluate(() => { document.getElementById('dock').style.visibility = 'hidden'; });
   await page.locator('#app .card').first().screenshot({ path: path.join(SHOTS, 'piece1-painting-framed.png') });
   await page.evaluate(() => { document.getElementById('dock').style.visibility = ''; });
@@ -85,7 +94,7 @@ const readOrders = () => JSON.parse(fs.readFileSync(path.join(ROOT, 'data', 'ord
   await fill(page, 'items.1.qty', 2); await fill(page, 'items.1.description', 'Bronze sculpture on plinth');
   await fill(page, 'items.1.w', 16); await fill(page, 'items.1.h', 52); await fill(page, 'items.1.d', 15); await fill(page, 'items.1.weight', 226); await fill(page, 'items.1.value', 30000);
   const chipOrder = await page.$$eval('[data-itemtype="0"] .chip', (els) => els.map((e) => e.textContent.trim()));
-  if (chipOrder.join('|') !== 'Painting|Mirror|Other wall art|Sculpture|Furniture|Décor|Other fragile or valuable item|Other request') errors.push('item type chips wrong: ' + chipOrder.join('|'));
+  if (chipOrder.join('|') !== 'Painting|Photograph|Mirror|Other wall art|Sculpture|Furniture|Décor|Other fragile or valuable item|Other request') errors.push('item type chips wrong: ' + chipOrder.join('|'));
   await expect(/Painting \/ fine art/, 'Painting / fine art chip must be gone', true);
   if (await page.$('[data-seg="items.1.framed"]')) errors.push('sculpture must not ask Framed?');
   await expect(/insurance/i, 'must never say insurance', true);
@@ -191,9 +200,9 @@ const readOrders = () => JSON.parse(fs.readFileSync(path.join(ROOT, 'data', 'ord
   await page.click('#newOrder'); await page.waitForSelector('[data-service]');
   await page.click('[data-service="pickup_delivery"]'); await page.waitForTimeout(300);
   await page.click('[data-itemtype="0"] button[data-v="wallart"]'); await page.waitForTimeout(200);
-  await expect(/Photography, mixed media, wall sculpture, etc\./, 'Other wall art helper text missing');
+  await expect(/Mixed media, wall sculpture, etc\./, 'Other wall art helper text missing');
   await fill(page, 'items.0.description', 'Photograph, rushed for an opening'); await fill(page, 'items.0.w', 30); await fill(page, 'items.0.h', 40); await frame(page, 0, 'yes', 'no');
-  if (!(await page.$eval('#nextBtn', (b) => b.disabled))) errors.push('declared value should be required for in-CA pieces');
+  if (!(await isBlocked(page))) errors.push('declared value should be required for in-CA pieces');
   await fill(page, 'items.0.value', 120000); await page.press('[data-path="items.0.value"]', 'Tab'); await page.waitForTimeout(300);
   await expect(/high-value handling applies/, 'item over $50K should explain high-value handling');
   await next(page);
@@ -292,7 +301,7 @@ const readOrders = () => JSON.parse(fs.readFileSync(path.join(ROOT, 'data', 'ord
 
   const IMG = path.join(__dirname, 'sample-artwork.png');
   const toggleOn = (p) => page.click(`label.toggle:has([data-path="${p}"])`);
-  const nextDisabled = async () => page.$eval('#nextBtn', (b) => b.disabled);
+  const nextDisabled = async () => isBlocked(page);
 
   // ---- Order 9: Shipping, international destination, technical carry photos ----
   await startFresh(page);
@@ -343,17 +352,19 @@ const readOrders = () => JSON.parse(fs.readFileSync(path.join(ROOT, 'data', 'ord
   const shipHtml = shipMail ? fs.readFileSync(path.join(ROOT, 'outbox', shipMail), 'utf8') : '';
   if (!/Shipping quote request received/.test(shipHtml) || !/France/.test(shipHtml) || !/Inside delivery/.test(shipHtml)) errors.push('shipping quote email should be labeled shipping and list destination + service level');
 
-  // ---- Order 10: Pickup + Delivery to Nevada → automatically a Shipping quote; fragile needs photos ----
+  // ---- Order 10: Pickup + Delivery to Nevada → automatically a Shipping quote; special handling does not require photos ----
   await startFresh(page);
   await page.click('[data-service="pickup_delivery"]'); await page.waitForTimeout(300);
   await page.click('[data-itemtype="0"] button[data-v="decor"]'); await page.waitForTimeout(200);
   if (await page.$('[data-seg="items.0.framed"]')) errors.push('décor must not ask Framed?');
   await fill(page, 'items.0.description', 'Blown-glass vessel'); await fill(page, 'items.0.value', 2500);
+  if (!(await page.$('[data-path="items.0.weight"]')) && !(await page.$('[data-weight="0"]'))) errors.push('décor should offer an optional weight field');
   await toggleOn('items.0.fragile'); await page.waitForTimeout(300);
-  await expect(/Photos required: uniquely fragile pieces/, 'fragile piece should show a one-line photo reason');
-  if (!(await nextDisabled())) errors.push('fragile piece without photos should block Continue');
-  await page.setInputFiles('[data-upload="0"]', IMG); await page.waitForTimeout(700);
-  if (await nextDisabled()) errors.push('Continue should enable after the fragile-piece photo');
+  await expect(/Special handling needed/, 'should rename the toggle to Special handling needed');
+  await expect(/Standard paintings, framed art and solid bronze sculpture don't need this/, 'should show the short special-handling guidance');
+  await expect(/Add a photo if you have one, or send it later/, 'special handling photos should be optional with a send-later note');
+  await expect(/Photos required: uniquely fragile pieces/, 'special handling must not require photos', true);
+  if (await nextDisabled()) errors.push('special handling without photos must not block Continue');
   await next(page);
   await me(page, 'Sam Reyes', 'sam@example.com', '310-555-0177');
   await fillSite(page, 'pickup', { street: '8678 Melrose Ave', city: 'West Hollywood', zip: '90069', contactName: 'Sam Reyes', contactPhone: '310-555-0177' });
@@ -376,10 +387,14 @@ const readOrders = () => JSON.parse(fs.readFileSync(path.join(ROOT, 'data', 'ord
   // ---- Photo rules via API ----
   const post = async (body) => fetch(BASE + '/api/orders', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
   const baseOrder = { service: 'pickup_delivery', contact: { name: 'T', email: 't@x.com', phone: '3105550100' }, pickup: { street: '1 A St', city: 'Los Angeles', zip: '90069', contactName: 'T', contactPhone: '1' }, dropoff: { street: '2 B St', city: 'Los Angeles', zip: '90210', contactName: 'T', contactPhone: '1' }, schedule: { date: '2026-12-07', window: '9am–12pm' } };
-  const heavy = await post({ ...baseOrder, items: [{ qty: 1, type: 'sculpture', weight: 350, description: 'Granite' }] });
-  if (heavy.status !== 400) errors.push('300+ lb piece without photos should be rejected');
-  const other = await post({ ...baseOrder, items: [{ qty: 1, type: 'other', weight: 40, description: 'Antique clock' }] });
+  const mid = await post({ ...baseOrder, items: [{ qty: 1, type: 'sculpture', weight: 350, value: 2000, description: 'Granite' }] });
+  if (mid.status === 400) errors.push('350 lb piece without photos should be accepted (threshold is over 500 lb)');
+  const heavy = await post({ ...baseOrder, items: [{ qty: 1, type: 'sculpture', weight: 501, value: 2000, description: 'Granite' }] });
+  if (heavy.status !== 400) errors.push('piece over 500 lb without photos should be rejected');
+  const other = await post({ ...baseOrder, items: [{ qty: 1, type: 'other', weight: 40, value: 1000, description: 'Antique clock' }] });
   if (other.status !== 400) errors.push('Other-type piece without photos should be rejected');
+  const handling = await post({ ...baseOrder, items: [{ qty: 1, type: 'decor', furnitureKind: 'Wall Decor', sizeClass: 'medium', fragile: true, value: 1000, description: 'Glass bowl' }] });
+  if (handling.status === 400) errors.push('special handling without photos should be accepted');
   const qOOS = await (await fetch(BASE + '/api/quote', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...baseOrder, dropoff: { ...baseOrder.dropoff, zip: '85004', city: 'Phoenix' }, items: [{ qty: 1, type: 'painting', framed: 'no', description: 'p' }] }) })).json();
   if (qOOS.paymentPlan !== 'quote' || !qOOS.outOfState) errors.push('Arizona ZIP should make the quote an out-of-state shipping quote');
 
@@ -409,7 +424,13 @@ const readOrders = () => JSON.parse(fs.readFileSync(path.join(ROOT, 'data', 'ord
   const noFrame = await post({ ...baseOrder, items: [{ qty: 1, type: 'painting', value: 1000, description: 'x' }] });
   if (noFrame.status !== 400) errors.push('painting without Framed? should be rejected');
   const noGlaze = await post({ ...baseOrder, items: [{ qty: 1, type: 'wallart', framed: 'yes', value: 1000, description: 'x' }] });
-  if (noGlaze.status !== 400) errors.push('framed wall art without glazing answer should be rejected');
+  if (noGlaze.status !== 400) errors.push('framed wall art without Glass? should be rejected');
+  const paintNoGlass = await post({ ...baseOrder, items: [{ qty: 1, type: 'painting', framed: 'yes', value: 1000, description: 'x' }] });
+  if (paintNoGlass.status === 400) errors.push('framed painting must not require Glass?');
+  const photoNoGlass = await post({ ...baseOrder, items: [{ qty: 1, type: 'photograph', framed: 'yes', value: 1000, description: 'x' }] });
+  if (photoNoGlass.status !== 400) errors.push('framed photograph without Glass? should be rejected');
+  const noFT = await post({ ...baseOrder, items: [{ qty: 1, type: 'painting', framed: 'yes', w: 50, h: 40, value: 1000, description: 'x' }] });
+  if (noFT.status !== 400) errors.push('framed wall piece over 48" without Frame type should be rejected');
 
   // ---- Pricing rules via API: sculpture is placed (never hung), décor/other from real cards ----
   const q = async (body) => (await (await fetch(BASE + '/api/quote', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })).json());
@@ -478,9 +499,9 @@ const readOrders = () => JSON.parse(fs.readFileSync(path.join(ROOT, 'data', 'ord
   if (!/Parking\/loading restrictions: Loading zone only/.test(csv)) errors.push('CSV PU Notes missing parking restriction');
   if (!/Not sure it fits/.test(csv)) errors.push('CSV PU Notes missing fit warning');
   if (!/ACH processing/.test(csv)) errors.push('CSV payment status should say ACH processing');
-  if (!/type: Painting, Framed: Yes · Glazing: Yes/.test(csv)) errors.push('CSV should show item type, Framed and glazing');
+  if (!/type: Painting, Framed: Yes · Frame type: Medium/.test(csv)) errors.push('CSV should show item type, Framed and frame type');
   const conf1 = files.find((x) => x.includes('-confirmation-'));
-  if (!conf1 || !/Painting · Framed: Yes · Glazing: Yes/.test(fs.readFileSync(path.join(outbox, conf1), 'utf8'))) errors.push('confirmation email should show item type, Framed and glazing');
+  if (!conf1 || !/Painting · Framed: Yes · Frame type: Medium/.test(fs.readFileSync(path.join(outbox, conf1), 'utf8'))) errors.push('confirmation email should show item type, Framed and frame type');
 
   // ---- Admin: shipping quote labeled, Samantha prices it, customer pays, CSV row ----
   await admin.goto(`${BASE}/admin?key=cad-admin`); await admin.waitForSelector('tr.o');
