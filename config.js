@@ -46,17 +46,27 @@ module.exports = {
     // Oversize add-ons from the rate-card footnotes
     largePainting: { overInches: 72, deliveryFee: 100, installFee: 200 }, // per painting 72" or larger
     largeWallDecor: { overInches: 48, deliveryFee: 100, installFee: 200 }, // per wall-décor piece 48" or larger
-    // Mirror install (Chad, Nov 15 2026): a multiplier on the painting install price for that
-    // size (including the 72"+ oversize install fee when it applies), rounded to the nearest $5.
-    // Face size only (width or height; depth does not count). Thresholds are exclusive ("over").
-    // Up to 48" = 1×; over 48" = 1.5×; over 60" = 2.5×; over 70" = 3×. No 50" tier.
-    // Pickup & delivery stay on the painting tables. Décor → Mirror uses this same path.
+    // Mirror pricing (Chad, Nov 15 2026): multipliers on the painting prices for that size
+    // (including the 72"+ oversize fees when they apply). Face size only (width or height;
+    // depth does not count). Every multiplier is rounded UP to the next $5.
+    // Install thresholds are exclusive ("over"): up to 48" = 1×; over 48" = 1.5×;
+    // over 60" = 2.5×; over 70" = 3×. No 50" tier.
+    // Transport (pickup & delivery) uses the painting delivery tables as the base:
+    // under 60" = 1×; 60" or more (inclusive) = 1.5×; over 70" = 2×.
+    // Décor → Mirror uses this same path.
     mirrorInstall: {
       roundTo: 5,
       tiers: [
         { overInches: 70, multiplier: 3 },
         { overInches: 60, multiplier: 2.5 },
         { overInches: 48, multiplier: 1.5 },
+      ],
+    },
+    mirrorTransport: {
+      roundTo: 5,
+      tiers: [
+        { overInches: 70, multiplier: 2 },
+        { minInches: 60, multiplier: 1.5 },
       ],
     },
     // Frame type is asked when a framed painting, photograph or other wall-art piece is over 48" on any side.
@@ -162,7 +172,7 @@ module.exports = {
       // Décor & Lighting section (bottom of the furniture/décor card on Notes/Info).
       // The last printed row is one five-size rate covering vases, sculptural décor, accents, figurines, and similar.
       // The form lists those as separate kinds, plus Other (describe), so clients can find them. Same prices for each.
-      // Mirror stays a top-level item type (painting delivery tables; install follows mirrorInstall above).
+      // Mirror stays a top-level item type (painting tables, plus the mirrorInstall / mirrorTransport multipliers).
       // Choosing Mirror under Décor routes to that same Mirror item and pricing — the card rates
       // on the Mirror row below are kept as a record of the printed card, not used by the form.
       decorKinds: [
