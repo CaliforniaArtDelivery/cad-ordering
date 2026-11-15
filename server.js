@@ -53,7 +53,12 @@ app.get('/api/config', (_, res) => res.json({
   pricing: {
     quoteMultiplierMin: config.pricing.quoteMultiplierMin,
     quoteMultiplierMax: config.pricing.quoteMultiplierMax,
-    displayFrom, furnitureKinds: FURNITURE_KINDS, decorKinds: DECOR_KINDS, accentsKind: config.pricing.furniture.accents.label,
+    displayFrom, furnitureKinds: FURNITURE_KINDS, decorKinds: DECOR_KINDS,
+    decorKindGroups: config.pricing.furniture.decorKindGroups,
+    accentsKind: config.pricing.furniture.accents.label,
+    accentsKinds: config.pricing.furniture.accents.kinds,
+    hungDecor: config.pricing.furniture.hungDecor,
+    sizeLabels: config.pricing.furniture.sizeLabels,
     valuationRate: config.pricing.valuation.rate,
     membershipMonthly: config.pricing.membership.monthly,
   },

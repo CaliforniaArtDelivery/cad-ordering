@@ -194,14 +194,18 @@ const isQuote = (q) => !!(q && q.paymentPlan === 'quote');
 const special = () => !!(isShip() || S.rush || S.dedicated || S.crating || isQuote(quoteData));
 const hasInstall = () => !!svc().install;
 // Only wall-hung pieces get hung. Sculpture, furniture and freestanding pieces are placed (never hung or installed).
-const HUNG_DECOR = ['Wall Decor', 'Mirror', 'Chandelier'];
+const DEFAULT_HUNG_DECOR = ['Wall Decor', 'Mirror', 'Chandelier'];
+const hungDecorList = () => {
+  const fromCfg = (CFG && CFG.pricing && CFG.pricing.hungDecor) || DEFAULT_HUNG_DECOR;
+  return [...new Set([...fromCfg, 'Chandelier'])];
+};
 // Wall pieces: Painting, Mirror, Other wall art (incl. wall sculpture) hang on a wall, so they're installable.
 const WALL_TYPES = ['painting', 'photograph', 'mirror', 'wallart'];
 const FRAMING_TYPES = ['painting', 'photograph', 'wallart'];
 const GLASS_TYPES = ['photograph', 'wallart'];
 const FRAME_TYPE_OPTS = [['small', 'Small / lightweight'], ['medium', 'Medium'], ['large', 'Large / heavy / ornate']];
 const FRAME_TYPE_ASK_OVER = 48;
-const isHung = (it) => WALL_TYPES.includes(it.type || 'painting') || (it.type === 'decor' && HUNG_DECOR.includes(it.furnitureKind));
+const isHung = (it) => WALL_TYPES.includes(it.type || 'painting') || (it.type === 'decor' && hungDecorList().includes(it.furnitureKind));
 const maxWH = (it) => Math.max(Number(it.w) || 0, Number(it.h) || 0);
 const needsGlass = (it) => GLASS_TYPES.includes(it.type) && it.framed === 'yes';
 const needsFrameType = (it) => FRAMING_TYPES.includes(it.type || 'painting') && it.framed === 'yes' && maxWH(it) > FRAME_TYPE_ASK_OVER;
@@ -276,7 +280,28 @@ const ITEM_TYPES = [['painting', 'Painting'], ['photograph', 'Photograph'], ['mi
 const INSTALL_TYPES = ['painting', 'photograph', 'mirror', 'wallart', 'decor', 'custom'];
 // Install only = hanging wall pieces already on site. Sculpture, furniture and other pieces are placed during a delivery, not hung.
 const itemTypes = () => (S.service === 'install_only' ? ITEM_TYPES.filter(([v]) => INSTALL_TYPES.includes(v)) : ITEM_TYPES);
-const decorKinds = () => (S.service === 'install_only' ? (CFG.pricing.decorKinds || []).filter((k) => HUNG_DECOR.includes(k)) : (CFG.pricing.decorKinds || []));
+const decorKinds = () => (S.service === 'install_only' ? (CFG.pricing.decorKinds || []).filter((k) => hungDecorList().includes(k)) : (CFG.pricing.decorKinds || []));
+const isAccentKind = (kind) => {
+  const p = (CFG && CFG.pricing) || {};
+  return (p.accentsKinds || []).includes(kind) || kind === p.accentsKind;
+};
+const sizeOptionsFor = (type, kind) => {
+  const labels = ((CFG && CFG.pricing) || {}).sizeLabels || {};
+  if (type === 'decor' && isAccentKind(kind)) {
+    return labels.accents || [['xs', 'Extra small'], ['small', 'Small'], ['medium', 'Medium'], ['large', 'Large'], ['xl', 'Extra large']];
+  }
+  return labels.standard || [['small', 'Small / light'], ['medium', 'Medium / average'], ['large', 'Large / heavy']];
+};
+const decorKindOptions = () => {
+  const allowed = new Set(decorKinds());
+  const groups = ((CFG && CFG.pricing) || {}).decorKindGroups;
+  if (groups && groups.length) {
+    return groups
+      .map((g) => ({ group: g.label, items: (g.items || []).filter((k) => allowed.has(k)) }))
+      .filter((g) => g.items.length);
+  }
+  return decorKinds();
+};
 
 // ---------- field helpers ----------
 const pieceName = (i) => `Piece ${Number(i) + 1}`;
@@ -359,11 +384,12 @@ const input = (path, label, opts = {}) => {
 const select = (path, label, options, opts = {}) => {
   const lab = label ? `<label class="f" for="f-${path}">${label}${opts.req ? ' <span class="req">Required</span>' : ''}</label>` : '';
   const ph = opts.placeholder ? `<option value="">${esc(opts.placeholder)}</option>` : '';
-  const html = options.map((o) => {
+  const renderOpts = (list) => (list || []).map((o) => {
+    if (o && o.group) return `<optgroup label="${esc(o.group)}">${renderOpts(o.items)}</optgroup>`;
     const [v, l] = Array.isArray(o) ? o : [o, o];
     return `<option value="${esc(v)}" ${String(get(path) ?? '') === String(v) ? 'selected' : ''}>${esc(l)}</option>`;
   }).join('');
-  return `<div class="field">${lab}<select id="f-${path}" data-path="${path}"${opts.rerender ? ' data-rerender' : ''}>${ph}${html}</select></div>`;
+  return `<div class="field">${lab}<select id="f-${path}" data-path="${path}"${opts.rerender ? ' data-rerender' : ''}>${ph}${renderOpts(options)}</select></div>`;
 };
 const toggle = (path, label, hint = '', rerender = false, cls = '') => `<label class="toggle ${cls}"><span>${label}${hint ? `<small>${hint}</small>` : ''}</span>
   <span class="sw"><input type="checkbox" data-path="${path}" ${get(path) ? 'checked' : ''} ${rerender ? 'data-rerender' : ''}><i></i></span></label>`;
@@ -619,9 +645,12 @@ const views = {
         <p class="mini" style="margin:-4px 0 10px">Approximate inches are fine.</p>`;
       const value = input(`${p}.value`, 'Declared value per piece ($)', { ph: 'e.g. 12,000', attrs: 'inputmode="numeric"', req: true })
         + `<p class="mini" style="margin:-4px 0 8px" data-valhint="${i}">${valueHint(item)}</p>`;
-      const ph = { painting: 'e.g. Oil on canvas by J. Smith', photograph: 'e.g. Signed gelatin silver print', mirror: 'e.g. Venetian mirror, gilt', wallart: 'e.g. Mixed media, wall sculpture', sculpture: 'e.g. Bronze on plinth', furniture: 'e.g. Walnut credenza', decor: 'e.g. Pair of table lamps', other: 'e.g. Antique clock, wine collection', custom: 'e.g. Pick up 3 crates from storage and hold them' }[type];
-      const kinds = type === 'furniture' ? (CFG.pricing.furnitureKinds || []) : decorKinds();
-      const kindRow = (type === 'furniture' || type === 'decor') ? `<div class="row keep">${select(`${p}.furnitureKind`, type === 'decor' ? 'Type of décor' : 'Item', kinds)}${select(`${p}.sizeClass`, 'Size', ['small', 'medium', 'large'])}</div>` : '';
+      const ph = { painting: 'e.g. Oil on canvas by J. Smith', photograph: 'e.g. Signed gelatin silver print', mirror: 'e.g. Venetian mirror, gilt', wallart: 'e.g. Mixed media, wall sculpture', sculpture: 'e.g. Bronze on plinth', furniture: 'e.g. Walnut credenza', decor: item.furnitureKind === 'Other (describe)' ? 'e.g. Ceramic garden stool, pair of candlesticks' : 'e.g. Pair of table lamps', other: 'e.g. Antique clock, wine collection', custom: 'e.g. Pick up 3 crates from storage and hold them' }[type];
+      const kinds = type === 'furniture' ? (CFG.pricing.furnitureKinds || []) : decorKindOptions();
+      const sizeOpts = sizeOptionsFor(type, item.furnitureKind);
+      const allowedSizes = sizeOpts.map((o) => Array.isArray(o) ? o[0] : o);
+      if ((type === 'furniture' || type === 'decor') && !allowedSizes.includes(item.sizeClass)) item.sizeClass = 'medium';
+      const kindRow = (type === 'furniture' || type === 'decor') ? `<div class="row keep kind-row">${select(`${p}.furnitureKind`, type === 'decor' ? 'Type of décor' : 'Item', kinds, { rerender: true })}${select(`${p}.sizeClass`, 'Size', sizeOpts)}</div>${type === 'decor' && isAccentKind(item.furnitureKind) ? '<p class="mini" style="margin:-4px 0 10px">Extra small is a small figurine or bud vase. Extra large is a statement piece.</p>' : ''}` : '';
       const needsWeight = type === 'sculpture' || type === 'other';
       const showApproxWeight = !needsWeight; // optional approx. weight for paintings, wall art, furniture, décor, custom
       const rateBlock = `
@@ -1294,7 +1323,7 @@ app.addEventListener('click', async (e) => {
     // No auto-scroll here: the page stays exactly where the user's thumb left it.
     S.service = t.dataset.service;
     if (S.service === 'crating_shipping') { S.crating = false; S.rush = false; S.dedicated = false; }
-    if (S.service === 'install_only') { S.crating = false; S.schedule.deliveryLater = false; S.items.forEach((it) => { if (!INSTALL_TYPES.includes(it.type) || (it.type === 'decor' && !HUNG_DECOR.includes(it.furnitureKind))) { it.type = 'painting'; } }); }
+    if (S.service === 'install_only') { S.crating = false; S.schedule.deliveryLater = false; S.items.forEach((it) => { if (!INSTALL_TYPES.includes(it.type) || (it.type === 'decor' && !hungDecorList().includes(it.furnitureKind))) { it.type = 'painting'; } }); }
     persist(); avail = null; render();
     return;
   }

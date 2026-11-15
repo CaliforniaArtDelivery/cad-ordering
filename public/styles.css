@@ -56,6 +56,9 @@ h2{font-size:19px;letter-spacing:-.01em;margin:28px 0 10px;font-weight:600}
 .row.qty{grid-template-columns:84px 1fr}
 .row.addr3{grid-template-columns:minmax(0,1fr) 64px 86px;gap:10px}
 @media(max-width:520px){.row:not(.keep){grid-template-columns:1fr}.row.qty{grid-template-columns:84px 1fr}}
+@media(max-width:430px){.row.keep.kind-row{grid-template-columns:1fr}}
+select{text-overflow:ellipsis}
+
 label.f{display:block;font-size:14px;color:var(--muted);margin:0 0 6px;font-weight:500}
 .field{margin-bottom:12px}
 input[type=text],input[type=email],input[type=tel],input[type=number],input[type=date],select,textarea{display:block;width:100%;min-width:0;font:inherit;font-size:17px;color:var(--ink);background:var(--bg);border:1.5px solid transparent;border-radius:12px;padding:13px 14px;min-height:44px;outline:none;transition:border .2s,background .2s,box-shadow .25s var(--ease);-webkit-appearance:none;appearance:none;margin:0}

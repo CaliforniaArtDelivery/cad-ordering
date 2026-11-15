@@ -24,7 +24,7 @@ Item fields appear once a service is picked, and each item type shows only its r
 - Item type, Framed Yes/No and glazing show in the review, the admin Pieces panel, the quote/confirmation emails and the schedule CSV.
 - **Sculpture:** qty, description, W×H×D, weight (required), declared value, photos
 - **Furniture:** kind + size, qty, description, declared value, photos (not offered for Install only)
-- **Décor:** kind (Wall décor, Mirror, Vases/sculptural décor/accents/figurines, Table lamp, Floor lamp, Chandelier) + size, qty, description, W×H×D, declared value, photos
+- **Décor:** Type of décor (grouped: Wall — Wall Decor, Mirror; Lighting — Table Lamp, Floor Lamp, Chandelier; Accents & objects — Vases, Figurines, Sculptural Décor, Accents, Other (describe)) + size (3 tiers, or 5 for accents), qty, description, W×H×D, declared value, photos
 - **Other fragile or valuable item:** qty, description, W×H×D, weight (required), declared value, photos, plus a note that the final quote may be adjusted
 
 Each piece has Duplicate and Remove. Custom crating is a toggle (not for Install only). Choosing it turns the booking into a quote request.
@@ -39,7 +39,7 @@ Each piece has Duplicate and Remove. Custom crating is a toggle (not for Install
   - 300–499 lb: $800 / $600
   - 500–700 lb: $1,000 / $750
 - **Sculpture placement:** the card has no separate placement rate, so it's included in the weight price. There is no separate $0 placement line. The card's footnote: for sculptures "particularly long/wide or involving stairs, an additional delivery or install fee may apply". Over 700 lb isn't on the card; the $1,000 starting rate is shown and CAD confirms.
-- **Décor:** Furniture & Décor card, "Décor & Lighting" rows by size: Mirror, Table lamp, Floor lamp, Chandelier, Wall décor, and Vases/sculptural décor/accents/figurines (5 printed sizes; the form uses the first three).
+- **Décor:** Furniture & Décor card, "Décor & Lighting" rows by size: Mirror, Table Lamp, Floor Lamp, Chandelier, and Wall Decor use Small/Light, Medium/Average, Large/Heavy. Vases, Figurines, Sculptural Décor, Accents, and Other (describe) share the five printed accent prices (Extra small through Extra large).
 - **Hanging:** only wall-hung pieces (paintings, wall décor, mirrors) are hung, priced per piece from the Painting Installation table. Oversize: 72"+ painting is +$100 delivery / +$200 install, and 48"+ wall décor is +$100 / +$200.
 - **Placed pieces:** furniture, lamps, accents, sculpture and other items are placed, included in delivery.
 - **Other fragile or valuable item:** no card covers it. It's priced by weight from the sculpture card, with a note that CAD may adjust.

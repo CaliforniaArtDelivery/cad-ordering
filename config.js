@@ -138,11 +138,41 @@ module.exports = {
         'Chandelier': [370, 455, 545],
         'Wall Decor': [190, 235, 305],
       },
-      // Vases / sculptural décor / accents / figurines etc. — five printed sizes, not three.
-      // Décor kinds (own item type in the form). Priced from the same furniture/décor card.
-      // Mirror is its own item type now (priced from the painting tables); kept in `items` only so older orders still price.
-      decorKinds: ['Wall Decor', 'Vases / Sculptural Décor / Accents / Figurines', 'Table Lamp', 'Floor Lamp', 'Chandelier'],
-      accents: { label: 'Vases / Sculptural Décor / Accents / Figurines', nonMember: [85, 140, 195, 250, 305], member: [65, 105, 145, 190, 230] },
+      // Printed member prices for Décor & Lighting rows (25% off, rounded to the nearest $5 as on the card).
+      itemMembers: {
+        'Mirror': [130, 175, 215],
+        'Table Lamp': [115, 130, 150],
+        'Floor Lamp': [135, 160, 180],
+        'Chandelier': [280, 340, 410],
+        'Wall Decor': [145, 175, 230],
+      },
+      // Décor & Lighting section (bottom of the furniture/décor card on Notes/Info).
+      // The last printed row is one five-size rate covering vases, sculptural décor, accents, figurines, and similar.
+      // The form lists those as separate kinds, plus Other (describe), so clients can find them. Same prices for each.
+      // Mirror also stays a top-level item type (priced from the painting tables — an existing assumption).
+      // Choosing Mirror under Décor uses the furniture/décor card rates below.
+      decorKinds: [
+        'Wall Decor', 'Mirror',
+        'Table Lamp', 'Floor Lamp', 'Chandelier',
+        'Vases', 'Figurines', 'Sculptural Décor', 'Accents', 'Other (describe)',
+      ],
+      decorKindGroups: [
+        { label: 'Wall', items: ['Wall Decor', 'Mirror'] },
+        { label: 'Lighting', items: ['Table Lamp', 'Floor Lamp', 'Chandelier'] },
+        { label: 'Accents & objects', items: ['Vases', 'Figurines', 'Sculptural Décor', 'Accents', 'Other (describe)'] },
+      ],
+      hungDecor: ['Wall Decor', 'Mirror'],
+      sizeLabels: {
+        standard: [['small', 'Small / light'], ['medium', 'Medium / average'], ['large', 'Large / heavy']],
+        accents: [['xs', 'Extra small'], ['small', 'Small'], ['medium', 'Medium'], ['large', 'Large'], ['xl', 'Extra large']],
+      },
+      // Five unlabeled sizes on the printed card. Legacy `label` keeps older orders pricing on the first three tiers.
+      accents: {
+        label: 'Vases / Sculptural Décor / Accents / Figurines',
+        kinds: ['Vases', 'Figurines', 'Sculptural Décor', 'Accents', 'Other (describe)'],
+        nonMember: [85, 140, 195, 250, 305],
+        member: [65, 105, 145, 190, 230],
+      },
     },
   },
 
