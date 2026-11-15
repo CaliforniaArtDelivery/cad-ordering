@@ -152,16 +152,34 @@ module.exports = {
       // Mirror also stays a top-level item type (priced from the painting tables — an existing assumption).
       // Choosing Mirror under Décor uses the furniture/décor card rates below.
       decorKinds: [
-        'Wall Decor', 'Mirror',
-        'Table Lamp', 'Floor Lamp', 'Chandelier',
-        'Vases', 'Figurines', 'Sculptural Décor', 'Accents', 'Other (describe)',
+        'Wall Decor', 'Wall sculptures', 'Tapestries & textiles', 'Mirror',
+        'Table Lamp', 'Floor Lamp', 'Sconces', 'Chandelier',
+        'Baskets', 'Bookends', 'Bowls & trays', 'Candle holders & candelabras',
+        'Ceramics & pottery', 'Clocks', 'Decorative boxes', 'Figurines', 'Globes',
+        'Lanterns', "Objets d'art", 'Picture frames (tabletop)', 'Planters & pots',
+        'Sculptural Décor', 'Statues & busts', 'Urns', 'Vases', 'Other (describe)',
       ],
       decorKindGroups: [
-        { label: 'Wall', items: ['Wall Decor', 'Mirror'] },
-        { label: 'Lighting', items: ['Table Lamp', 'Floor Lamp', 'Chandelier'] },
-        { label: 'Accents & objects', items: ['Vases', 'Figurines', 'Sculptural Décor', 'Accents', 'Other (describe)'] },
+        { label: 'Wall', items: ['Wall Decor', 'Wall sculptures', 'Tapestries & textiles', 'Mirror'] },
+        { label: 'Lighting', items: ['Table Lamp', 'Floor Lamp', 'Sconces', 'Chandelier'] },
+        { label: 'Accents & objects', items: [
+          'Baskets', 'Bookends', 'Bowls & trays', 'Candle holders & candelabras',
+          'Ceramics & pottery', 'Clocks', 'Decorative boxes', 'Figurines', 'Globes',
+          'Lanterns', "Objets d'art", 'Picture frames (tabletop)', 'Planters & pots',
+          'Sculptural Décor', 'Statues & busts', 'Urns', 'Vases', 'Other (describe)',
+        ] },
       ],
-      hungDecor: ['Wall Decor', 'Mirror'],
+      // Same published rates as the named card row. Keeps item/member tables from being duplicated.
+      priceAs: {
+        'Tapestries & textiles': 'Wall Decor',
+        'Wall sculptures': 'Wall Decor',
+        'Sconces': 'Table Lamp',
+      },
+      // 48"+ wall-décor surcharge from the card footnote.
+      wallDecorKinds: ['Wall Decor', 'Tapestries & textiles', 'Wall sculptures'],
+      hungDecor: ['Wall Decor', 'Wall sculptures', 'Tapestries & textiles', 'Mirror'],
+      // Hanging/mounting these is not a published rate (electrical work may also apply for sconces).
+      quoteHang: ['Chandelier', 'Sconces'],
       sizeLabels: {
         standard: [['small', 'Small / light'], ['medium', 'Medium / average'], ['large', 'Large / heavy']],
         accents: [['xs', 'Extra small'], ['small', 'Small'], ['medium', 'Medium'], ['large', 'Large'], ['xl', 'Extra large']],
@@ -169,7 +187,13 @@ module.exports = {
       // Five unlabeled sizes on the printed card. Legacy `label` keeps older orders pricing on the first three tiers.
       accents: {
         label: 'Vases / Sculptural Décor / Accents / Figurines',
-        kinds: ['Vases', 'Figurines', 'Sculptural Décor', 'Accents', 'Other (describe)'],
+        kinds: [
+          'Baskets', 'Bookends', 'Bowls & trays', 'Candle holders & candelabras',
+          'Ceramics & pottery', 'Clocks', 'Decorative boxes', 'Figurines', 'Globes',
+          'Lanterns', "Objets d'art", 'Picture frames (tabletop)', 'Planters & pots',
+          'Sculptural Décor', 'Statues & busts', 'Urns', 'Vases',
+          'Accents', 'Other (describe)',
+        ],
         nonMember: [85, 140, 195, 250, 305],
         member: [65, 105, 145, 190, 230],
       },

@@ -7,7 +7,7 @@ const BASE = process.env.BASE_URL || 'http://localhost:3000';
 const OUT = process.env.SHOT_DIR || '/workspace/decor-dropdown';
 fs.mkdirSync(OUT, { recursive: true });
 
-const WIDTHS = [320, 375, 390, 430];
+const WIDTHS = (process.env.WIDTHS || '320,375,390,430').split(',').map(Number);
 
 async function openDecor(page) {
   await page.goto(BASE);

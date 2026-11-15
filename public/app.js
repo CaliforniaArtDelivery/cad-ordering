@@ -194,10 +194,11 @@ const isQuote = (q) => !!(q && q.paymentPlan === 'quote');
 const special = () => !!(isShip() || S.rush || S.dedicated || S.crating || isQuote(quoteData));
 const hasInstall = () => !!svc().install;
 // Only wall-hung pieces get hung. Sculpture, furniture and freestanding pieces are placed (never hung or installed).
-const DEFAULT_HUNG_DECOR = ['Wall Decor', 'Mirror', 'Chandelier'];
+const DEFAULT_HUNG_DECOR = ['Wall Decor', 'Wall sculptures', 'Tapestries & textiles', 'Mirror', 'Chandelier', 'Sconces'];
+const quoteHangList = () => ((CFG && CFG.pricing && CFG.pricing.quoteHang) || ['Chandelier', 'Sconces']);
 const hungDecorList = () => {
   const fromCfg = (CFG && CFG.pricing && CFG.pricing.hungDecor) || DEFAULT_HUNG_DECOR;
-  return [...new Set([...fromCfg, 'Chandelier'])];
+  return [...new Set([...fromCfg, ...quoteHangList()])];
 };
 // Wall pieces: Painting, Mirror, Other wall art (incl. wall sculpture) hang on a wall, so they're installable.
 const WALL_TYPES = ['painting', 'photograph', 'mirror', 'wallart'];
@@ -662,7 +663,7 @@ const views = {
         ${type === 'custom' ? '<p class="mini" style="margin:0 0 6px">Tell us what you need in the description. CAD reviews it and sends a custom quote; nothing is charged until you approve it.</p>' : ''}
         ${type === 'other' ? '<p class="mini" style="margin:0 0 6px">Priced by weight from our sculpture rates. The price covers pickup, delivery and placement wherever you want it. CAD may adjust the final quote after seeing photos.</p>' : ''}
         ${type === 'sculpture' ? '<p class="mini" style="margin:0 0 6px">One weight-based price covers pickup, delivery and placement wherever you want it: a home, gallery, warehouse, hotel or sculpture garden. Same price either way.</p>' : ''}
-        ${hasInstall() && type === 'decor' && item.furnitureKind === 'Chandelier' ? '<p class="mini" style="margin:0 0 6px">Chandelier hanging isn’t on our rate card, so this becomes a quick quote request.</p>' : ''}
+        ${hasInstall() && type === 'decor' && quoteHangList().includes(item.furnitureKind) ? `<p class="mini" style="margin:0 0 6px">${esc(item.furnitureKind)} hanging isn’t on our rate card, so this becomes a quick quote request.</p>` : ''}
         ${type === 'furniture' ? '<p class="mini" style="margin:0 0 6px">One price covers pickup, delivery and placement wherever you want it.</p>' : ''}
         ${showApproxWeight ? weightField(item, i, { approx: true }) : ''}
         ${handlingBlock(item, i)}

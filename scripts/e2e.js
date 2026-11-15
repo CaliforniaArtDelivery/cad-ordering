@@ -506,7 +506,7 @@ const readOrders = () => JSON.parse(fs.readFileSync(path.join(ROOT, 'data', 'ord
   const qs4 = await q({ service: 'pickup_delivery', items: [{ qty: 1, type: 'decor', furnitureKind: 'Floor Lamp', sizeClass: 'large', description: 'l' }] });
   if (qs4.total !== 240) errors.push('large floor lamp should be $240 from the décor card, got ' + qs4.total);
   const cfg = JSON.parse(cfgText);
-  const expectedDecor = ['Wall Decor', 'Mirror', 'Table Lamp', 'Floor Lamp', 'Chandelier', 'Vases', 'Figurines', 'Sculptural Décor', 'Accents', 'Other (describe)'];
+  const expectedDecor = ['Wall Decor', 'Wall sculptures', 'Tapestries & textiles', 'Mirror', 'Table Lamp', 'Floor Lamp', 'Sconces', 'Chandelier', 'Baskets', 'Bookends', 'Bowls & trays', 'Candle holders & candelabras', 'Ceramics & pottery', 'Clocks', 'Decorative boxes', 'Figurines', 'Globes', 'Lanterns', "Objets d'art", 'Picture frames (tabletop)', 'Planters & pots', 'Sculptural Décor', 'Statues & busts', 'Urns', 'Vases', 'Other (describe)'];
   const gotDecor = cfg.pricing.decorKinds || [];
   if (expectedDecor.some((k) => !gotDecor.includes(k))) errors.push('décor kinds missing from /api/config: ' + JSON.stringify(gotDecor));
   if ((cfg.pricing.furnitureKinds || []).includes('Mirror')) errors.push('Mirror should not be in the furniture dropdown');
@@ -526,6 +526,19 @@ const readOrders = () => JSON.parse(fs.readFileSync(path.join(ROOT, 'data', 'ord
   if (qMirMem.total !== 175) errors.push('member medium décor Mirror should be $175 as printed, got ' + qMirMem.total);
   const qWall = await q({ service: 'pickup_delivery', memberCode: 'jones-terwilliger', items: [{ qty: 1, type: 'decor', furnitureKind: 'Wall Decor', sizeClass: 'small', description: 'w' }] });
   if (qWall.total !== 145) errors.push('member small Wall Decor should be $145 as printed, got ' + qWall.total);
+  if ((cfg.pricing.decorKinds || []).includes('Accents')) errors.push('generic Accents should not stay in the décor dropdown');
+  const qSconce = await q({ service: 'pickup_delivery', items: [{ qty: 1, type: 'decor', furnitureKind: 'Sconces', sizeClass: 'large', description: 's' }] });
+  if (qSconce.total !== 200) errors.push('large sconces should use the table lamp rate $200, got ' + qSconce.total);
+  const qSconceMem = await q({ service: 'pickup_delivery', memberCode: 'jones-terwilliger', items: [{ qty: 1, type: 'decor', furnitureKind: 'Sconces', sizeClass: 'medium', description: 's' }] });
+  if (qSconceMem.total !== 130) errors.push('member medium sconces should be $130, got ' + qSconceMem.total);
+  const qTap = await q({ service: 'pickup_delivery', items: [{ qty: 1, type: 'decor', furnitureKind: 'Tapestries & textiles', sizeClass: 'medium', description: 't' }] });
+  if (qTap.total !== 235) errors.push('medium tapestries should use the wall décor rate $235, got ' + qTap.total);
+  const qScu = await q({ service: 'pickup_delivery', items: [{ qty: 1, type: 'decor', furnitureKind: 'Wall sculptures', sizeClass: 'large', description: 'ws' }] });
+  if (qScu.total !== 305) errors.push('large wall sculptures should use the wall décor rate $305, got ' + qScu.total);
+  const qBasket = await q({ service: 'pickup_delivery', items: [{ qty: 1, type: 'decor', furnitureKind: 'Baskets', sizeClass: 'xs', description: 'b' }] });
+  if (qBasket.total !== 85) errors.push('extra-small baskets should be $85, got ' + qBasket.total);
+  const qSconceHang = await q({ service: 'delivery_install', items: [{ qty: 1, type: 'decor', furnitureKind: 'Sconces', sizeClass: 'medium', description: 's' }] });
+  if (qSconceHang.paymentPlan !== 'quote') errors.push('sconce hanging is not on the cards and should be a quote request');
 
   // ---- Access fees, install surcharges, availability, payer ----
   const qFee = async (body) => (await (await fetch(BASE + '/api/quote', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })).json());

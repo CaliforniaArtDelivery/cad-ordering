@@ -58,6 +58,8 @@ app.get('/api/config', (_, res) => res.json({
     accentsKind: config.pricing.furniture.accents.label,
     accentsKinds: config.pricing.furniture.accents.kinds,
     hungDecor: config.pricing.furniture.hungDecor,
+    quoteHang: config.pricing.furniture.quoteHang,
+    wallDecorKinds: config.pricing.furniture.wallDecorKinds,
     sizeLabels: config.pricing.furniture.sizeLabels,
     valuationRate: config.pricing.valuation.rate,
     membershipMonthly: config.pricing.membership.monthly,
