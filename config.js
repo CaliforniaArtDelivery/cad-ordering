@@ -46,9 +46,26 @@ module.exports = {
     // Oversize add-ons from the rate-card footnotes
     largePainting: { overInches: 72, deliveryFee: 100, installFee: 200 }, // per painting 72" or larger
     largeWallDecor: { overInches: 48, deliveryFee: 100, installFee: 200 }, // per wall-décor piece 48" or larger
-    // Frame type is asked when a framed painting, photograph or other wall-art piece is over 48" on W or H.
-    // Only "Large / heavy / ornate" is surcharged. Small / Medium add nothing.
-    heavyFrame: { askOverInches: 48, largeInstallOverInches: 72, deliveryFee: 25, installFee: 25, largeInstallFee: 100 },
+    // Frame type is asked when a framed painting, photograph or other wall-art piece is over 48" on any side.
+    // Pickup & delivery: only Large/heavy/ornate is surcharged (+$25), any size over 48".
+    // Install (install jobs only): all frame types are surcharged on a >48"/≤72" and >72" table.
+    heavyFrame: {
+      askOverInches: 48,
+      midInches: 72,
+      deliveryFee: 25,
+      install: {
+        upTo72: { small: 25, medium: 50, large: 100 },
+        over72: { small: 75, medium: 100, large: 150 },
+      },
+    },
+    // Height/location install surcharge (install jobs only), from the Hanging height question.
+    hangInstall: {
+      standard: 0,
+      mantel: { upTo72: 50, over72: 75 },
+      high: 125,
+      stairwell: 150,
+      other: 0,
+    },
     // Optional declared value protection, offered at intake (Aerena is auto-included operationally)
     valuation: { optional: true, rate: 0.015, label: 'Declared value protection (1.5%)' },
     // Member plan
@@ -58,6 +75,24 @@ module.exports = {
     volumeDiscount: { threshold: 1000, rate: 0.10, furnitureOnly: true },
     // Stairs / exceptionally heavy or long pieces: "an additional delivery or install fee may apply" — not a fixed published rate.
     stairsNote: 'A stairs or special-handling fee may apply and will be confirmed by CAD.',
+    // Stairs & technical-carry access fees (per piece, per stop). The per-flight rate is the
+    // higher of the weight rate and the size rate. Technical carry adds one extra unit at that
+    // same rate, on top of any stairs at that stop. Half flight = half the per-flight rate.
+    // ≤3 steps is $0. Not member-discounted. Edit the numbers here only.
+    accessFees: {
+      weight: [
+        { minLb: 400, fee: 200 }, // ≥400 lb
+        { minLb: 200, fee: 150 }, // ≥200 lb
+        { minLb: 100, fee: 75 },  // ≥100 lb
+        { minLb: 50,  fee: 50, exclusive: true }, // >50 lb (not including 50)
+        { minLb: 0,   fee: 0 },
+      ],
+      size: [
+        { minIn: 80, fee: 100, exclusive: true }, // >80"
+        { minIn: 72, fee: 50 },  // 72–80" inclusive
+        { minIn: 0,  fee: 0 },   // <72"
+      ],
+    },
     // Household moving & packing mid-range cheat sheet (Notes/Info) is for full-home moves, not this art-ordering form.
     // Rush / dedicated trips are not auto-priced. CAD (Samantha) quotes 1.5×–2× the regular rate.
     // "Other fragile or valuable item": priced by weight from the sculpture-by-weight card (closest published
@@ -155,31 +190,52 @@ module.exports = {
     showDays: 12,
     rushEnabled: true,
     blackoutDates: ['2026-11-26', '2026-11-27', '2026-12-24', '2026-12-25', '2027-01-01'],
-    timeWindows: ['Morning (8–12)', 'Midday (11–3)', 'Afternoon (1–5)', 'Flexible / all day'],
+    // Time-of-day guidance (CAD scheduling practice):
+    // Routes are built from midday outward. Jobs typically run 10am–evening, with
+    // preferred starts 11am–1pm. 8–9am is only used on packed days or for
+    // hard-deadline / important clients — never offer or imply 8am availability
+    // in the booking UI. Customers may note a before-10am need; we try but
+    // cannot promise.
+    timePrefs: [
+      { value: 'none', label: 'No preference' },
+      { value: 'midday', label: 'Midday' },
+      { value: 'afternoon', label: 'Afternoon / later in the day' },
+    ],
     socalZipMax: 935,
     // Simple OC Monday stop: 1–2 standard items only (not 1–3). Oversize paintings (72"+),
     // oversize wall décor (48"+), and sculpture over 700 lb are not booked as a simple stop.
     simpleOcMonday: { maxStandardItems: 2 },
     // Zone ids referenced by the weekly day catalog below.
     // Monday includes 'LA' in BOTH week types so LA customers can book either Monday.
+    //
+    // routeType (not in the source sheet; inferred from the Notes/Info tab route maps
+    // and the day descriptions above):
+    //   through     — one-way "through" days (the van keeps going). No flexibility note.
+    //   downAndBack — out-and-back or hub-based days, more flexibility to come early
+    //                 or on the way back. Shown as a small note when that day is selected.
+    // Assumptions: NorCal Mon/Tue/Sat/Sun and SoCal Mon are through (directional runs).
+    // NorCal Wed/Thu/Fri are down-and-back / based around San Jose. SoCal Tue Coachella,
+    // Wed San Diego, and Thu Orange County (Irvine hub) are down-and-back from the hub.
+    // Simple OC Monday stops sit at the hub start or return, so they are downAndBack
+    // even though the rest of that Monday is a through LA run.
     dayCatalog: {
       NorCal: {
-        0: { zones: ['Central', 'SB'], label: 'Central Coast → Santa Barbara (or on to LA)', shortLabel: 'Central Coast → SB' },
-        1: { zones: ['LA', 'SB'], label: 'LA, heading northwest (SB late or Fresno very late)', shortLabel: 'LA · heading NW',
-            simpleStops: [{ zone: 'OC', maxStandardItems: 2, label: 'OC simple stop (1–2 standard items) leaving the Irvine hub, then LA heading northwest', shortLabel: 'OC · simple stop' }] },
-        2: { zones: ['Carmel'], label: 'Carmel, Salinas and Monterey Bay (night in San Jose)', shortLabel: 'Carmel / Monterey' },
-        3: { zones: ['BayWest'], label: 'Silicon Valley, SF, Marin, Healdsburg, Cupertino', shortLabel: 'SV / SF / Marin' },
-        4: { zones: ['EastBay', 'Sacramento', 'Tahoe'], label: 'Sacramento & surroundings; East Bay if quick', shortLabel: 'Sacramento / East Bay' },
-        5: { zones: ['EastBay', 'NapaWine', 'BayWest'], label: 'East Bay, Napa; SF & Silicon Valley if quick', shortLabel: 'East Bay / Napa' },
-        6: { zones: ['Carmel'], label: 'Carmel / Salinas (then toward SLO or Fresno)', shortLabel: 'Carmel / Salinas' },
+        0: { zones: ['Central', 'SB'], label: 'Central Coast → Santa Barbara (or on to LA)', shortLabel: 'Central Coast → SB', routeType: 'through' },
+        1: { zones: ['LA', 'SB'], label: 'LA, heading northwest (SB late or Fresno very late)', shortLabel: 'LA · heading NW', routeType: 'through',
+            simpleStops: [{ zone: 'OC', maxStandardItems: 2, label: 'OC simple stop (1–2 standard items) leaving the Irvine hub, then LA heading northwest', shortLabel: 'OC · simple stop', routeType: 'downAndBack' }] },
+        2: { zones: ['Carmel'], label: 'Carmel, Salinas and Monterey Bay (night in San Jose)', shortLabel: 'Carmel / Monterey', routeType: 'through' },
+        3: { zones: ['BayWest'], label: 'Silicon Valley, SF, Marin, Healdsburg, Cupertino', shortLabel: 'SV / SF / Marin', routeType: 'downAndBack' },
+        4: { zones: ['EastBay', 'Sacramento', 'Tahoe'], label: 'Sacramento & surroundings; East Bay if quick', shortLabel: 'Sacramento / East Bay', routeType: 'downAndBack' },
+        5: { zones: ['EastBay', 'NapaWine', 'BayWest'], label: 'East Bay, Napa; SF & Silicon Valley if quick', shortLabel: 'East Bay / Napa', routeType: 'downAndBack' },
+        6: { zones: ['Carmel'], label: 'Carmel / Salinas (then toward SLO or Fresno)', shortLabel: 'Carmel / Salinas', routeType: 'through' },
       },
       SoCal: {
         0: { zones: [], label: 'No regular stops (OC overflow only)', overflow: true },
-        1: { zones: ['LA'], label: 'LA, heading southeast toward the Irvine hub', shortLabel: 'LA · heading SE',
-            simpleStops: [{ zone: 'OC', maxStandardItems: 2, label: 'OC simple stop (1–2 standard items) on the way back to the Irvine hub', shortLabel: 'OC · simple stop' }] },
-        2: { zones: ['Coachella'], label: 'Coachella Valley', shortLabel: 'Coachella Valley' },
-        3: { zones: ['SD'], label: 'San Diego County', shortLabel: 'San Diego County' },
-        4: { zones: ['OC'], label: 'Orange County (Irvine hub)', shortLabel: 'Orange County' },
+        1: { zones: ['LA'], label: 'LA, heading southeast toward the Irvine hub', shortLabel: 'LA · heading SE', routeType: 'through',
+            simpleStops: [{ zone: 'OC', maxStandardItems: 2, label: 'OC simple stop (1–2 standard items) on the way back to the Irvine hub', shortLabel: 'OC · simple stop', routeType: 'downAndBack' }] },
+        2: { zones: ['Coachella'], label: 'Coachella Valley', shortLabel: 'Coachella Valley', routeType: 'downAndBack' },
+        3: { zones: ['SD'], label: 'San Diego County', shortLabel: 'San Diego County', routeType: 'downAndBack' },
+        4: { zones: ['OC'], label: 'Orange County (Irvine hub)', shortLabel: 'Orange County', routeType: 'downAndBack' },
         5: { zones: [], label: 'No regular stops (OC overflow only)', overflow: true },
         6: { zones: [], label: 'No regular stops (OC overflow only)', overflow: true },
       },

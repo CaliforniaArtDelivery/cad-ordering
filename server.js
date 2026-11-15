@@ -13,7 +13,8 @@ const PORT = process.env.PORT || 3000;
 const BASE_URL = process.env.BASE_URL || `http://localhost:${PORT}`;
 const ADMIN_KEY = process.env.ADMIN_KEY || 'cad-admin';   // prototype only
 const storage = require('./lib/storage');
-const { TYPES, framingErrors, itemLine } = require('./lib/itemtypes');
+const { TYPES, framingErrors, itemLine, isHungItem } = require('./lib/itemtypes');
+const { lookupMember, resolveMember } = require('./lib/members');
 const ORDERS = path.join(storage.dir('data'), 'orders.json');
 const CUSTOMERS = path.join(storage.dir('data'), 'customers.json');
 
@@ -47,7 +48,7 @@ const upload = multer({
 });
 
 app.get('/api/config', (_, res) => res.json({
-  company: config.company, services: OFFERED_SERVICES, timeWindows: config.scheduling.timeWindows,
+  company: config.company, services: OFFERED_SERVICES, timePrefs: config.scheduling.timePrefs,
   payment: config.payment,
   pricing: {
     quoteMultiplierMin: config.pricing.quoteMultiplierMin,
@@ -60,13 +61,18 @@ app.get('/api/config', (_, res) => res.json({
 }));
 app.post('/api/upload', upload.array('photos', 10), (req, res) => res.json({ files: (req.files || []).map((f) => `/uploads/${f.filename}`) }));
 app.post('/api/quote', (req, res) => res.json(quote(req.body)));
+app.post('/api/member-code', (req, res) => {
+  const hit = lookupMember(req.body && req.body.code);
+  if (!hit) return res.json({ valid: false });
+  res.json({ valid: true, company: hit.company, code: hit.code });
+});
 app.post('/api/availability', (req, res) => {
   const o = req.body;
   const svc = SERVICES[o.service] || SERVICES.pickup_delivery;
-  // leg=dropoff: later delivery dates for the delivery address, after the pickup date.
+  // leg=dropoff: delivery dates for the delivery address, on or after the pickup date (same day allowed).
   if (o.leg === 'dropoff' && o.dropoff && o.schedule && o.schedule.date) {
     const from = new Date(o.schedule.date + 'T12:00:00Z');
-    return res.json({ region: sched.regionFor(o.dropoff), zone: sched.zoneFor(o.dropoff), days: sched.availableDays(o.dropoff, { from, count: 8, order: o }), rush: [] });
+    return res.json({ region: sched.regionFor(o.dropoff), zone: sched.zoneFor(o.dropoff), days: sched.availableDays(o.dropoff, { from, count: config.scheduling.showDays, order: o, leadTime: 0 }), rush: [] });
   }
   const first = svc.needsPickup ? o.pickup : o.dropoff;
   const addr = first && (first.zip || first.city) ? first : o.dropoff;
@@ -95,12 +101,20 @@ function validate(o) {
     if (!siteContact(o.dropoff)) errs.push('dropoff contact');
   }
   if (!o.contact?.name || !o.contact?.email) errs.push('contact');
+  if (o.payer === 'other') {
+    if (!String(o.payerOther?.name || '').trim()) errs.push('payer name');
+    if (!/\S+@\S+\.\S+/.test(o.payerOther?.email || '')) errs.push('payer email');
+    if (String(o.payerOther?.phone || '').replace(/\D/g, '').length < 7) errs.push('payer phone');
+  }
   // Photo rules: required for items over 500 lb and 'other' items (special handling does not require photos). Technical carries and high installs are below.
   const numVal = (s) => { const n = Number(String(s ?? '').replace(/,/g, '')); return Number.isFinite(n) ? n : 0; };
   const needsPhoto = (it) => numVal(it.weight) > 500 || it.type === 'other';
   if ((o.items || []).some((it) => needsPhoto(it) && !(it.photos || []).length)) errs.push('photos (items over 500 lb or unusual pieces)');
-  for (const k of ['pickup', 'dropoff']) if (o[k]?.technicalCarry && !(o[k].sitePhotos || []).length) errs.push(`${k} carry-path photos`);
-  if (SERVICES[o.service]?.install && o.dropoff?.highInstall && !(o.dropoff.wallPhotos || []).length) errs.push('wall photo (high install)');
+  if (SERVICES[o.service]?.install) {
+    (o.items || []).forEach((it) => {
+      if (isHungItem(it) && it.hangHeight === 'higher' && it.hangWhere === 'stairwell' && !((it.hangPhotos || []).length)) errs.push('photos of the stairwell');
+    });
+  }
   const ship = SERVICES[o.service]?.shipping || isOutOfState(o);
   if (ship) {
     // Samantha prices shipping without follow-up, so collect what she needs.
@@ -113,8 +127,9 @@ function validate(o) {
     if (!o.schedule?.date) errs.push('schedule');
     // In-California white-glove jobs: every piece needs a declared value (protection / high-value handling depend on it).
     if ((o.items || []).some((it) => it.type !== 'custom' && !(numVal(it.value) > 0))) errs.push('declared value for every piece');
+    const twoDates = SERVICES[o.service]?.needsPickup && SERVICES[o.service]?.needsDropoff;
+    if (twoDates && (!o.schedule?.deliveryDate || o.schedule.deliveryDate < o.schedule.date)) errs.push('delivery date');
   }
-  if (!ship && o.schedule?.deliveryLater && (!o.schedule.deliveryDate || o.schedule.deliveryDate <= o.schedule.date)) errs.push('delivery date');
   return errs;
 }
 
@@ -134,13 +149,17 @@ app.post('/api/orders', (req, res) => {
     ...(outOfState ? { requestedService: b.service, outOfState: true } : {}),
     ...(shipping ? { shipping: b.shipping || {} } : {}),
     crating: !!b.crating, rush: !!b.rush, dedicated: !!b.dedicated,
-    member: !!b.member,
+    member: !!resolveMember(b),
+    memberCode: (resolveMember(b) || {}).code || '',
+    memberCompany: (resolveMember(b) || {}).company || '',
+    heard: b.heard || {},
+    referral: !!b.referral,
     // In-CA: mandatory on pieces valued $50K or less (none offered above). Shipping quotes: the customer's choice.
     declaredValueProtection: shipping ? false : (b.items || []).some((it) => Number(it.value) > 0 && Number(it.value) <= 50000),
     items: b.items, pickup: b.pickup || {}, dropoff: b.dropoff || {},
     contact: b.contact, partner: b.partner || {}, payer: b.payer || 'me', payerOther: b.payerOther || {},
     schedule: shipping
-      ? { date: '', window: '', region: 'Shipping', deliveryLater: false, deliveryDate: '' }
+      ? { date: '', region: 'Shipping', deliveryLater: false, deliveryDate: '', timePref: 'none', timeNote: '', deliveryTimePref: 'none', deliveryTimeNote: '' }
       : { ...b.schedule, region: sched.regionForDate(new Date(b.schedule.date + 'T12:00:00Z')) },
     notes: b.notes || '',
     emails: [],

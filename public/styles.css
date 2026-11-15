@@ -113,9 +113,13 @@ input:focus,select:focus,textarea:focus{border-color:var(--navy);background:#fff
 
 .sum-row{display:flex;justify-content:space-between;gap:16px;padding:9px 0;border-top:1px solid var(--line);font-size:15px}
 .sum-row:first-child{border-top:0}
-.sum-row > span:first-child{color:var(--muted);flex:1 1 auto;min-width:0;overflow-wrap:anywhere}
+.sum-row > span:first-child{color:var(--muted);flex:1;min-width:0;overflow-wrap:anywhere}
 .sum-row > span:last-child{flex:0 1 auto;max-width:64%;min-width:0;text-align:right;overflow-wrap:anywhere}
 .sum-row > span:only-child{max-width:none}
+/* Price amounts never wrap (e.g. "$75" must not split to "$7" / "5"); the label wraps instead. */
+.sum-row > .amt, .total > .amt, .total > span:last-child, .price-card .sum-row > span:last-child, .plan .sum-row > span:last-child{
+  flex:0 0 auto;flex-shrink:0;min-width:auto;max-width:none;white-space:nowrap;font-variant-numeric:tabular-nums;text-align:right;overflow-wrap:normal}
+.total > span:first-child{flex:1;min-width:0}
 .edit{background:none;border:0;padding:0 0 0 8px;font:inherit;font-size:14px;font-weight:600;color:var(--navy);cursor:pointer}
 .total{display:flex;justify-content:space-between;align-items:baseline;padding-top:12px;margin-top:6px;border-top:1.5px solid var(--ink);font-size:21px;font-weight:650}
 .plan{margin-top:12px;background:var(--sand);border-radius:12px;padding:4px 14px}
@@ -142,7 +146,7 @@ input:focus,select:focus,textarea:focus{border-color:var(--navy);background:#fff
 .need-line[hidden]{display:none!important}
 .estimate{min-width:0}
 .est-label{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.1em;white-space:nowrap}
-.est-total{font-size:22px;font-weight:650;letter-spacing:-.02em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.est-total{font-size:22px;font-weight:650;letter-spacing:-.02em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-variant-numeric:tabular-nums}
 .dock-actions{display:flex;gap:6px;flex:none}
 .btn{font:inherit;font-size:17px;font-weight:600;border-radius:14px;padding:14px 22px;border:0;cursor:pointer;transition:transform .15s var(--ease),opacity .2s;white-space:nowrap}
 .btn:active{transform:scale(.97)}
@@ -211,3 +215,14 @@ input:focus,select:focus,textarea:focus{border-color:var(--navy);background:#fff
 
 .req-msg{margin:8px 0 0;font-size:14px;line-height:1.4;color:var(--need-red)}
 .choice{min-height:44px}
+
+.member-ok{color:var(--ok);font-size:14px;line-height:1.4;margin:8px 0 0}
+.member-pitch{font-size:14px;line-height:1.45;margin:8px 0 4px}
+
+.when-h1 b{font-weight:700;letter-spacing:.04em}
+.pickup-chip{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:22px 0 10px;padding:12px 16px;background:var(--sand,#f4f3ef);border-radius:14px;font-size:15px;line-height:1.35}
+.pickup-chip b{font-weight:650;margin-right:.35em}
+.time-reassure{margin:12px 0 4px;padding:14px 16px;background:var(--sand,#f4f3ef);border-radius:14px;font-size:14px;line-height:1.5;color:var(--ink)}
+.time-reassure p{margin:0}
+.route-hint{margin-top:10px}
+h2 .opt{font-weight:500;color:var(--muted);letter-spacing:0;text-transform:none;font-size:14px}

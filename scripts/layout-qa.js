@@ -81,7 +81,49 @@ async function checkStep(page, label, problems, freshStep = false) {
   });
   if (Math.abs(sb.now - sb.target) > 1) problems.push(`${label}: scroll snapped from ${sb.target} to ${sb.now}`);
   // Overscroll at top then release: page should rest at 0 with heading visible (tested above at 0).
+  await checkPriceAmounts(page, label, problems);
   return r;
+}
+
+
+async function checkPriceAmounts(page, label, problems) {
+  const issues = await page.evaluate(() => {
+    const app = document.querySelector('#app') || document.body;
+    const host = document.createElement('div');
+    host.id = 'price-wrap-qa';
+    host.style.cssText = 'width:100%;max-width:100%;padding:0;';
+    host.innerHTML = `<div class="card price-card">
+      <div class="sum-row"><span>Very long price label that should wrap instead of the amount — Frame handling — Piece 1 (large/heavy, over 72") plus stairs and technical carry</span><span class="amt">$1,000,000</span></div>
+      <div class="sum-row"><span>Short</span><span class="amt">$75</span></div>
+      <div class="total"><span>Total</span><span class="amt">$1,000,000.00</span></div>
+    </div>`;
+    app.appendChild(host);
+    const out = [];
+    const width = document.documentElement.clientWidth;
+    for (const amt of host.querySelectorAll('.amt')) {
+      const rects = amt.getClientRects();
+      if (rects.length > 1) out.push(`amount wrapped into ${rects.length} lines at ${width}px: ${amt.textContent}`);
+      const cs = getComputedStyle(amt);
+      if (cs.whiteSpace !== 'nowrap' || cs.flexShrink !== '0') out.push(`amount styles at ${width}px: white-space=${cs.whiteSpace} flex-shrink=${cs.flexShrink} for ${amt.textContent}`);
+      const row = amt.closest('.sum-row, .total');
+      if (row) {
+        const rb = row.getBoundingClientRect();
+        const ab = amt.getBoundingClientRect();
+        if (ab.right > rb.right + 1) out.push(`amount overflows its row at ${width}px: ${amt.textContent}`);
+        const labelEl = row.firstElementChild;
+        const ls = getComputedStyle(labelEl);
+        if (!(parseFloat(ls.flexGrow) >= 1) || ls.minWidth !== '0px') out.push(`label should flex:1;min-width:0 at ${width}px (flex-grow=${ls.flexGrow}, min-width=${ls.minWidth})`);
+      }
+    }
+    // Real on-page price amounts, if any, must also stay on one line.
+    for (const amt of document.querySelectorAll('.price-card .amt, .plan .amt, .total .amt')) {
+      if (host.contains(amt)) continue;
+      if (amt.getClientRects().length > 1) out.push(`live amount wrapped: ${amt.textContent}`);
+    }
+    host.remove();
+    return out;
+  });
+  issues.forEach((i) => problems.push(`${label}: ${i}`));
 }
 
 async function inStepToggleKeepsScroll(page, selector, label, problems) {
@@ -128,20 +170,21 @@ async function inStepToggleKeepsScroll(page, selector, label, problems) {
     await checkStep(page, L('2 Where (after Continue)'), problems, true);
     await fill(page, 'contact.name', 'Jordan Lee'); await fill(page, 'contact.email', 'j@example.com'); await fill(page, 'contact.phone', '3105550199');
     for (const k of ['pickup', 'dropoff']) { await fill(page, `${k}.street`, '8678 Melrose Ave'); await fill(page, `${k}.city`, 'West Hollywood'); await fill(page, `${k}.zip`, '90069'); }
+    for (const k of ['pickup', 'dropoff']) { if (await page.$(`[data-path="${k}.contactRole"]`)) await page.selectOption(`[data-path="${k}.contactRole"]`, 'Homeowner'); }
     await inStepToggleKeepsScroll(page, '[data-same="dropoff"]', L('2 Where'), problems);
     await inStepToggleKeepsScroll(page, '[data-same="pickup"]', L('2 Where'), problems);
     await inStepToggleKeepsScroll(page, 'label.toggle:has([data-path="dropoff.elevator"])', L('2 Where'), problems);
     await inStepToggleKeepsScroll(page, '[data-stairs="dropoff"] button[data-v="2"]', L('2 Where'), problems);
-    await inStepToggleKeepsScroll(page, 'label.toggle:has([data-path="referral"])', L('2 Where'), problems);
+    await inStepToggleKeepsScroll(page, 'label.toggle:has([data-path="heard.repeatClient"])', L('2 Where'), problems);
     await inStepToggleKeepsScroll(page, 'label.toggle:has([data-path="pickup.parkingRestricted"])', L('2 Where'), problems);
     await inStepToggleKeepsScroll(page, '[data-seg="dropoff.fits"] button[data-v="not_sure"]', L('2 Where'), problems);
     await checkStep(page, L('2 Where'), problems);
     await page.click('#nextBtn'); await page.waitForSelector('.day');
     await checkStep(page, L('3 When (after Continue)'), problems, true);
-    await page.click('.day:not(.rush)');
-    await inStepToggleKeepsScroll(page, '[data-chips] .chip >> nth=1', L('3 When'), problems);
-    await inStepToggleKeepsScroll(page, 'label.toggle:has([data-path="schedule.deliveryLater"])', L('3 When'), problems);
-    await page.waitForSelector('[data-deldate]'); await inStepToggleKeepsScroll(page, '[data-deldate]', L('3 When'), problems);
+    await page.click('[data-reqblock="date"] .day:not(.rush)');
+    await page.waitForSelector('[data-deldate]');
+    await inStepToggleKeepsScroll(page, '[data-chips="schedule.timePref"] .chip >> nth=1', L('3 When'), problems);
+    await inStepToggleKeepsScroll(page, '[data-deldate]', L('3 When'), problems);
     await checkStep(page, L('3 When'), problems);
     await page.click('#nextBtn'); await page.waitForTimeout(800);
     await checkStep(page, L('4 Pay (after Continue)'), problems, true);
