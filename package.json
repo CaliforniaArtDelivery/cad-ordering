@@ -1,0 +1,25 @@
+{
+  "name": "cad-ordering",
+  "version": "1.0.0",
+  "description": "California Art Delivery online ordering prototype",
+  "main": "index.js",
+  "scripts": {
+    "start": "node server.js",
+    "e2e": "node scripts/e2e.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "express": "^5.3.0",
+    "multer": "^2.5.0",
+    "stripe": "^23.1.0"
+  },
+  "devDependencies": {
+    "playwright": "^1.65.1"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

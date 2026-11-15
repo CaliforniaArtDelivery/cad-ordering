@@ -1,0 +1,22 @@
+# Render Blueprint: Node web service on the free plan.
+# Test deployment only: mock payments, emails written to outbox/ (never sent), orders written to data/ (never the real
+# CAD Google Sheet). Render's free filesystem is ephemeral, so data/, outbox/ and uploads/ reset on every restart,
+# redeploy or idle spin-down (after ~15 min without traffic; the first visit after that takes ~1 min). Fine for testing.
+services:
+  - type: web
+    name: cad-ordering-test            # -> https://cad-ordering-test.onrender.com if the name is free
+    runtime: node
+    plan: free
+    buildCommand: npm ci --omit=dev
+    startCommand: npm start
+    healthCheckPath: /api/config
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: NODE_ENV
+        value: production
+      - key: ADMIN_KEY
+        value: cad-admin
+      - key: BASE_URL                  # used in payment links inside outbox emails; update if Render assigns another name
+        value: https://cad-ordering-test.onrender.com

@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CAD · Orders admin</title><link rel="stylesheet" href="/styles.css">
+<style>
+.app{max-width:1200px}
+table{width:100%;border-collapse:collapse;font-size:14px}
+th{text-align:left;color:var(--muted);font-weight:500;font-size:12px;text-transform:uppercase;letter-spacing:.08em;padding:10px 12px;border-bottom:1px solid var(--line)}
+td{padding:14px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+tr.o{cursor:pointer} tr.o:hover td{background:#faf9f6}
+.pill{display:inline-block;border-radius:999px;padding:4px 10px;font-size:12px;font-weight:600;background:var(--sand)}
+.pill.confirmed{background:#e3f3ea;color:var(--ok)} .pill.awaiting_payment{background:#fff4d6;color:#7a5a00}
+.pill.pending_approval{background:#ece8ff;color:#3d2c85}
+.bar2{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:0 0 20px}
+.btn.sm{font-size:14px;padding:10px 16px;border-radius:10px}
+.btn.light{background:#fff;color:var(--ink);border:1px solid var(--line)}
+.detail td{background:#fbfaf7}
+.map{width:100%;font-size:12px;overflow:auto}
+.map td,.map th{padding:6px 8px;white-space:pre-wrap;border-bottom:1px solid var(--line)}
+.map th{white-space:nowrap}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:20px}
+.stat{background:#fff;border-radius:16px;padding:18px}.stat b{display:block;font-size:26px;letter-spacing:-.02em}.stat span{color:var(--muted);font-size:13px}
+.approve{background:#fff;border:1px solid var(--line);border-radius:16px;padding:18px;margin:0 0 16px}
+.approve h3{margin:0 0 8px;font-size:16px}
+.approve .row{display:grid;grid-template-columns:160px 1fr auto;gap:12px;align-items:end}
+@media(max-width:700px){.approve .row{grid-template-columns:1fr}}
+.caution{background:#fff4d6;color:#7a5a00;border-radius:12px;padding:10px 12px;font-size:13px;margin:10px 0 0}
+</style></head>
+<body>
+<header class="top"><div class="brand"><img class="logo" src="/cad-logo.jpg" width="1023" height="928" alt="California Art Delivery"><span class="brand-name">Orders · Admin</span></div><a class="steps-label" href="/">Open booking flow →</a></header>
+<main class="app">
+  <h1>Online orders</h1>
+  <p class="sub">Confirmed orders are appended to <code>data/schedule-2026.csv</code> using the exact SCHEDULE 2026 columns (A–AJ). The real Google Sheet is never touched. Rush and dedicated trips stay in “pending approval” until Samantha sets a price (she may consult Chad) and the customer pays.</p>
+  <div class="stats" id="stats"></div>
+  <div class="bar2"><a class="btn primary sm" id="csv">Download schedule CSV</a><button class="btn light sm" id="reload">Refresh</button></div>
+  <div class="card" style="padding:6px 10px"><table><thead><tr><th>Order</th><th>Date / route</th><th>Service</th><th>Client</th><th>Town</th><th>Estimate</th><th>Payment</th><th>Status</th></tr></thead><tbody id="rows"></tbody></table></div>
+</main>
+<script>
+const key = new URLSearchParams(location.search).get('key') || prompt('Admin key') || '';
+const esc = (v) => String(v ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const fmt = (n) => '$' + Number(n).toLocaleString('en-US', { maximumFractionDigits: 0 });
+let DATA = null; let open = null;
+document.getElementById('csv').href = `/api/admin/schedule.csv?key=${encodeURIComponent(key)}`;
+async function load() {
+  const r = await fetch(`/api/admin/orders?key=${encodeURIComponent(key)}`);
+  if (!r.ok) { document.getElementById('rows').innerHTML = '<tr><td colspan=8>Admin key required.</td></tr>'; return; }
+  DATA = await r.json(); draw();
+}
+function estimateCell(o) {
+  const q = o.quote || {};
+  if (q.shipping && !q.approvedPrice) return 'Shipping quote<br><span class="muted">priced by Samantha</span>';
+  if (q.paymentPlan === 'quote' && q.quoteRange) return `${fmt(q.quoteRange.low)}–${fmt(q.quoteRange.high)}<br><span class="muted">range · regular ${fmt(q.regularTotal || q.total)}</span>`;
+  return fmt(q.total);
+}
+function draw() {
+  const os = DATA.orders, conf = os.filter((o) => o.status === 'confirmed');
+  const pending = os.filter((o) => o.status === 'pending_approval');
+  document.getElementById('stats').innerHTML = [
+    [os.length, 'Orders'], [conf.length, 'Confirmed'], [pending.length, 'Pending quotes'],
+    [fmt(conf.reduce((s, o) => s + o.quote.total, 0)), 'Booked revenue (est.)'],
+  ].map(([b, s]) => `<div class="stat"><b>${b}</b><span>${s}</span></div>`).join('');
+  document.getElementById('rows').innerHTML = os.map((o) => `<tr class="o" data-id="${o.id}">
+    <td><b>${esc(o.id)}</b><br><span class="muted">${new Date(o.createdAt).toLocaleString('en-US',{timeZone:'America/Los_Angeles',month:'short',day:'numeric',hour:'numeric',minute:'2-digit'})} PT</span></td>
+    <td>${o.service === 'crating_shipping' ? '<b>SHIPPING</b>' : esc(o.schedule.date)}<br><span class="muted">${esc(o.schedule.region)}${o.outOfState ? ' · OUT OF STATE' : ''}${o.rush ? ' · RUSH' : ''}${o.dedicated ? ' · DEDICATED' : ''}</span></td>
+    <td>${esc(o.serviceLabel)}<br><span class="muted">${o.items.reduce((s, i) => s + Number(i.qty || 1), 0)} piece(s)</span></td>
+    <td>${esc(o.contact.name)}<br><span class="muted">${esc(o.contact.clientType)}${o.partner?.name ? ' · via ' + esc(o.partner.name) : ''}</span></td>
+    <td>${esc(o.dropoff.city || o.pickup.city)}${o.dropoff.country && !/^(us|usa|united states)/i.test(o.dropoff.country) ? ', ' + esc(o.dropoff.country) : o.dropoff.state && !/^ca$/i.test(o.dropoff.state) ? ', ' + esc(o.dropoff.state) : ''}</td><td>${estimateCell(o)}</td>
+    <td>${o.payment ? esc(o.payment.method) + (o.payment.status === 'paid' ? ' · paid' : o.payment.status === 'ach_processing' ? ' · ACH processing' : ' · ' + o.payment.status) : (o.status === 'awaiting_payment' ? 'awaiting pay' : '—')}</td>
+    <td><span class="pill ${o.status}">${o.status.replace(/_/g, ' ')}</span></td></tr>
+    ${open === o.id ? `<tr class="detail"><td colspan=8 id="detail">Loading…</td></tr>` : ''}`).join('') || '<tr><td colspan=8 class="muted">No orders yet.</td></tr>';
+  if (open) detail(open);
+}
+function approveBox(o) {
+  if (o.status !== 'pending_approval') return '';
+  const q = o.quote || {};
+  const mid = q.quoteRange ? Math.round((q.quoteRange.low + q.quoteRange.high) / 2) : (q.total || 0);
+  if (q.shipping) return `<div class="approve" id="approveBox">
+    <h3>Samantha — price this shipping quote</h3>
+    <p class="muted" style="margin:0 0 12px">Crating &amp; Shipping request${o.outOfState ? ' (an address is outside California, so it became a shipping quote automatically)' : ''}. There is no rate card: set the full price for crating, shipping, destination service and the shipping partner’s insurance on the declared value (no declared value protection or high-value markup on shipping). Approving writes a payment-link email to the outbox (not sent).</p>
+    <div class="row">
+      <div class="field" style="margin:0"><label class="f">Final price ($)</label><input type="number" id="approvePrice" min="1" step="1" value=""></div>
+      <div class="field" style="margin:0"><label class="f">Note (optional)</label><input type="text" id="approveNote" placeholder="Carrier, crate specs, transit time…"></div>
+      <button class="btn primary sm" id="approveBtn" data-approve="${o.id}">Approve as Samantha and send payment link</button>
+    </div>
+    <div class="err" id="approveErr"></div>
+  </div>`;
+  return `<div class="approve" id="approveBox">
+    <h3>Samantha — approve and set a price</h3>
+    <p class="muted" style="margin:0 0 12px">Samantha sets the final price on rush, dedicated-trip and custom-crating quotes (she may consult Chad). Regular rate ${fmt(q.regularTotal || q.total)}. ${q.tripPremium === false ? 'Crating only: transport at the regular rate. Add the crating partner’s price.' : `Suggested range ${q.quoteRange ? fmt(q.quoteRange.low) + '–' + fmt(q.quoteRange.high) : '—'} (1.5× to 2×), based on how far out of the way and how large the job is.${o.crating ? ' Add the crating partner’s price.' : ''}`} Approving writes a payment-link email to the outbox (not sent). The customer is not charged until they pay.</p>
+    <div class="row">
+      <div class="field" style="margin:0"><label class="f">Final price ($)</label><input type="number" id="approvePrice" min="1" step="1" value="${mid}"></div>
+      <div class="field" style="margin:0"><label class="f">Note (optional)</label><input type="text" id="approveNote" placeholder="Why this price, logistics notes…"></div>
+      <button class="btn primary sm" id="approveBtn" data-approve="${o.id}">Approve as Samantha and send payment link</button>
+    </div>
+    <div class="caution">Dedicated trips should not displace existing scheduled jobs. Only approve a dedicated or rush trip if it fits around the current route.</div>
+    <div class="err" id="approveErr"></div>
+  </div>`;
+}
+async function detail(id) {
+  const o = DATA.orders.find((x) => x.id === id);
+  const { rows } = await (await fetch(`/api/admin/orders/${id}/rows?key=${encodeURIComponent(key)}`)).json();
+  const cols = DATA.columns.map((c, i) => [DATA.letters[i], c]);
+  const map = rows.length ? `<b>Schedule row${rows.length > 1 ? 's' : ''} (SCHEDULE 2026 columns)</b>
+    <div class="map"><table><thead><tr><th>Col</th><th>Header</th>${rows.map((_, i) => `<th>Row ${i + 1}</th>`).join('')}</tr></thead>
+    <tbody>${cols.map(([l, c], i) => `<tr><td>${l}</td><td>${esc(c)}</td>${rows.map((r) => `<td>${esc(r[i])}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`
+    : '<p class="muted">No schedule rows yet. Rows are written only after the customer pays and the order is confirmed.</p>';
+  const ship = o.shippingLines ? `<div class="approve"><h3>Shipping details</h3>${o.shippingLines.map(([k, v]) => `<p style="margin:0 0 6px"><b>${esc(k)}</b> ${esc(v)}</p>`).join('')}</div>` : '';
+  const itemsBox = o.itemLines ? `<div class="approve"><h3>Pieces</h3>${o.itemLines.map((l) => `<p style="margin:0 0 6px">${esc(l)}</p>`).join('')}</div>` : '';
+  document.getElementById('detail').innerHTML = `
+    ${itemsBox}${ship}${approveBox(o)}
+    <div class="bar2"><b>Emails</b>
+      <button class="btn light sm" data-email="confirmation">Re-send confirmation</button>
+      <button class="btn light sm" data-email="reminder">Send reminder</button>
+      <button class="btn light sm" data-email="eta">Send ETA (45 min)</button>
+      <span class="muted">Logged to outbox, never sent.</span></div>
+    <p>${o.emails.map((e) => `<a href="/outbox/${e.file}?key=${encodeURIComponent(key)}" target="_blank">${esc(e.kind)}</a> <span class="muted">${new Date(e.at).toLocaleTimeString('en-US',{timeZone:'America/Los_Angeles'})} PT</span>`).join(' · ') || '<span class="muted">No emails yet.</span>'}</p>
+    ${map}`;
+}
+document.addEventListener('click', async (e) => {
+  const approve = e.target.closest('[data-approve]');
+  if (approve) {
+    e.stopPropagation();
+    const err = document.getElementById('approveErr');
+    const price = Number(document.getElementById('approvePrice').value);
+    const note = document.getElementById('approveNote').value;
+    approve.disabled = true;
+    const r = await fetch(`/api/admin/orders/${approve.dataset.approve}/approve?key=${encodeURIComponent(key)}`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ price, note }),
+    });
+    const j = await r.json();
+    if (!r.ok) { err.textContent = j.error || 'Could not approve'; approve.disabled = false; return; }
+    return load();
+  }
+  const em = e.target.closest('[data-email]');
+  if (em) { e.stopPropagation(); await fetch(`/api/admin/orders/${open}/email/${em.dataset.email}?key=${encodeURIComponent(key)}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ eta: '45 min' }) }); return load(); }
+  const tr = e.target.closest('tr.o'); if (tr) { open = open === tr.dataset.id ? null : tr.dataset.id; draw(); }
+  if (e.target.id === 'reload') load();
+});
+load();
+</script></body></html>

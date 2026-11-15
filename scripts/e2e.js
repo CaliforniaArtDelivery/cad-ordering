@@ -1,0 +1,499 @@
+// End-to-end test + screenshots for the 4-step flow. Usage: npm run e2e (server must be running on :3000)
+// E2E_BROWSER=webkit to run in WebKit (if host deps are installed); default Chromium with iPhone emulation.
+const pw = require('playwright');
+const path = require('path');
+const fs = require('fs');
+const BASE = process.env.BASE_URL || 'http://localhost:3000';
+const ROOT = path.join(__dirname, '..');
+const SHOTS = path.join(ROOT, 'screenshots', 'v-next');
+fs.mkdirSync(SHOTS, { recursive: true });
+const engine = pw[process.env.E2E_BROWSER || 'chromium'];
+
+// Viewport screenshot = exactly what the phone shows (real header + docked bar). Full = whole page with the dock un-fixed.
+const shot = async (page, name, { full = true, top = true } = {}) => {
+  if (top) { await page.evaluate(() => window.scrollTo(0, 0)); await page.waitForTimeout(450); }
+  await page.screenshot({ path: path.join(SHOTS, name + '.png') });
+  if (full) await page.screenshot({ path: path.join(SHOTS, name + '-full.png'), fullPage: true, style: '.dock{position:relative!important}.app{padding-bottom:24px!important}' });
+};
+const docShot = async (page, name) => page.screenshot({ path: path.join(SHOTS, name + '.png'), fullPage: true });
+const fill = (page, p, v) => page.fill(`[data-path="${p}"]`, String(v));
+const frame = async (page, i, framed, glazing) => { await page.click(`[data-seg="items.${i}.framed"] [data-v="${framed}"]`); await page.waitForTimeout(150); if (glazing) { await page.click(`[data-seg="items.${i}.glazing"] [data-v="${glazing}"]`); await page.waitForTimeout(150); } };
+const next = async (page) => { await page.click('#nextBtn:not([disabled])'); await page.waitForTimeout(450); };
+const hasText = async (page, re) => re.test(await page.content());
+const startFresh = async (page) => { await page.goto(BASE); await page.evaluate(() => sessionStorage.clear()); await page.goto(BASE); await page.waitForSelector('[data-service]'); };
+const me = async (page, name, email, phone) => { await fill(page, 'contact.name', name); await fill(page, 'contact.email', email); await fill(page, 'contact.phone', phone); };
+const fillSite = async (page, key, { street, city, zip, business, contactName, contactPhone, same, floor, hours, notes }) => {
+  await fill(page, `${key}.street`, street); await fill(page, `${key}.city`, city); await fill(page, `${key}.zip`, zip);
+  if (business) await fill(page, `${key}.business`, business);
+  if (same) { await page.click(`[data-same="${key}"]`); await page.waitForTimeout(150); }
+  else { await fill(page, `${key}.contactName`, contactName); await fill(page, `${key}.contactPhone`, contactPhone); }
+  if (floor) await fill(page, `${key}.floor`, floor);
+  if (hours) await fill(page, `${key}.hours`, hours);
+  if (notes) await fill(page, `${key}.notes`, notes);
+};
+const pickDay = async (page, chip = 0) => { await page.waitForSelector('.day'); await page.click('.day:not(.rush)'); await page.click(`[data-chips] .chip >> nth=${chip}`); await page.waitForTimeout(250); };
+const laTrip = async (page, name, email) => {
+  await me(page, name, email, '310-555-0100');
+  await fillSite(page, 'pickup', { street: '8678 Melrose Ave', city: 'West Hollywood', zip: '90069', contactName: name, contactPhone: '310-555-0100' });
+  await fillSite(page, 'dropoff', { street: '1200 Summit Ridge Dr', city: 'Beverly Hills', zip: '90210', same: true });
+  await next(page); await pickDay(page); await next(page); await page.waitForTimeout(500);
+};
+const readOrders = () => JSON.parse(fs.readFileSync(path.join(ROOT, 'data', 'orders.json'), 'utf8'));
+
+(async () => {
+  const browser = await engine.launch();
+  const errors = [];
+  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: process.env.E2E_BROWSER !== 'firefox' && process.env.E2E_BROWSER !== 'webkit' ? true : undefined, hasTouch: true });
+  const page = await ctx.newPage();
+  page.on('pageerror', (e) => errors.push('pageerror: ' + e.message));
+  const expect = async (re, msg, neg = false) => { const ok = await hasText(page, re); if (neg ? ok : !ok) errors.push(msg); };
+
+  // ---- Order 1: Delivery + Install, paintings + sculpture, full payment by card ----
+  await startFresh(page);
+  await shot(page, '01-what-service');
+  if (await page.locator('[data-path="items.0.description"]').count()) errors.push('item fields should appear only after a service is picked');
+  const svcIds = await page.$$eval('[data-service]', (els) => els.map((e) => e.dataset.service));
+  if (svcIds.join(',') !== 'pickup_delivery,delivery_install,install_only,crating_shipping') errors.push('services must be Pickup + Delivery / Pickup, Delivery + Install / Install only / Crating & Shipping, got ' + svcIds);
+  await expect(/door[ -]to[ -]door/i, 'never say door to door', true);
+  await expect(/White-glove pickup and delivery/, 'Pickup + Delivery card should use white-glove copy');
+  await expect(/>Delivery<\/b>|>Pickup<\/b>/, 'delivery-only / pickup-only must not be offered', true);
+  await expect(/Pickup, Delivery \+ Install/, 'missing Pickup, Delivery + Install');
+  await page.click('[data-service="delivery_install"]'); await page.waitForTimeout(600);
+  await expect(/Oil on canvas by J\. Smith/, 'painting description placeholder should be e.g. Oil on canvas by J. Smith');
+  await fill(page, 'items.0.description', 'Oil on canvas by J. Smith');
+  await fill(page, 'items.0.w', 48); await fill(page, 'items.0.h', 60); await fill(page, 'items.0.d', 3);
+  if (await page.locator('[data-path="items.0.weight"]').count()) errors.push('painting should not ask for weight');
+  await fill(page, 'items.0.value', 28000);
+  if (await page.locator('[data-path="items.0.framedGlass"]').count()) errors.push('old Framed with glass toggle must be gone for paintings');
+  if (!(await page.$('[data-seg="items.0.framed"]'))) errors.push('painting must ask Framed?');
+  if (await page.$('[data-seg="items.0.framed"] button.on')) errors.push('Framed? must have no default');
+  if (!(await page.$eval('#nextBtn', (b) => b.disabled))) errors.push('Continue must be blocked until Framed? is answered');
+  await frame(page, 0, 'yes');
+  if (!(await page.$('[data-seg="items.0.glazing"]'))) errors.push('Framed = Yes must ask Glass or acrylic glazing?');
+  if (!(await page.$eval('#nextBtn', (b) => b.disabled))) errors.push('Continue must be blocked until glazing is answered');
+  await frame(page, 0, 'yes', 'yes');
+  if (await page.$eval('#nextBtn', (b) => b.disabled)) errors.push('Continue should enable once Framed + glazing are answered');
+  await page.evaluate(() => { document.getElementById('dock').style.visibility = 'hidden'; });
+  await page.locator('#app .card').first().screenshot({ path: path.join(SHOTS, 'piece1-painting-framed.png') });
+  await page.evaluate(() => { document.getElementById('dock').style.visibility = ''; });
+  await page.setInputFiles('[data-upload="0"]', path.join(__dirname, 'sample-artwork.png')); await page.waitForTimeout(700);
+  await page.click('[data-dup="0"]'); await page.waitForTimeout(200);
+  if ((await page.inputValue('[data-path="items.1.description"]')) !== 'Oil on canvas by J. Smith') errors.push('Duplicate item did not copy the piece');
+  await page.click('[data-remove="1"]'); await page.waitForTimeout(200);
+  await page.click('#addItem'); await page.waitForTimeout(200);
+  await page.click('[data-itemtype="1"] button[data-v="sculpture"]'); await page.waitForTimeout(200);
+  await fill(page, 'items.1.qty', 2); await fill(page, 'items.1.description', 'Bronze sculpture on plinth');
+  await fill(page, 'items.1.w', 16); await fill(page, 'items.1.h', 52); await fill(page, 'items.1.d', 15); await fill(page, 'items.1.weight', 226); await fill(page, 'items.1.value', 30000);
+  const chipOrder = await page.$$eval('[data-itemtype="0"] .chip', (els) => els.map((e) => e.textContent.trim()));
+  if (chipOrder.join('|') !== 'Painting|Mirror|Other wall art|Sculpture|Furniture|Décor|Other fragile or valuable item|Other request') errors.push('item type chips wrong: ' + chipOrder.join('|'));
+  await expect(/Painting \/ fine art/, 'Painting / fine art chip must be gone', true);
+  if (await page.$('[data-seg="items.1.framed"]')) errors.push('sculpture must not ask Framed?');
+  await expect(/insurance/i, 'must never say insurance', true);
+  await page.waitForTimeout(400);
+  await shot(page, '01-what');
+  await next(page);
+
+  await me(page, 'Jordan Lee', 'jordan@example.com', '310-555-0199');
+  await page.selectOption('[data-path="contact.clientType"]', 'Collector');
+  await page.click('label.toggle:has([data-path="referral"])'); await page.waitForTimeout(200);
+  await page.selectOption('[data-path="partner.type"]', 'Gallery');
+  await fill(page, 'partner.name', 'Hamilton Selway Gallery');
+  await fillSite(page, 'pickup', { street: '8678 Melrose Ave', city: 'West Hollywood', zip: '90069', business: 'Hamilton Selway Gallery', contactName: 'Andrea B.', contactPhone: '310-555-0101', hours: 'Mon–Sat 10am–6pm', notes: 'Use the rear alley off Melrose. Ask for Andrea at the front desk.' });
+  await page.click('label.toggle:has([data-path="pickup.loadingDock"])');
+  await page.click('label.toggle:has([data-path="pickup.elevator"])'); await page.waitForTimeout(200);
+  if (!(await page.locator('[data-stairs="pickup"]').count())) errors.push('stairs question must still show when there is an elevator');
+  await page.click('[data-stairs="pickup"] button[data-v="steps"]');
+  await fillSite(page, 'dropoff', { street: '1200 Summit Ridge Dr', city: 'Beverly Hills', zip: '90210', same: true, floor: '2', hours: 'After 10am. Gate closes at 7pm.', notes: 'Gate code 4411. Hang in living room, 57" on center.' });
+  if ((await page.inputValue('[data-path="dropoff.contactName"]')) !== 'Jordan Lee') errors.push('"Same as me" did not fill the on-site contact');
+  await page.click('[data-stairs="dropoff"] button[data-v="2"]'); await page.waitForTimeout(200);
+  if (await hasText(page, /COI required|coiRequired/)) errors.push('COI fields should not exist');
+  if (!(await page.locator('[data-path="dropoff.centerHeight"]').count())) errors.push('install job should ask hanging height');
+  if (await page.locator('[data-path="pickup.centerHeight"]').count()) errors.push('pickup should not ask hanging height');
+  await page.selectOption('[data-path="dropoff.wallType"]', 'Plaster');
+  await page.click('[data-seg="dropoff.hardware"] button[data-v="CAD brings it"]'); await page.waitForTimeout(150);
+  await page.click('[data-seg="pickup.fits"] button[data-v="not_sure"]'); await page.waitForTimeout(150);
+  await page.click('label.toggle:has([data-path="pickup.parkingRestricted"])'); await page.waitForTimeout(200);
+  await fill(page, 'pickup.parkingNote', 'Loading zone only 9–11am');
+  await shot(page, '02-where');
+  await next(page);
+
+  await pickDay(page, 0);
+  await expect(/class="promise/, 'date step should show the promised date + window');
+  await page.click('label.toggle:has([data-path="schedule.deliveryLater"])'); await page.waitForSelector('[data-deldate]');
+  await page.click('[data-deldate]'); await page.waitForTimeout(300);
+  if (!/Pickup .* · Delivery /.test(await page.textContent('.promise b'))) errors.push('later delivery: promise should show pickup + delivery dates');
+  await shot(page, '03-when');
+  await next(page); await page.waitForTimeout(500);
+  await expect(/Paid in full at booking/i, 'review missing paid in full');
+  await expect(/Pickup special instructions/i, 'review missing pickup special instructions');
+  await expect(/Delivery special instructions/i, 'review missing delivery special instructions');
+  await expect(/Andrea B/, 'review missing pickup on-site contact');
+  await expect(/Loading dock/i, 'review missing loading dock');
+  await expect(/2 flights of stairs/i, 'review missing delivery stairs');
+  await expect(/A few steps/i, 'review missing pickup steps (with elevator)');
+  await expect(/Gate code 4411/, 'review missing delivery notes');
+  await expect(/confirmed the moment you pay/i, 'review missing auto-confirm copy');
+  await expect(/Apple Pay/, 'review missing Apple Pay');
+  await expect(/Google Pay/, 'review missing Google Pay');
+  await expect(/Bank \(ACH\)/, 'review missing ACH option');
+  await expect(/Save for next time/i, 'review missing save-method option');
+  await expect(/Declared value protection/i, 'review missing protection choice');
+  await expect(/change or cancel/i, 'review missing cancellation note');
+  await expect(/Bill my account/i, 'Bill my account must not appear', true);
+  const promise = await page.textContent('.promise b');
+  if (!/Pickup [A-Z][a-z]{2}, [A-Z][a-z]{2} \d+ · Delivery /.test(promise)) errors.push('review promise should show pickup + delivery, got: ' + promise);
+  await expect(/Plaster/, 'review missing wall type');
+  await expect(/57" center/, 'review missing default 57" center height');
+  await expect(/Loading zone only/, 'review missing parking restriction');
+  if (!/^Pay \$/.test(await page.textContent('#nextBtn'))) errors.push('review button should be "Pay $…"');
+  await shot(page, '04-review-pay');
+  await page.click('#nextBtn'); await page.waitForSelector('.check'); await page.waitForTimeout(700);
+  await expect(/You’re booked for [A-Z][a-z]+day, [A-Z][a-z]+ \d+, /, 'confirmation should say "You’re booked for [date], [window]"');
+  await expect(/Delivery: [A-Z][a-z]+day/, 'confirmation should show the later delivery date');
+  await expect(/is confirmed/i, 'standard order did not auto-confirm');
+  await expect(/Quote request received/i, 'standard order should not go to Samantha', true);
+  await shot(page, '05-confirmation');
+  const id1 = (await page.textContent('.done b')).trim();
+
+  // ---- Order 2: Pickup + Delivery, cross-region, $3,000+ → 50/50, protection on, ACH ----
+  await page.click('#newOrder'); await page.waitForSelector('[data-service]');
+  await page.click('[data-service="pickup_delivery"]'); await page.waitForTimeout(300);
+  await page.click('[data-itemtype="0"] button[data-v="sculpture"]'); await page.waitForTimeout(150);
+  await fill(page, 'items.0.qty', 3); await fill(page, 'items.0.description', 'Bronze sculpture + marble pedestal'); await fill(page, 'items.0.h', 80); await fill(page, 'items.0.weight', 226); await fill(page, 'items.0.value', 45000);
+  await next(page);
+  await me(page, 'Cyd G.', 'cyd@example.com', '805-555-0144');
+  await page.selectOption('[data-path="contact.clientType"]', 'Interior designer');
+  await fillSite(page, 'pickup', { street: '1153 Camino Dos Rios', city: 'Thousand Oaks', zip: '91360', same: true });
+  await fillSite(page, 'dropoff', { street: '850 Sanitarium Rd', city: 'Deer Park', zip: '94576', same: true });
+  await page.click('label.toggle:has([data-path="dropoff.elevator"])'); await page.waitForTimeout(200);
+  await next(page); await pickDay(page, 3);
+  await expect(/different regions, so delivery goes on the next/, 'cross-region job should explain the later delivery day');
+  if (await page.locator('[data-path="schedule.deliveryLater"]').count()) errors.push('cross-region job should not offer the later-delivery toggle');
+  await next(page); await page.waitForTimeout(500);
+  await expect(/data-path="declaredValueProtection"/, 'in-CA jobs must not offer an optional protection toggle', true);
+  await expect(/Declared value protection \(1\.5%\) on \$135,000/, 'mandatory protection line missing (pieces at $50K or less)');
+  await expect(/split 50\/50/i, 'over-$3k review missing 50/50 split');
+  await expect(/Balance due at pickup/i, 'over-$3k review missing balance due at pickup');
+  await page.click('[data-pay-method] button[data-v="ach"]'); await page.waitForTimeout(200);
+  await expect(/ACH processing/, 'ACH copy should mention “ACH processing”');
+  await shot(page, '06-review-split-ach');
+  await page.click('#nextBtn'); await page.waitForSelector('.check'); await page.waitForTimeout(600);
+  await expect(/ACH processing/, 'ACH confirmation should show “ACH processing”');
+  await expect(/is confirmed/i, 'ACH job must confirm immediately');
+  await shot(page, '07-confirmation-ach');
+  const id2 = (await page.textContent('.done b')).trim();
+  const o2 = readOrders().find((o) => o.id === id2);
+  if (!o2 || o2.status !== 'confirmed') errors.push('ACH order should be confirmed on submit');
+  if (!o2 || o2.payment.status !== 'ach_processing') errors.push('ACH payment status should be ach_processing, got ' + (o2 && o2.payment.status));
+  if (!o2 || !o2.declaredValueProtection) errors.push('mandatory protection not recorded on order 2');
+
+  // ---- Order 3: rush / dedicated quote request ----
+  await page.click('#newOrder'); await page.waitForSelector('[data-service]');
+  await page.click('[data-service="pickup_delivery"]'); await page.waitForTimeout(300);
+  await page.click('[data-itemtype="0"] button[data-v="wallart"]'); await page.waitForTimeout(200);
+  await expect(/Photography, mixed media, wall sculpture, etc\./, 'Other wall art helper text missing');
+  await fill(page, 'items.0.description', 'Photograph, rushed for an opening'); await fill(page, 'items.0.w', 30); await fill(page, 'items.0.h', 40); await frame(page, 0, 'yes', 'no');
+  if (!(await page.$eval('#nextBtn', (b) => b.disabled))) errors.push('declared value should be required for in-CA pieces');
+  await fill(page, 'items.0.value', 120000); await page.press('[data-path="items.0.value"]', 'Tab'); await page.waitForTimeout(300);
+  await expect(/high-value handling applies/, 'item over $50K should explain high-value handling');
+  await next(page);
+  await me(page, 'Priya Shah', 'priya@example.com', '310-555-0177');
+  await fillSite(page, 'pickup', { street: '8678 Melrose Ave', city: 'West Hollywood', zip: '90069', same: true });
+  await fillSite(page, 'dropoff', { street: '456 N Rodeo Dr', city: 'Beverly Hills', zip: '90210', same: true });
+  await next(page); await page.waitForSelector('.day');
+  const rush = page.locator('.day.rush'); const isRush = !!(await rush.count());
+  if (isRush) await rush.first().click();
+  else { await page.click('label.toggle:has([data-path="dedicated"])'); await page.waitForTimeout(200); await page.click('.day:not(.rush)'); }
+  await page.click('[data-chips] .chip >> nth=0'); await page.waitForTimeout(300);
+  await shot(page, '08-when-rush');
+  await next(page); await page.waitForTimeout(500);
+  await expect(/High-value handling \+200%/, 'review should show the per-item high-value line');
+  await expect(/own fine art insurance/, 'review should tell high-value clients to use their own fine art insurance');
+  await expect(/Declared value protection \(1\.5%\) on/, 'no protection line on a piece over $50K', true);
+  await expect(/Quoted range/i, 'rush review missing quoted range');
+  await expect(/no payment due yet/i, 'rush review missing no-payment copy');
+  await expect(/data-wallet/, 'rush review must not show payment buttons', true);
+  const btn3 = (await page.textContent('#nextBtn')).trim();
+  if (btn3 !== (isRush ? 'Request a rush quote' : 'Request a quote')) errors.push('quote button text wrong: ' + btn3);
+  await shot(page, '09-review-rush-quote');
+  await page.click('#nextBtn'); await page.waitForSelector('.check'); await page.waitForTimeout(500);
+  await expect(/Quote request received/i, 'rush confirmation missing quote-request heading');
+  await shot(page, '10-quote-received');
+  const id3 = (await page.textContent('.done b')).trim();
+
+  // ---- Order 4: furniture-only over $1,000 → extra 10% off (stop at review) ----
+  await startFresh(page);
+  await page.click('[data-service="pickup_delivery"]'); await page.waitForTimeout(300);
+  await page.click('[data-itemtype="0"] button[data-v="furniture"]');
+  await page.waitForSelector('[data-path="items.0.furnitureKind"]');
+  await page.selectOption('[data-path="items.0.furnitureKind"]', 'Sofa');
+  await page.selectOption('[data-path="items.0.sizeClass"]', 'large');
+  await fill(page, 'items.0.qty', 3); await fill(page, 'items.0.description', 'Three large sofas from the showroom'); await fill(page, 'items.0.value', 1000);
+  await next(page); await laTrip(page, 'Alex Ruiz', 'alex@example.com');
+  await expect(/Furniture (&amp;|&) décor orders of \$1,000\+ \(additional 10% off\)/i, 'furniture-only $1,000+ missing 10% line');
+  await expect(/\$1,650/, 'furniture-only missing pre-discount $1,650');
+  await expect(/-\$165|−\$165|\$-165/, 'furniture-only missing the $165 discount', false);
+  await expect(/\$1,530/, 'furniture-only total should be $1,485 after discount + $45 protection = $1,530');
+  await shot(page, '11-review-furniture-discount', { full: true });
+
+  // ---- Order 5: paintings over $1,000 → no furniture discount; member 25% off check ----
+  await startFresh(page);
+  await page.click('[data-service="delivery_install"]'); await page.waitForTimeout(300);
+  await fill(page, 'items.0.qty', 8); await fill(page, 'items.0.description', 'A group of works on canvas'); await fill(page, 'items.0.value', 1000); await frame(page, 0, 'no');
+  await next(page); await laTrip(page, 'Morgan Chen', 'morgan@example.com');
+  await expect(/additional 10% off/i, 'paintings review shows 10% off line', true);
+  await expect(/\$1,195/, 'paintings review should total $1,075 + $120 protection = $1,195');
+  await page.click('[data-goto="1"]'); await page.waitForTimeout(300);
+  await page.click('label.toggle:has([data-path="member"])'); await page.waitForTimeout(200);
+  await next(page); await next(page); await page.waitForTimeout(600);
+  await expect(/Member rate \(25% off\) applied/, 'member rate note missing');
+  await expect(/\(member\)/, 'member pricing lines missing');
+  const memberTotal = Number((await page.textContent('[data-price] .total span:last-child')).replace(/\D/g, ''));
+  if (!(memberTotal > 0 && memberTotal < 1195)) errors.push('member total should be below the $1,195 non-member total, got ' + memberTotal);
+
+  // ---- Order 6: Apple Pay (mock) ----
+  await page.click('[data-wallet="apple_pay"]'); await page.waitForSelector('.check'); await page.waitForTimeout(500);
+  await expect(/Apple Pay/, 'Apple Pay confirmation missing');
+  const id6 = (await page.textContent('.done b')).trim();
+  const o6 = readOrders().find((o) => o.id === id6);
+  if (!o6 || !o6.member || o6.quote.total !== memberTotal) errors.push('server price must honor member pricing (UI ' + memberTotal + ', server ' + (o6 && o6.quote.total) + ')');
+  await shot(page, '12-confirmation-apple-pay', { full: false });
+
+  // ---- Order 7: Install only (no pickup address, no furniture type) ----
+  await startFresh(page);
+  await page.click('[data-service="install_only"]'); await page.waitForTimeout(300);
+  if (await page.locator('[data-itemtype="0"] button[data-v="furniture"]').count()) errors.push('install-only should not offer furniture');
+  await expect(/Need custom crating/, 'install-only should not offer crating', true);
+  await fill(page, 'items.0.description', 'Large abstract on canvas'); await fill(page, 'items.0.w', 40); await fill(page, 'items.0.h', 50); await frame(page, 0, 'no'); await fill(page, 'items.0.value', 8000);
+  await next(page);
+  if (await page.locator('[data-path="pickup.street"]').count()) errors.push('install-only must not ask a pickup address');
+  await me(page, 'Sam Ortiz', 'sam@example.com', '310-555-0123');
+  await fillSite(page, 'dropoff', { street: '1200 Summit Ridge Dr', city: 'Beverly Hills', zip: '90210', same: true });
+  await shot(page, '16-where-install-only');
+  await next(page); await pickDay(page, 0);
+  if (await page.locator('[data-path="schedule.deliveryLater"]').count()) errors.push('install-only should not offer later delivery');
+  await next(page); await page.waitForTimeout(500);
+  await expect(/Painting installation × 1/, 'install-only painting should price installation');
+  await page.click('#nextBtn'); await page.waitForSelector('.check'); await page.waitForTimeout(400);
+  await expect(/You’re booked for/, 'install-only should book instantly');
+
+  // ---- Order 8: custom crating → quote request, no instant pay ----
+  await startFresh(page);
+  await page.click('[data-service="pickup_delivery"]'); await page.waitForTimeout(300);
+  await fill(page, 'items.0.description', 'Fragile mixed-media piece'); await fill(page, 'items.0.value', 3000); await frame(page, 0, 'yes', 'yes');
+  await page.click('label.toggle:has([data-path="crating"])'); await page.waitForTimeout(300);
+  await next(page); await laTrip(page, 'Lee Park', 'lee@example.com');
+  await expect(/data-wallet/, 'crating job must not show payment buttons', true);
+  await expect(/Custom crating/, 'crating quote should list crating as quoted by CAD');
+  if ((await page.textContent('#nextBtn')).trim() !== 'Request a quote') errors.push('crating button should read Request a quote');
+  await shot(page, '17-review-crating-quote');
+  await page.click('#nextBtn'); await page.waitForSelector('.check'); await page.waitForTimeout(400);
+  await expect(/Quote request received/, 'crating should end at Quote request received');
+
+  const IMG = path.join(__dirname, 'sample-artwork.png');
+  const toggleOn = (p) => page.click(`label.toggle:has([data-path="${p}"])`);
+  const nextDisabled = async () => page.$eval('#nextBtn', (b) => b.disabled);
+
+  // ---- Order 9: Crating & Shipping, international destination, technical carry photos ----
+  await startFresh(page);
+  await page.click('[data-service="crating_shipping"]'); await page.waitForTimeout(300);
+  await expect(/Expert crating and shipping anywhere in the United States and abroad/, 'shipping card subtitle missing');
+  await expect(/Custom quote/, 'shipping card should say Custom quote');
+  await fill(page, 'items.0.description', 'Large abstract, oil on linen'); await frame(page, 0, 'no');
+  await fill(page, 'items.0.w', 60); await fill(page, 'items.0.h', 48); await fill(page, 'items.0.d', 3); await fill(page, 'items.0.weight', 35); await fill(page, 'items.0.value', 20000);
+  await page.click('[data-seg="items.0.crateStatus"] [data-v="needs"]'); await page.waitForTimeout(200);
+  await expect(/Need custom crating\?/, 'shipping should not show the generic crating toggle', true);
+  await shot(page, '20-shipping-what');
+  await next(page);
+  await me(page, 'Claire Dubois', 'claire@example.com', '310-555-0144');
+  await fillSite(page, 'pickup', { street: '8678 Melrose Ave', city: 'West Hollywood', zip: '90069', contactName: 'Gallery desk', contactPhone: '310-555-0101' });
+  await toggleOn('pickup.technicalCarry'); await page.waitForTimeout(300);
+  await expect(/Photos required: show the carry path/, 'technical carry should show a one-line photo reason');
+  await fill(page, 'dropoff.country', 'France'); await page.press('[data-path="dropoff.country"]', 'Tab'); await page.waitForTimeout(400);
+  if (!(await page.$('textarea[data-path="dropoff.street"]'))) errors.push('international destination should use a free-form address');
+  await fill(page, 'dropoff.street', '12 Rue de Rivoli, 75004'); await fill(page, 'dropoff.city', 'Paris');
+  await fill(page, 'dropoff.contactName', 'Claire Dubois'); await fill(page, 'dropoff.contactPhone', '+33 6 12 34 56 78');
+  await page.click('[data-seg="dropoff.locationType"] [data-v="residential"]'); await page.waitForTimeout(200);
+  await fill(page, 'shipping.customs.name', 'Paris Fine Art Customs'); await fill(page, 'shipping.customs.phone', '+33 1 00 00 00 00');
+  if (!(await nextDisabled())) errors.push('technical carry without path photos should block Continue');
+  await page.setInputFiles('[data-siteupload="pickup"]', IMG); await page.waitForTimeout(700);
+  if (await nextDisabled()) errors.push('Continue should enable after the carry-path photo');
+  await shot(page, '21-shipping-where');
+  await next(page);
+  await expect(/Shipping details/, 'shipping step 3 should be Shipping details');
+  await page.click('[data-level="inside"]'); await page.waitForTimeout(200);
+  await fill(page, 'shipping.shipBy', '2026-12-10');
+  await shot(page, '22-shipping-details');
+  await next(page);
+  await expect(/Review your shipping request/, 'shipping review heading');
+  await expect(/data-wallet/, 'shipping must not show payment buttons', true);
+  if ((await page.textContent('#nextBtn')).trim() !== 'Request a shipping quote') errors.push('shipping button should read Request a shipping quote');
+  if (process.env.DBG) { console.log(await page.evaluate(() => document.querySelector('#app').innerText.slice(-900))); console.log(await page.evaluate(() => sessionStorage.getItem('cad-order').slice(0, 600))); }
+  await expect(/Fully insured through our shipping partners/, 'shipping review should say fully insured through shipping partners');
+  await expect(/data-path="declaredValueProtection"|High-value handling/, 'shipping must not offer protection or high-value markup', true);
+  await shot(page, '23-shipping-review');
+  await page.click('#nextBtn'); await page.waitForSelector('.check'); await page.waitForTimeout(400);
+  await expect(/Shipping quote request received/, 'shipping should end at Shipping quote request received');
+  await shot(page, '24-shipping-done', { full: false });
+  const shipOrder = readOrders()[0];
+  if (shipOrder.service !== 'crating_shipping' || shipOrder.status !== 'pending_approval' || shipOrder.schedule.date) errors.push('shipping order should be a pending crating_shipping quote with no route date');
+  if (shipOrder.dropoff.country !== 'France' || shipOrder.shipping.serviceLevel !== 'inside' || shipOrder.items[0].crateStatus !== 'needs' || shipOrder.declaredValueProtection || Number(shipOrder.items[0].value) !== 20000) errors.push('shipping order: country / service level / crating / value wrong, or protection set');
+  const shipMail = fs.readdirSync(path.join(ROOT, 'outbox')).find((x) => x.startsWith(shipOrder.id) && x.includes('quote_received'));
+  const shipHtml = shipMail ? fs.readFileSync(path.join(ROOT, 'outbox', shipMail), 'utf8') : '';
+  if (!/Shipping quote request received/.test(shipHtml) || !/France/.test(shipHtml) || !/Inside delivery/.test(shipHtml)) errors.push('shipping quote email should be labeled shipping and list destination + service level');
+
+  // ---- Order 10: Pickup + Delivery to Nevada → automatically a Crating & Shipping quote; fragile needs photos ----
+  await startFresh(page);
+  await page.click('[data-service="pickup_delivery"]'); await page.waitForTimeout(300);
+  await page.click('[data-itemtype="0"] button[data-v="decor"]'); await page.waitForTimeout(200);
+  if (await page.$('[data-seg="items.0.framed"]')) errors.push('décor must not ask Framed?');
+  await fill(page, 'items.0.description', 'Blown-glass vessel'); await fill(page, 'items.0.value', 2500);
+  await toggleOn('items.0.fragile'); await page.waitForTimeout(300);
+  await expect(/Photos required: uniquely fragile pieces/, 'fragile piece should show a one-line photo reason');
+  if (!(await nextDisabled())) errors.push('fragile piece without photos should block Continue');
+  await page.setInputFiles('[data-upload="0"]', IMG); await page.waitForTimeout(700);
+  if (await nextDisabled()) errors.push('Continue should enable after the fragile-piece photo');
+  await next(page);
+  await me(page, 'Sam Reyes', 'sam@example.com', '310-555-0177');
+  await fillSite(page, 'pickup', { street: '8678 Melrose Ave', city: 'West Hollywood', zip: '90069', contactName: 'Sam Reyes', contactPhone: '310-555-0177' });
+  await fillSite(page, 'dropoff', { street: '3600 Las Vegas Blvd S', city: 'Las Vegas', zip: '89109', contactName: 'Front desk', contactPhone: '702-555-0100' });
+  await fill(page, 'dropoff.state', 'NV'); await page.press('[data-path="dropoff.state"]', 'Tab'); await page.waitForTimeout(400);
+  await expect(/outside California are custom quoted as Crating &amp; Shipping/, 'out-of-state job should explain the custom quote');
+  await shot(page, '25-out-of-state-where');
+  await next(page);
+  await expect(/Shipping details/, 'out-of-state job should go to Shipping details');
+  await fill(page, 'items.0.w', 14); await fill(page, 'items.0.h', 22); await fill(page, 'items.0.weight', 12);
+  await page.click('[data-level="unpack"]'); await page.waitForTimeout(200);
+  await toggleOn('shipping.flexible'); await page.waitForTimeout(300);
+  await next(page);
+  await expect(/data-wallet/, 'out-of-state job must not show payment buttons', true);
+  await page.click('#nextBtn'); await page.waitForSelector('.check'); await page.waitForTimeout(400);
+  const oos = readOrders()[0];
+  if (oos.service !== 'crating_shipping' || !oos.outOfState || oos.requestedService !== 'pickup_delivery' || oos.status !== 'pending_approval') errors.push('Nevada delivery should become a pending Crating & Shipping quote: ' + JSON.stringify({ s: oos.service, o: oos.outOfState, r: oos.requestedService, st: oos.status }));
+
+  // ---- Photo rules via API ----
+  const post = async (body) => fetch(BASE + '/api/orders', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  const baseOrder = { service: 'pickup_delivery', contact: { name: 'T', email: 't@x.com', phone: '3105550100' }, pickup: { street: '1 A St', city: 'Los Angeles', zip: '90069', contactName: 'T', contactPhone: '1' }, dropoff: { street: '2 B St', city: 'Los Angeles', zip: '90210', contactName: 'T', contactPhone: '1' }, schedule: { date: '2026-12-07', window: '9am–12pm' } };
+  const heavy = await post({ ...baseOrder, items: [{ qty: 1, type: 'sculpture', weight: 350, description: 'Granite' }] });
+  if (heavy.status !== 400) errors.push('300+ lb piece without photos should be rejected');
+  const other = await post({ ...baseOrder, items: [{ qty: 1, type: 'other', weight: 40, description: 'Antique clock' }] });
+  if (other.status !== 400) errors.push('Other-type piece without photos should be rejected');
+  const qOOS = await (await fetch(BASE + '/api/quote', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...baseOrder, dropoff: { ...baseOrder.dropoff, zip: '85004', city: 'Phoenix' }, items: [{ qty: 1, type: 'painting', framed: 'no', description: 'p' }] }) })).json();
+  if (qOOS.paymentPlan !== 'quote' || !qOOS.outOfState) errors.push('Arizona ZIP should make the quote an out-of-state shipping quote');
+
+  // ---- Declared value / high-value boundaries via API (120 lb sculpture = $400 normal price) ----
+  const qAPI = async (body) => (await (await fetch(BASE + '/api/quote', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })).json());
+  const hv = async (value) => qAPI({ service: 'pickup_delivery', items: [{ qty: 1, type: 'sculpture', weight: 120, value, description: 'S' }], pickup: { zip: '90069' }, dropoff: { zip: '90210' } });
+  for (const [v, pct, total] of [[50000, 0, 1150], [50001, 100, 800], [100001, 200, 1200], [300001, 300, 1600], [500001, 400, 2000], [750001, 500, 2400], [1000001, 600, 2800]]) {
+    const r = await hv(v);
+    const hl = r.lines.find((l) => /High-value handling/.test(l.label));
+    const dvp = r.lines.find((l) => /Declared value protection/.test(l.label));
+    if (pct === 0 && (hl || !dvp || dvp.amount !== 750)) errors.push(`$${v}: should get mandatory 1.5% protection ($750), no markup: ` + JSON.stringify(r.lines));
+    if (pct && (dvp || !hl || !hl.label.includes(`+${pct}%`) || hl.amount !== 400 * pct / 100)) errors.push(`$${v}: should be High-value handling +${pct}% ($${400 * pct / 100}) and no protection: ` + JSON.stringify(r.lines));
+    if (r.total !== total) errors.push(`$${v}: total should be $${total}, got ${r.total}`);
+    if (pct && !r.notes.some((n) => /own fine art insurance/.test(n))) errors.push(`$${v}: missing own-insurance note`);
+  }
+  const shipHV = await qAPI({ service: 'crating_shipping', items: [{ qty: 1, type: 'painting', value: 900000, description: 'x' }] });
+  if (shipHV.lines.some((l) => /High-value|Declared value protection/.test(l.label)) || !shipHV.notes.some((n) => /Fully insured through our shipping partners/.test(n))) errors.push('shipping quotes: no protection/markup, and say fully insured through shipping partners');
+  const noVal = await post({ ...baseOrder, items: [{ qty: 1, type: 'painting', framed: 'no', description: 'No value' }] });
+  if (noVal.status !== 400) errors.push('in-CA order without a declared value should be rejected');
+
+  // ---- Item types + framing via API ----
+  const qAPI2 = async (body) => (await (await fetch(BASE + '/api/quote', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })).json());
+  const qw = await qAPI2({ service: 'delivery_install', items: [{ qty: 1, type: 'painting', framed: 'no', description: 'p' }, { qty: 1, type: 'mirror', description: 'm' }, { qty: 1, type: 'wallart', framed: 'yes', glazing: 'no', description: 'wall sculpture' }] });
+  if (!qw.lines.some((l) => /Wall art delivery .* × 3/.test(l.label) && l.amount === 375) || !qw.lines.some((l) => /Hanging .* × 3/.test(l.label) && l.amount === 200)) errors.push('mirror + other wall art should price from the painting tables (3 → $375 delivery, $200 hanging): ' + JSON.stringify(qw.lines));
+  const qc = await qAPI2({ service: 'pickup_delivery', items: [{ qty: 1, type: 'custom', description: 'Hold 3 crates in storage' }] });
+  if (qc.paymentPlan !== 'quote' || !/Other request/.test(qc.extraQuoted || '')) errors.push('Other request should route to a custom quote');
+  const noFrame = await post({ ...baseOrder, items: [{ qty: 1, type: 'painting', value: 1000, description: 'x' }] });
+  if (noFrame.status !== 400) errors.push('painting without Framed? should be rejected');
+  const noGlaze = await post({ ...baseOrder, items: [{ qty: 1, type: 'wallart', framed: 'yes', value: 1000, description: 'x' }] });
+  if (noGlaze.status !== 400) errors.push('framed wall art without glazing answer should be rejected');
+
+  // ---- Pricing rules via API: sculpture is placed (never hung), décor/other from real cards ----
+  const q = async (body) => (await (await fetch(BASE + '/api/quote', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })).json());
+  const qs1 = await q({ service: 'delivery_install', items: [{ qty: 1, type: 'sculpture', weight: 120, description: 'Bronze' }] });
+  if (qs1.lines.some((l) => /install|hang/i.test(l.label))) errors.push('sculpture must never carry an install/hanging charge: ' + JSON.stringify(qs1.lines));
+  if (qs1.lines.length !== 1 || qs1.lines[0].label.indexOf('Sculpture: pickup, delivery & placement (120 lb)') !== 0) errors.push('sculpture should be one line "Sculpture: pickup, delivery & placement (120 lb)": ' + JSON.stringify(qs1.lines));
+  const qs1b = await q({ service: 'pickup_delivery', items: [{ qty: 1, type: 'sculpture', weight: 120, description: 'Bronze' }] });
+  if (qs1b.total !== 400 || qs1b.lines.length !== 1 || !/^Sculpture: pickup, delivery & placement \(120 lb\)/.test(qs1b.lines[0].label)) errors.push('Pickup + Delivery sculpture should be the same single $400 line: ' + JSON.stringify(qs1b.lines));
+  if (qs1.total !== 400) errors.push('120 lb sculpture should be $400 (100–149 lb tier), got ' + qs1.total);
+  const qs2 = await q({ service: 'delivery_install', items: [{ qty: 1, type: 'painting', framed: 'no', description: 'p' }, { qty: 1, type: 'mirror', description: 'm' }, { qty: 1, type: 'sculpture', weight: 40, description: 's' }] });
+  const hang = qs2.lines.find((l) => /Hanging/.test(l.label));
+  if (!hang || !/× 2/.test(hang.label) || hang.amount !== 150) errors.push('hanging should count painting + mirror only (2 → $150): ' + JSON.stringify(qs2.lines));
+  const qs3 = await q({ service: 'delivery_install', items: [{ qty: 1, type: 'decor', furnitureKind: 'Chandelier', sizeClass: 'medium', description: 'c' }] });
+  if (qs3.paymentPlan !== 'quote') errors.push('chandelier hanging is not on the cards and should be a quote request');
+  const qs4 = await q({ service: 'pickup_delivery', items: [{ qty: 1, type: 'decor', furnitureKind: 'Floor Lamp', sizeClass: 'large', description: 'l' }] });
+  if (qs4.total !== 240) errors.push('large floor lamp should be $240 from the décor card, got ' + qs4.total);
+
+  // ---- Admin ----
+  const admin = await (await browser.newContext({ viewport: { width: 1280, height: 900 } })).newPage();
+  await admin.goto(`${BASE}/admin?key=cad-admin`); await admin.waitForSelector('tr.o');
+  if (!(await hasText(admin, /ACH processing/))) errors.push('admin should label ACH payment as processing');
+  await docShot(admin, '13-admin');
+  await admin.click(`tr.o[data-id="${id3}"]`); await admin.waitForSelector('#approveBox'); await admin.waitForTimeout(300);
+  if (!(await hasText(admin, /Samantha — approve and set a price/i))) errors.push('admin approval missing Samantha label');
+  await docShot(admin, '14-admin-approval');
+  if (!(await admin.inputValue('#approvePrice'))) errors.push('approve price field empty');
+  await admin.click('#approveBtn');
+  await admin.waitForSelector(`tr.o[data-id="${id3}"] .pill.awaiting_payment`, { timeout: 5000 });
+  if (!await admin.$('a[href*="quote_approved"]')) await admin.click(`tr.o[data-id="${id3}"]`);
+  await admin.waitForSelector('a[href*="quote_approved"]', { timeout: 5000 }).catch(() => errors.push('missing quote_approved email after approve'));
+  await admin.click(`tr.o[data-id="${id3}"]`);
+  await admin.click(`tr.o[data-id="${id1}"]`); await admin.waitForSelector('[data-email="eta"]');
+  await admin.click('[data-email="reminder"]'); await admin.waitForTimeout(500);
+  await admin.click(`tr.o[data-id="${id1}"]`); await admin.waitForTimeout(300); await admin.click(`tr.o[data-id="${id1}"]`); await admin.waitForSelector('[data-email="eta"]');
+  await admin.click('[data-email="eta"]'); await admin.waitForTimeout(500);
+
+  // ---- Payment link from Samantha's approval (existing order → pay) ----
+  await page.goto(`${BASE}/?order=${encodeURIComponent(id3)}&pay=1`); await page.waitForSelector('#nextBtn');
+  await page.waitForTimeout(500);
+  await expect(/Pay to confirm/, 'payment link should open the pay screen');
+  await shot(page, '15-payment-link', { full: false });
+  await page.click('#nextBtn'); await page.waitForSelector('.check'); await page.waitForTimeout(400);
+  await expect(/You’re booked for/, 'payment link should confirm the job');
+
+  // ---- Emails + CSV ----
+  const outbox = path.join(ROOT, 'outbox');
+  const files = fs.readdirSync(outbox).filter((f) => f.startsWith(id1));
+  for (const kind of ['confirmation', 'reminder', 'eta']) {
+    const f = files.find((x) => x.includes(`-${kind}-`)); if (!f) { errors.push('missing email ' + kind); continue; }
+    const html = fs.readFileSync(path.join(outbox, f), 'utf8');
+    if (!/Pickup special instructions/i.test(html)) errors.push(kind + ' email missing pickup special instructions');
+    if (!/Andrea B/.test(html)) errors.push(kind + ' email missing pickup contact');
+    if (!/Gate code 4411/.test(html)) errors.push(kind + ' email missing delivery notes');
+  }
+  const f2 = fs.readdirSync(outbox).find((x) => x.startsWith(id2) && x.includes('-confirmation-'));
+  if (!f2 || !/ACH processing/.test(fs.readFileSync(path.join(outbox, f2), 'utf8'))) errors.push('ACH confirmation email should say ACH processing');
+  const csv = fs.readFileSync(path.join(ROOT, 'data', 'schedule-2026.csv'), 'utf8');
+  if (!/Andrea B/.test(csv)) errors.push('CSV missing PU contact name');
+  if (!/Loading dock: yes/.test(csv)) errors.push('CSV PU Notes missing loading dock');
+  if (!/a few steps/.test(csv)) errors.push('CSV PU Notes missing steps-with-elevator');
+  if (!/2 flight\(s\) of stairs/.test(csv)) errors.push('CSV DE Notes missing stairs');
+  if (!/Floor 2/.test(csv)) errors.push('CSV DE Notes missing floor');
+  if (!/Gate code 4411/.test(csv)) errors.push('CSV DE Notes missing special instructions');
+  if (!/customer chose a later delivery date/.test(csv)) errors.push('CSV missing separate later-delivery row');
+  if (!/Hang at 57"{1,2} center, Plaster wall, hardware: CAD brings it/.test(csv)) errors.push('CSV DE Notes missing install details');
+  if (!/Parking\/loading restrictions: Loading zone only/.test(csv)) errors.push('CSV PU Notes missing parking restriction');
+  if (!/Not sure it fits/.test(csv)) errors.push('CSV PU Notes missing fit warning');
+  if (!/ACH processing/.test(csv)) errors.push('CSV payment status should say ACH processing');
+  if (!/type: Painting, Framed: Yes · Glazing: Yes/.test(csv)) errors.push('CSV should show item type, Framed and glazing');
+  const conf1 = files.find((x) => x.includes('-confirmation-'));
+  if (!conf1 || !/Painting · Framed: Yes · Glazing: Yes/.test(fs.readFileSync(path.join(outbox, conf1), 'utf8'))) errors.push('confirmation email should show item type, Framed and glazing');
+
+  // ---- Admin: shipping quote labeled, Samantha prices it, customer pays, CSV row ----
+  await admin.goto(`${BASE}/admin?key=cad-admin`); await admin.waitForSelector('tr.o');
+  await admin.click(`tr.o[data-id="${shipOrder.id}"]`); await admin.waitForSelector('#approveBox'); await admin.waitForTimeout(300);
+  if (!(await hasText(admin, /Samantha — price this shipping quote/))) errors.push('admin should label shipping quotes');
+  if (!(await hasText(admin, /Shipping details/)) || !(await hasText(admin, /France/))) errors.push('admin should show shipping details');
+  await docShot(admin, '26-admin-shipping');
+  await admin.fill('#approvePrice', '2400'); await admin.click('#approveBtn');
+  await admin.waitForSelector(`tr.o[data-id="${shipOrder.id}"] .pill.awaiting_payment`, { timeout: 5000 }).catch(() => errors.push('shipping approve failed'));
+  await page.goto(`${BASE}/?order=${encodeURIComponent(shipOrder.id)}&pay=1`); await page.waitForSelector('#nextBtn'); await page.waitForTimeout(500);
+  await page.click('#nextBtn'); await page.waitForSelector('.check'); await page.waitForTimeout(400);
+  const csv2 = fs.readFileSync(path.join(ROOT, 'data', 'schedule-2026.csv'), 'utf8');
+  if (!/CRATE \+ SHIP/.test(csv2)) errors.push('paid shipping job should write a CRATE + SHIP schedule row');
+
+  await browser.close();
+  console.log(JSON.stringify({ engine: process.env.E2E_BROWSER || 'chromium', id1, id2, id3, errors }, null, 2));
+  if (errors.length) process.exit(1);
+})().catch((e) => { console.error(e); process.exit(1); });

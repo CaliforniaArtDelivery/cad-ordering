@@ -1,0 +1,6 @@
+node_modules
+screenshots
+outbox
+uploads
+data
+*.log
