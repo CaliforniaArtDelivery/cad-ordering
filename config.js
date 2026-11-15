@@ -27,7 +27,7 @@ module.exports = {
   pricing: {
     currency: 'usd',
     source: 'CAD 2025 statewide pickup & delivery rate cards on Notes/Info',
-    exampleRatesNotice: '2025 published CAD rates. Final price is confirmed by CAD.',
+    exampleRatesNotice: 'Final price is confirmed by CAD.',
     // Painting delivery / install by piece count (non-member). After 7 pieces, +$50 delivery / +$50 install each.
     // Member column is 25% off, rounded to the nearest $5 as printed on the card.
     paintingDelivery: { nonMember: [200, 300, 375, 425, 475, 525, 575], member: [150, 225, 280, 320, 355, 395, 430], extra: 50 },
