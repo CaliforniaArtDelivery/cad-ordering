@@ -13,7 +13,7 @@ const PORT = process.env.PORT || 3000;
 const BASE_URL = process.env.BASE_URL || `http://localhost:${PORT}`;
 const ADMIN_KEY = process.env.ADMIN_KEY || 'cad-admin';   // prototype only
 const storage = require('./lib/storage');
-const { TYPES, framingErrors, itemLine, isHungItem } = require('./lib/itemtypes');
+const { TYPES, framingErrors, itemLine, isHungItem, routeDecorMirror } = require('./lib/itemtypes');
 const { lookupMember, resolveMember } = require('./lib/members');
 const ORDERS = path.join(storage.dir('data'), 'orders.json');
 const CUSTOMERS = path.join(storage.dir('data'), 'customers.json');
@@ -163,7 +163,7 @@ app.post('/api/orders', (req, res) => {
     referral: !!b.referral,
     // In-CA: mandatory on pieces valued $50K or less (none offered above). Shipping quotes: the customer's choice.
     declaredValueProtection: shipping ? false : (b.items || []).some((it) => Number(it.value) > 0 && Number(it.value) <= 50000),
-    items: b.items, pickup: b.pickup || {}, dropoff: b.dropoff || {},
+    items: (b.items || []).map(routeDecorMirror), pickup: b.pickup || {}, dropoff: b.dropoff || {},
     contact: b.contact, partner: b.partner || {}, payer: b.payer || 'me', payerOther: b.payerOther || {},
     schedule: shipping
       ? { date: '', region: 'Shipping', deliveryLater: false, deliveryDate: '', timePref: 'none', timeNote: '', deliveryTimePref: 'none', deliveryTimeNote: '' }

@@ -5,6 +5,7 @@
   "main": "index.js",
   "scripts": {
     "start": "node server.js",
+    "test": "node scripts/pricing-test.js",
     "e2e": "node scripts/e2e.js"
   },
   "keywords": [],

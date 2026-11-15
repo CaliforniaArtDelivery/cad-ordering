@@ -20,11 +20,11 @@ Item fields appear once a service is picked, and each item type shows only its r
 - **Painting / Other wall art:** qty, description (placeholder "e.g. Oil on canvas by J. Smith"), W×H×D, required **Framed?** Yes/No (no default; Continue blocked until answered), and if Yes a required **Glass or acrylic glazing?** Yes/No, declared value, photos. The server rejects these pieces without the answers.
 - **Mirror:** same fields as a painting, no framing question (glass is implied).
 - **Other request:** free-text description; always routed to a custom quote reviewed by CAD (no payment until approved).
-- **Pricing assumption (flagged):** Mirror and Other wall art use the painting size-based delivery and hanging tables for now. Wall sculpture under Other wall art hangs, so it is installable; freestanding Sculpture is placed, never hung.
+- **Mirror pricing (Chad, Nov 15 2026):** Pickup and delivery use the painting quantity tables (same as before). Install is a multiplier on the painting install price for that size (including the 72"+ oversize install fee when it applies), rounded to the nearest $5, based on the larger of width and height (depth does not count): up to 48" = 1×; over 48" = 1.5×; over 60" = 2.5×; over 70" = 3×. There is no 50" tier. Other wall art still uses the painting tables. Wall sculpture under Other wall art hangs, so it is installable; freestanding Sculpture is placed, never hung.
 - Item type, Framed Yes/No and glazing show in the review, the admin Pieces panel, the quote/confirmation emails and the schedule CSV.
 - **Sculpture:** qty, description, W×H×D, weight (required), declared value, photos
 - **Furniture:** kind + size, qty, description, declared value, photos (not offered for Install only)
-- **Décor:** Type of décor (grouped: Wall — Wall Decor, Wall sculptures, Tapestries & textiles, Mirror; Lighting — Table Lamp, Floor Lamp, Sconces, Chandelier; Accents & objects — common small décor A–Z, plus Other (describe)) + size (3 tiers, or 5 for accents), qty, description, W×H×D, declared value, photos
+- **Décor:** Type of décor (grouped: Wall — Wall Decor, Wall sculptures, Tapestries & textiles, Mirror; Lighting — Table Lamp, Floor Lamp, Sconces, Chandelier; Accents & objects — common small décor A–Z, plus Other (describe)) + size (3 tiers, or 5 for accents), qty, description, W×H×D, declared value, photos. Choosing Mirror under Décor switches the piece to the top-level Mirror item (same fields and pricing). Both entry points stay, because mirrors are popular and fancy or antique mirrors are also looked for under wall art or décor.
 - **Other fragile or valuable item:** qty, description, W×H×D, weight (required), declared value, photos, plus a note that the final quote may be adjusted
 
 Each piece has Duplicate and Remove. Custom crating is a toggle (not for Install only). Choosing it turns the booking into a quote request.
@@ -39,14 +39,14 @@ Each piece has Duplicate and Remove. Custom crating is a toggle (not for Install
   - 300–499 lb: $800 / $600
   - 500–700 lb: $1,000 / $750
 - **Sculpture placement:** the card has no separate placement rate, so it's included in the weight price. There is no separate $0 placement line. The card's footnote: for sculptures "particularly long/wide or involving stairs, an additional delivery or install fee may apply". Over 700 lb isn't on the card; the $1,000 starting rate is shown and CAD confirms.
-- **Décor:** Furniture & Décor card, "Décor & Lighting" rows by size: Mirror, Table Lamp, Floor Lamp, Chandelier, and Wall Decor use Small/Light, Medium/Average, Large/Heavy. Tapestries & textiles and Wall sculptures use Wall Decor rates. Sconces use Table Lamp rates. Common accent items (A–Z, including vases, figurines, and sculptural décor) plus Other (describe) share the five printed accent prices (Extra small through Extra large).
-- **Hanging:** only wall-hung pieces (paintings, wall décor, mirrors) are hung, priced per piece from the Painting Installation table. Oversize: 72"+ painting is +$100 delivery / +$200 install, and 48"+ wall décor is +$100 / +$200.
+- **Décor:** Furniture & Décor card, "Décor & Lighting" rows by size: Table Lamp, Floor Lamp, Chandelier, and Wall Decor use Small/Light, Medium/Average, Large/Heavy. Tapestries & textiles and Wall sculptures use Wall Decor rates. Sconces use Table Lamp rates. Common accent items (A–Z, including vases, figurines, and sculptural décor) plus Other (describe) share the five printed accent prices (Extra small through Extra large). Mirror under Décor is not priced from that card; it uses the Mirror item path below.
+- **Hanging:** only wall-hung pieces (paintings, wall décor, mirrors) are hung, priced per piece from the Painting Installation table, except mirrors, which use the install multipliers above. Oversize delivery is unchanged: 72"+ painting or mirror is +$100 delivery, and the $200 oversize install fee is part of the painting install price that the mirror multiplier applies to. 48"+ wall décor is still +$100 delivery / +$200 install.
 - **Placed pieces:** furniture, lamps, accents, sculpture and other items are placed, included in delivery.
 - **Other fragile or valuable item:** no card covers it. It's priced by weight from the sculpture card, with a note that CAD may adjust.
 - **Not covered by any card:**
   - Chandelier and sconce hanging becomes a quote request (mounting/electrical is not on the rate card).
   - Install only for sculpture, furniture or other pieces isn't offered (the form tells them to call).
-  - A per-piece rate for hanging small wall décor and mirrors isn't printed. They use the painting install table, an assumption to confirm.
+  - A per-piece rate for hanging small wall décor isn't printed; it uses the painting install table. Mirror install follows the 48" / 60" / 70" multiplier rule above.
 - **10% off at $1,000+:** applies when every piece is furniture or décor.
 
 ## 2. Where are we going?

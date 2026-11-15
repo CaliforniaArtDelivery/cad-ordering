@@ -218,6 +218,13 @@ const cleanFraming = (it) => {
     if (!needsFrameType(it)) it.frameType = '';
   }
 };
+// Décor → Mirror is a second entry point for the same Mirror item and pricing.
+const routeDecorMirror = (it) => {
+  if (!it || it.type !== 'decor' || it.furnitureKind !== 'Mirror') return false;
+  it.type = 'mirror';
+  cleanFraming(it);
+  return true;
+};
 const framingOk = (it) => {
   if (!FRAMING_TYPES.includes(it.type || 'painting')) return true;
   if (it.framed === 'no') return true;
@@ -1160,6 +1167,7 @@ function paintButton() {
 // ---------- render ----------
 let lastStep = -1;
 function render() {
+  if ((S.items || []).some(routeDecorMirror)) persist();
   const name = STEPS[step];
   lastShipKey = shipKey(); lastPhotoKey = itemKey();
   const stepChanged = step !== lastStep;
@@ -1295,7 +1303,13 @@ app.addEventListener('input', (e) => {
   if ('rerender' in e.target.dataset) render();
 });
 app.addEventListener('change', (e) => {
-  if (e.target.dataset.path && e.target.tagName === 'SELECT') { set(e.target.dataset.path, e.target.value); refreshQuote(); if ('rerender' in e.target.dataset) render(); }
+  if (e.target.dataset.path && e.target.tagName === 'SELECT') {
+    set(e.target.dataset.path, e.target.value);
+    const mk = (e.target.dataset.path || '').match(/^items\.(\d+)\.furnitureKind$/);
+    if (mk && routeDecorMirror(S.items[+mk[1]])) persist();
+    refreshQuote();
+    if ('rerender' in e.target.dataset || mk) render();
+  }
   if (e.target.dataset.upload != null) uploadPhotos(+e.target.dataset.upload, e.target.files);
   if (e.target.dataset.wallupload) uploadWallPhotos(e.target.dataset.wallupload, e.target.files);
   if (e.target.dataset.hangupload != null) uploadHangPhotos(+e.target.dataset.hangupload, e.target.files);

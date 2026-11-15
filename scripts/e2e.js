@@ -8,6 +8,7 @@ const ROOT = path.join(__dirname, '..');
 const SHOTS = path.join(ROOT, 'screenshots', 'v-next');
 fs.mkdirSync(SHOTS, { recursive: true });
 const engine = pw[process.env.E2E_BROWSER || 'chromium'];
+const [VIEW_W, VIEW_H] = (process.env.E2E_VIEWPORT || '390x844').split('x').map((n) => parseInt(n, 10) || 0);
 
 // Viewport screenshot = exactly what the phone shows (real header + docked bar). Full = whole page with the dock un-fixed.
 const shot = async (page, name, { full = true, top = true } = {}) => {
@@ -81,10 +82,23 @@ const readOrders = () => JSON.parse(fs.readFileSync(path.join(ROOT, 'data', 'ord
 (async () => {
   const browser = await engine.launch();
   const errors = [];
-  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: process.env.E2E_BROWSER !== 'firefox' && process.env.E2E_BROWSER !== 'webkit' ? true : undefined, hasTouch: true });
+  const ctx = await browser.newContext({ viewport: { width: VIEW_W || 390, height: VIEW_H || 844 }, deviceScaleFactor: 2, isMobile: process.env.E2E_BROWSER !== 'firefox' && process.env.E2E_BROWSER !== 'webkit' ? true : undefined, hasTouch: true });
   const page = await ctx.newPage();
   page.on('pageerror', (e) => errors.push('pageerror: ' + e.message));
   const expect = async (re, msg, neg = false) => { const ok = await hasText(page, re); if (neg ? ok : !ok) errors.push(msg); };
+  const checkPricesNoWrap = async (label) => {
+    const bad = await page.evaluate(() => [...document.querySelectorAll('.amt, .total > span:last-child, .est-total')].filter((el) => {
+      const st = getComputedStyle(el);
+      const text = (el.textContent || '').trim();
+      if (!text) return false;
+      // "Never wrap" means the amount stays on one line (e.g. "$1,722.50" must not split).
+      // Dock totals may ellipsis at very narrow widths; that is overflow, not wrapping.
+      const wraps = st.whiteSpace !== 'nowrap' && el.getClientRects().length > 1;
+      const split = el.getClientRects().length > 1;
+      return wraps || split;
+    }).map((el) => (el.textContent || '').trim()));
+    if (bad.length) errors.push((label || 'price') + ' wrapped at ' + (VIEW_W || 390) + 'px: ' + bad.join(' | '));
+  };
 
   // ---- Order 1: Delivery + Install, paintings + sculpture, full payment by card ----
   await startFresh(page);
@@ -190,6 +204,7 @@ const readOrders = () => JSON.parse(fs.readFileSync(path.join(ROOT, 'data', 'ord
   await expect(/Standard eye level \(59" center\)/, 'review missing default 59" center height');
   await expect(/Loading zone only/, 'review missing parking restriction');
   if (!/^Pay \$/.test(await page.textContent('#nextBtn'))) errors.push('review button should be "Pay $…"');
+  await checkPricesNoWrap('order 1 review');
   await shot(page, '04-review-pay');
   await page.click('#nextBtn'); await page.waitForSelector('.check'); await page.waitForTimeout(700);
   await expect(/You’re booked for [A-Z][a-z]+day, [A-Z][a-z]+ \d+\./, 'confirmation should say "You’re booked for [date]."');
@@ -382,7 +397,11 @@ const readOrders = () => JSON.parse(fs.readFileSync(path.join(ROOT, 'data', 'ord
   await next(page);
   await expect(/Review your shipping request/, 'shipping review heading');
   await expect(/data-wallet/, 'shipping must not show payment buttons', true);
-  if ((await page.textContent('#nextBtn')).trim() !== 'Request a shipping quote') errors.push('shipping button should read Request a shipping quote');
+  {
+    const shipBtn = (await page.textContent('#nextBtn')).trim();
+    const shipOk = shipBtn === 'Request a shipping quote' || ((VIEW_W || 390) < 360 && shipBtn === 'Request quote');
+    if (!shipOk) errors.push('shipping button should read Request a shipping quote (or Request quote under 360px), got: ' + shipBtn);
+  }
   if (process.env.DBG) { console.log(await page.evaluate(() => document.querySelector('#app').innerText.slice(-900))); console.log(await page.evaluate(() => sessionStorage.getItem('cad-order').slice(0, 600))); }
   await expect(/Fully insured through our shipping partners/, 'shipping review should say fully insured through shipping partners');
   await expect(/data-path="declaredValueProtection"|High-value handling/, 'shipping must not offer protection or high-value markup', true);
@@ -521,9 +540,23 @@ const readOrders = () => JSON.parse(fs.readFileSync(path.join(ROOT, 'data', 'ord
   const qLegacy = await q({ service: 'pickup_delivery', items: [{ qty: 1, type: 'decor', furnitureKind: 'Vases / Sculptural Décor / Accents / Figurines', sizeClass: 'small', description: 'legacy' }] });
   if (qLegacy.total !== 85) errors.push('legacy lumped accents + small should stay $85, got ' + qLegacy.total);
   const qMir = await q({ service: 'pickup_delivery', items: [{ qty: 1, type: 'decor', furnitureKind: 'Mirror', sizeClass: 'medium', description: 'm' }] });
-  if (qMir.total !== 235) errors.push('medium décor Mirror should be $235 from the furniture card, got ' + qMir.total);
+  if (qMir.total !== 200) errors.push('Décor Mirror should use painting delivery ($200 for 1), got ' + qMir.total);
   const qMirMem = await q({ service: 'pickup_delivery', memberCode: 'jones-terwilliger', items: [{ qty: 1, type: 'decor', furnitureKind: 'Mirror', sizeClass: 'medium', description: 'm' }] });
-  if (qMirMem.total !== 175) errors.push('member medium décor Mirror should be $175 as printed, got ' + qMirMem.total);
+  if (qMirMem.total !== 150) errors.push('member Décor Mirror should use member painting delivery ($150), got ' + qMirMem.total);
+  const qMir40 = await q({ service: 'install_only', items: [{ qty: 1, type: 'mirror', w: 40, h: 40, description: 'm' }] });
+  if (qMir40.total !== 75) errors.push('40×40 mirror install should equal the painting rate $75, got ' + qMir40.total);
+  const qMir60 = await q({ service: 'install_only', items: [{ qty: 1, type: 'mirror', w: 60, h: 40, description: 'm' }] });
+  if (qMir60.total !== 115) errors.push('60×40 mirror install should be 1.5× $75 rounded to $115, got ' + qMir60.total);
+  const qMir60di = await q({ service: 'delivery_install', items: [{ qty: 1, type: 'mirror', w: 60, h: 40, description: 'm' }] });
+  if (qMir60di.total !== 315) errors.push('60×40 mirror delivery+install should be $315, got ' + qMir60di.total);
+  const qMirPD = await q({ service: 'pickup_delivery', items: [{ qty: 1, type: 'mirror', w: 60, h: 40, description: 'm' }] });
+  if (qMirPD.total !== 200) errors.push('60×40 mirror pickup+delivery should stay $200, got ' + qMirPD.total);
+  const qMir61 = await q({ service: 'install_only', items: [{ qty: 1, type: 'mirror', w: 61, h: 40, description: 'm' }] });
+  if (qMir61.total !== 190) errors.push('61×40 mirror install should be 2.5× $75 rounded to $190, got ' + qMir61.total);
+  const qMir71 = await q({ service: 'install_only', items: [{ qty: 1, type: 'mirror', w: 71, h: 40, description: 'm' }] });
+  if (qMir71.total !== 225) errors.push('71×40 mirror install should be 3× $75 = $225, got ' + qMir71.total);
+  const qMir80pd = await q({ service: 'pickup_delivery', items: [{ qty: 1, type: 'mirror', w: 80, h: 40, description: 'm' }] });
+  if (qMir80pd.total !== 300) errors.push('80×40 mirror pickup+delivery should stay $300 ($200 + $100 oversize), got ' + qMir80pd.total);
   const qWall = await q({ service: 'pickup_delivery', memberCode: 'jones-terwilliger', items: [{ qty: 1, type: 'decor', furnitureKind: 'Wall Decor', sizeClass: 'small', description: 'w' }] });
   if (qWall.total !== 145) errors.push('member small Wall Decor should be $145 as printed, got ' + qWall.total);
   if ((cfg.pricing.decorKinds || []).includes('Accents')) errors.push('generic Accents should not stay in the décor dropdown');
@@ -580,6 +613,30 @@ const readOrders = () => JSON.parse(fs.readFileSync(path.join(ROOT, 'data', 'ord
   if (missingPayer.status !== 400) errors.push('someone-else payer without a phone should be rejected');
   const okPayer = await post({ ...baseOrder, items: [{ qty: 1, type: 'painting', framed: 'no', value: 1000, description: 'x' }], payer: 'other', payerOther: { name: 'Pat Lee', email: 'pat@example.com', phone: '6504604296' } });
   if (okPayer.status === 400) errors.push('someone-else payer with name, email and phone should be accepted: ' + await okPayer.text());
+
+  // ---- Décor → Mirror routes to the same Mirror item (UI) ----
+  await startFresh(page);
+  await page.click('[data-service="install_only"]'); await page.waitForTimeout(300);
+  await page.click('[data-itemtype="0"] button[data-v="decor"]'); await page.waitForTimeout(250);
+  if (!(await page.$('[data-path="items.0.furnitureKind"]'))) errors.push('Décor should show Type of décor');
+  const decorHasMirror = await page.$eval('[data-path="items.0.furnitureKind"]', (el) => [...el.options].some((o) => o.value === 'Mirror'));
+  if (!decorHasMirror) errors.push('Type of décor should still list Mirror as an option');
+  await page.selectOption('[data-path="items.0.furnitureKind"]', 'Mirror'); await page.waitForTimeout(400);
+  const mirrorOn = await page.$eval('[data-itemtype="0"] button[data-v="mirror"]', (el) => el.classList.contains('on')).catch(() => false);
+  if (!mirrorOn) errors.push('choosing Mirror under Décor should switch the item type to Mirror');
+  if (await page.$('[data-path="items.0.furnitureKind"]')) errors.push('after routing, Type of décor should be replaced by Mirror fields');
+  if (await page.$('[data-seg="items.0.framed"]')) errors.push('routed Mirror must not ask Framed?');
+  await expect(/Glass is assumed for mirrors/, 'routed Mirror should say glass is assumed');
+  await fill(page, 'items.0.description', 'Venetian mirror');
+  await fill(page, 'items.0.w', 60); await fill(page, 'items.0.h', 40); await fill(page, 'items.0.value', 4000);
+  await next(page);
+  await me(page, 'Rita Cole', 'rita@example.com', '310-555-0199');
+  await fillSite(page, 'dropoff', { street: '1200 Summit Ridge Dr', city: 'Beverly Hills', zip: '90210', same: true, installLocation: 'standard' });
+  await next(page); await pickDay(page); await next(page); await page.waitForTimeout(500);
+  await expect(/Large mirror install \(over 48"\)/, 'review should show the large-mirror install line for a 60×40');
+  await expect(/\$40/, 'review should show the $40 large-mirror surcharge (1.5 × $75 = $115, less the $75 hanging line)');
+  await expect(/\$175/, 'review total should be $175 ($115 install + $60 declared-value protection on $4,000)');
+  await checkPricesNoWrap('décor-routed 60×40 review');
 
   // ---- Admin ----
   const admin = await (await browser.newContext({ viewport: { width: 1280, height: 900 } })).newPage();

@@ -46,6 +46,19 @@ module.exports = {
     // Oversize add-ons from the rate-card footnotes
     largePainting: { overInches: 72, deliveryFee: 100, installFee: 200 }, // per painting 72" or larger
     largeWallDecor: { overInches: 48, deliveryFee: 100, installFee: 200 }, // per wall-décor piece 48" or larger
+    // Mirror install (Chad, Nov 15 2026): a multiplier on the painting install price for that
+    // size (including the 72"+ oversize install fee when it applies), rounded to the nearest $5.
+    // Face size only (width or height; depth does not count). Thresholds are exclusive ("over").
+    // Up to 48" = 1×; over 48" = 1.5×; over 60" = 2.5×; over 70" = 3×. No 50" tier.
+    // Pickup & delivery stay on the painting tables. Décor → Mirror uses this same path.
+    mirrorInstall: {
+      roundTo: 5,
+      tiers: [
+        { overInches: 70, multiplier: 3 },
+        { overInches: 60, multiplier: 2.5 },
+        { overInches: 48, multiplier: 1.5 },
+      ],
+    },
     // Frame type is asked when a framed painting, photograph or other wall-art piece is over 48" on any side.
     // Pickup & delivery: only Large/heavy/ornate is surcharged (+$25), any size over 48".
     // Install (install jobs only): all frame types are surcharged on a >48"/≤72" and >72" table.
@@ -149,8 +162,9 @@ module.exports = {
       // Décor & Lighting section (bottom of the furniture/décor card on Notes/Info).
       // The last printed row is one five-size rate covering vases, sculptural décor, accents, figurines, and similar.
       // The form lists those as separate kinds, plus Other (describe), so clients can find them. Same prices for each.
-      // Mirror also stays a top-level item type (priced from the painting tables — an existing assumption).
-      // Choosing Mirror under Décor uses the furniture/décor card rates below.
+      // Mirror stays a top-level item type (painting delivery tables; install follows mirrorInstall above).
+      // Choosing Mirror under Décor routes to that same Mirror item and pricing — the card rates
+      // on the Mirror row below are kept as a record of the printed card, not used by the form.
       decorKinds: [
         'Wall Decor', 'Wall sculptures', 'Tapestries & textiles', 'Mirror',
         'Table Lamp', 'Floor Lamp', 'Sconces', 'Chandelier',
