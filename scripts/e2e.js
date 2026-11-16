@@ -161,9 +161,11 @@ const readOrders = () => JSON.parse(fs.readFileSync(path.join(ROOT, 'data', 'ord
   if ((await page.inputValue('[data-path="dropoff.contactName"]')) !== 'Jordan Lee') errors.push('"Same as me" did not fill the on-site contact');
   await page.click('[data-stairs="dropoff"] button[data-v="2"]'); await page.waitForTimeout(200);
   if (await hasText(page, /COI required|coiRequired/)) errors.push('COI fields should not exist');
-  if (!(await page.locator('[data-seg="items.0.hangHeight"]').count())) errors.push('install job should ask hanging height per piece');
+  if ((await page.locator('[data-seg="items.0.hangPick"] button').count()) !== 4) errors.push('install job should offer 4 hanging-height options per piece');
+  await expect(/57–60" to center/, 'eye-level option should show 57–60 inches to center');
+  await expect(/hanging height, COI|COI, anything/, 'special instructions must not mention COI', true);
   if (await page.locator('[data-path="dropoff.centerHeight"], [data-path="pickup.centerHeight"]').count()) errors.push('hanging height should be per piece, not on the address');
-  if (await page.locator('[data-seg="items.1.hangHeight"]').count()) errors.push('sculpture should not ask hanging height');
+  if (await page.locator('[data-seg="items.1.hangPick"]').count()) errors.push('sculpture should not ask hanging height');
   await page.selectOption('[data-path="dropoff.wallType"]', 'Plaster');
   await page.click('[data-seg="dropoff.hardware"] button[data-v="CAD brings it"]'); await page.waitForTimeout(150);
   await page.click('[data-seg="pickup.fits"] button[data-v="not_sure"]'); await page.waitForTimeout(150);

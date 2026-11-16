@@ -328,7 +328,8 @@ const REFERRER_KINDS = [['friend', 'Friend or family'], ['gallery', 'Gallery'], 
 const BUSINESS_REFERRERS = ['gallery', 'showroom', 'designer', 'auction', 'other_business'];
 const CONTACT_ROLES = ['Homeowner', 'Designer', 'Home / estate manager', 'Gallery owner', 'Gallery staff', 'Assistant', 'Art advisor / collector rep', 'Building manager / concierge', 'Other'];
 const HANG_HEIGHTS = [['standard', 'Standard eye level (gallery height)'], ['higher', 'Higher than eye level']];
-const HANG_WHERES = [['mantel', 'Above a mantel or tall furniture'], ['high', 'High wall (ladder needed)'], ['stairwell', 'Over a stairwell'], ['other', 'Other']];
+const HANG_WHERES = [['mantel', 'Above a mantel or fireplace'], ['high', 'Higher than eye level (ladder needed)'], ['stairwell', 'In a stairwell'], ['other', 'Other']];
+const HANG_PICKS = [['standard', 'Eye level / gallery standard (57–60" to center)'], ['high', 'Higher than eye level (ladder needed)'], ['mantel', 'Above a mantel or fireplace'], ['stairwell', 'In a stairwell']];
 const hangWhereLabel = (v) => (HANG_WHERES.find(([k]) => k === v) || [v, v])[1];
 const heardLabel = (v) => (HEARD_SOURCES.find(([k]) => k === v) || [v, v])[1];
 const referrerKindLabel = (v) => (REFERRER_KINDS.find(([k]) => k === v) || [v, v])[1];
@@ -435,12 +436,12 @@ const hangPieceBlock = (it, i) => {
   const helpful = higher && it.hangWhere && it.hangWhere !== 'stairwell';
   let html = '<div class="field" style="margin-top:14px" data-hangpiece="' + i + '">';
   html += '<label class="f">Hanging height — ' + title + '<span class="req">Required</span></label>';
-  html += seg(p + '.hangHeight', HANG_HEIGHTS);
+  it.hangPick = higher ? (it.hangWhere || '') : 'standard';
+  html += seg(p + '.hangPick', HANG_PICKS, 'stack');
   if (!higher) {
     html += input(p + '.centerHeight', 'Center height (in), optional', { type: 'number', ph: '59', attrs: 'inputmode="decimal"' });
-    html += '<p class="mini">We hang at about 59" to center (gallery standard). Adjust only if you have a preference.</p>';
+    html += '<p class="mini">We hang at 57–60" to center (gallery standard). Adjust only if you have a preference.</p>';
   } else {
-    html += select(p + '.hangWhere', 'Where?', HANG_WHERES, { req: true, placeholder: 'Please choose one', rerender: true });
     if (it.hangWhere === 'other') html += input(p + '.hangWhereOther', 'Where?', { req: true, ph: 'Tell us where' });
     if (it.hangWhere) html += input(p + '.hangBottomFt', 'Approx. height to the bottom of the piece (ft), optional', { type: 'number', ph: 'e.g. 8', attrs: 'inputmode="decimal"' });
     if (stairwell) html += '<p class="mini req-line">Photos of the stairwell — required.</p><div class="photos" style="margin:0 0 12px">' + photos + '<label class="upload">＋ Photos of the stairwell' + req + '<input type="file" accept="image/*" multiple data-hangupload="' + i + '"></label></div>';
@@ -642,6 +643,7 @@ const destText = (a) => [a.street, [a.city, intlDest(a) ? '' : a.state].filter(B
 const OOS_NOTE = 'Pickups and deliveries outside California are custom quoted as Shipping. Within California we always provide white-glove delivery. Samantha prices your job and emails you a quote; nothing is charged until you approve it.';
 
 // ---------- views ----------
+const roleLabel = (key) => (key === 'pickup' ? 'Pickup contact role' : S.service === 'install_only' ? 'Install contact role' : 'Delivery contact role');
 const views = {
   What() {
     const base = (CFG.pricing && CFG.pricing.displayFrom) || {};
@@ -712,8 +714,8 @@ const views = {
         ${input(`${key}.business`, 'Business or gallery (optional)', { ph: 'Gallery, showroom or residence' })}
         <div class="sub-head"><span>On-site <b>${key === 'pickup' ? 'pickup' : S.service === 'install_only' ? 'install' : shipService() ? 'destination' : 'delivery'}</b> contact</span><button type="button" class="pill-btn ${a.sameAsMe ? 'on' : ''}" data-same="${key}">${a.sameAsMe ? '✓ Same as me' : 'Same as me'}</button></div>
         <div class="row keep">${input(`${key}.contactName`, 'Name', { ph: 'Name', req: !optional })}${input(`${key}.contactPhone`, 'Phone', { type: 'tel', ph: '(310) 555-0100', req: !optional, attrs: 'autocomplete="tel"' })}</div>
-        ${select(`${key}.contactRole`, 'Their role', CONTACT_ROLES, { req: !optional, placeholder: 'Please choose one', rerender: true })}
-        ${a.contactRole === 'Other' ? input(`${key}.contactRoleOther`, 'Their role', { req: true, ph: 'e.g. House sitter' }) : ''}
+        ${select(`${key}.contactRole`, roleLabel(key), CONTACT_ROLES, { req: !optional, placeholder: 'Please choose one', rerender: true })}
+        ${a.contactRole === 'Other' ? input(`${key}.contactRoleOther`, roleLabel(key), { req: true, ph: 'e.g. House sitter' }) : ''}
         <div class="sub-head"><span>Access</span></div>
         <div class="row keep" style="grid-template-columns:96px 1fr">${input(`${key}.floor`, 'Floor', { ph: '1', attrs: 'inputmode="numeric"' })}${input(`${key}.hours`, 'Access hours', { ph: 'e.g. 9am–5pm' })}</div>
         ${toggle(`${key}.elevator`, 'Elevator', '', true)}
@@ -737,7 +739,7 @@ const views = {
         ${select(`${key}.wallType`, 'Wall type', ['Not sure', 'Drywall', 'Plaster', 'Concrete / brick', 'Wood', 'Tile / stone', 'Glass'])}
         <div class="field"><label class="f">Hanging hardware</label>${seg(`${key}.hardware`, [['CAD brings it', 'CAD brings it'], ['On site', 'On site'], ['Not sure', 'Not sure']])}</div>
         ${S.items.map((it, i) => hangPieceBlock(it, i)).join('')}` : ''}
-        <div class="field" style="margin:0"><label class="f" for="f-${key}.notes">Special instructions</label><textarea id="f-${key}.notes" data-path="${key}.notes" placeholder="Gate codes, parking, hanging height, COI, anything else">${esc(a.notes)}</textarea></div>
+        <div class="field" style="margin:0"><label class="f" for="f-${key}.notes">Special instructions</label><textarea id="f-${key}.notes" data-path="${key}.notes" placeholder="Gate codes, parking, anything else">${esc(a.notes)}</textarea></div>
       </div>`;
     };
     const dropTitle = shipService() ? 'Destination' : S.service === 'install_only' ? 'Installation address' : 'Delivery address';
@@ -1001,8 +1003,8 @@ function missingFields() {
       if (!String(a.city || '').trim()) add(`#f-${key}.city`, `City — ${title}`, `Please enter the ${title.toLowerCase()} city.`);
       if (!String(a.contactName || '').trim()) add(`#f-${key}.contactName`, `On-site name — ${title}`, 'Please enter the on-site contact’s name.');
       if (!String(a.contactPhone || '').trim()) add(`#f-${key}.contactPhone`, `On-site phone — ${title}`, 'Please enter the on-site contact’s phone number.');
-      if (!String(a.contactRole || '').trim()) add(`#f-${key}.contactRole`, `Their role — ${title}`, 'Please tell us this person’s role.');
-      else if (a.contactRole === 'Other' && !String(a.contactRoleOther || '').trim()) add(`#f-${key}.contactRoleOther`, `Their role — ${title}`, 'Please tell us this person’s role.');
+      if (!String(a.contactRole || '').trim()) add(`#f-${key}.contactRole`, roleLabel(key), 'Please choose the contact’s role.');
+      else if (a.contactRole === 'Other' && !String(a.contactRoleOther || '').trim()) add(`#f-${key}.contactRoleOther`, roleLabel(key), 'Please choose the contact’s role.');
     };
     if (svc().needsPickup) siteMiss('pickup', 'Pickup', true);
     const dropTitle = shipService() ? 'Destination' : S.service === 'install_only' ? 'Installation' : 'Delivery';
@@ -1378,7 +1380,9 @@ app.addEventListener('click', async (e) => {
     else { a.stairKind = 'flights'; a.steps = false; a.stairs = Number(v); }
     persist(); render(); return;
   }
-  const sg = t.closest('[data-seg]'); if (sg) { const v = t.dataset.v; set(sg.dataset.seg, isNaN(v) ? v : Number(v)); render(); return; }
+  const sg = t.closest('[data-seg]'); const hp = sg && sg.dataset.seg.match(/^items\.(\d+)\.hangPick$/);
+  if (hp) { const it = S.items[+hp[1]]; const v = t.dataset.v; if (v === 'standard') { it.hangHeight = 'standard'; it.hangWhere = ''; } else { it.hangHeight = 'higher'; it.hangWhere = v; } set(sg.dataset.seg, v); render(); return; }
+  if (sg) { const v = t.dataset.v; set(sg.dataset.seg, isNaN(v) ? v : Number(v)); render(); return; }
   const paySeg = t.closest('[data-pay-method]'); if (paySeg) { payMethod = t.dataset.v; render(); return; }
   const chips = t.closest('[data-chips]'); if (chips) { set(chips.dataset.chips, t.dataset.v); render(); return; }
   if (t.dataset.date) {
