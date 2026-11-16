@@ -79,6 +79,8 @@ input:focus,select:focus,textarea:focus{border-color:var(--navy);background:#fff
 .seg button{flex:1;min-width:0;min-height:44px;border:0;background:transparent;font:inherit;font-size:16px;padding:11px 8px;border-radius:9px;cursor:pointer;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .seg button.on{background:#fff;color:var(--ink);box-shadow:0 1px 4px rgba(0,0,0,.08);font-weight:600}
 .seg.stack{flex-direction:column}
+.seg.wrap{flex-wrap:wrap}
+.seg.wrap button{flex:1 1 28%;white-space:normal;overflow:visible;text-overflow:unset;line-height:1.25}
 .seg.stack button{white-space:normal;overflow:visible;text-overflow:unset;text-align:left;padding:11px 12px}
 .item-head{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:12px}
 .item-head b{font-size:16px}

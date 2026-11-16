@@ -15,6 +15,7 @@ const ADMIN_KEY = process.env.ADMIN_KEY || 'cad-admin';   // prototype only
 const storage = require('./lib/storage');
 const { TYPES, framingErrors, itemLine, isHungItem, routeDecorMirror } = require('./lib/itemtypes');
 const { lookupMember, resolveMember } = require('./lib/members');
+const ACCESS = require('./public/access');
 const ORDERS = path.join(storage.dir('data'), 'orders.json');
 const CUSTOMERS = path.join(storage.dir('data'), 'customers.json');
 
@@ -35,6 +36,12 @@ const saveCustomers = (c) => fs.writeFileSync(CUSTOMERS, JSON.stringify(c, null,
 
 const app = express();
 app.use(express.json({ limit: '2mb' }));
+// Access answers (ground / steps / stairs / elevator) are mapped onto the legacy stair fields before pricing or booking.
+app.use((req, _res, next) => {
+  const b = req.body;
+  if (b && typeof b === 'object') ['pickup', 'dropoff'].forEach((k) => { if (b[k] && typeof b[k] === 'object') ACCESS.normalize(b[k]); });
+  next();
+});
 app.use(express.static(path.join(__dirname, 'public')));
 app.use('/uploads', express.static(storage.dir('uploads')));
 
@@ -107,6 +114,16 @@ function validate(o) {
     if (!o.dropoff?.street) errs.push('dropoff');
     if (!siteContact(o.dropoff)) errs.push('dropoff contact');
   }
+  // Access (Chad): "How do we get in?" is required at every stop, plus the follow-ups and photos it triggers.
+  const ACCESS_ERR = {
+    accessMode: 'access (how do we get in?)', stairFlights: 'number of flights', stairs: 'number of flights (4 or more)', stairDir: 'stairs up or down',
+    stairTurns: 'tight turns on the stairs', stairPhotos: 'photos of the stairs and path', floor: 'elevator floor',
+    fits: 'will everything fit easily', doorPhotos: 'photos of the doorway',
+  };
+  const accessStops = [];
+  if (SERVICES[o.service]?.needsPickup) accessStops.push(['pickup', o.pickup]);
+  if (SERVICES[o.service]?.needsDropoff) accessStops.push([SERVICES[o.service]?.install && !SERVICES[o.service]?.needsPickup ? 'install' : 'delivery', o.dropoff]);
+  accessStops.forEach(([name, a]) => { if (a && a.street) ACCESS.gaps(a, o.items).forEach((g) => errs.push(`${name} ${ACCESS_ERR[g] || g}`)); });
   if (!o.contact?.name || !o.contact?.email) errs.push('contact');
   if (o.payer === 'other') {
     if (!String(o.payerOther?.name || '').trim()) errs.push('payer name');

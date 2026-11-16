@@ -173,8 +173,11 @@ async function inStepToggleKeepsScroll(page, selector, label, problems) {
     for (const k of ['pickup', 'dropoff']) { if (await page.$(`[data-path="${k}.contactRole"]`)) await page.selectOption(`[data-path="${k}.contactRole"]`, 'Homeowner'); }
     await inStepToggleKeepsScroll(page, '[data-same="dropoff"]', L('2 Where'), problems);
     await inStepToggleKeepsScroll(page, '[data-same="pickup"]', L('2 Where'), problems);
-    await inStepToggleKeepsScroll(page, 'label.toggle:has([data-path="dropoff.elevator"])', L('2 Where'), problems);
-    await inStepToggleKeepsScroll(page, '[data-stairs="dropoff"] button[data-v="2"]', L('2 Where'), problems);
+    await inStepToggleKeepsScroll(page, '[data-seg="dropoff.accessMode"] button[data-v="elevator"]', L('2 Where'), problems);
+    await inStepToggleKeepsScroll(page, '[data-seg="dropoff.accessMode"] button[data-v="stairs"]', L('2 Where'), problems);
+    await inStepToggleKeepsScroll(page, '[data-seg="dropoff.stairFlights"] button[data-v="2"]', L('2 Where'), problems);
+    await inStepToggleKeepsScroll(page, '[data-seg="dropoff.stairDir"] button[data-v="up"]', L('2 Where'), problems);
+    await inStepToggleKeepsScroll(page, '[data-seg="pickup.accessMode"] button[data-v="ground"]', L('2 Where'), problems);
     await inStepToggleKeepsScroll(page, 'label.toggle:has([data-path="heard.repeatClient"])', L('2 Where'), problems);
     await inStepToggleKeepsScroll(page, 'label.toggle:has([data-path="pickup.parkingRestricted"])', L('2 Where'), problems);
     await inStepToggleKeepsScroll(page, '[data-seg="dropoff.fits"] button[data-v="not_sure"]', L('2 Where'), problems);
