@@ -48,7 +48,7 @@ const emptyHeard = () => ({
 const fresh = () => ({
   service: '', crating: false, rush: false, dedicated: false, member: false, memberCode: '', memberVerified: false, memberCompany: '', memberError: '', declaredValueProtection: false,
   items: [emptyItem()], pickup: emptyAddr(), dropoff: emptyAddr(),
-  contact: { name: '', email: '', phone: '', company: '', clientType: 'Collector' },
+  contact: { name: '', email: '', phone: '', company: '', clientType: '' },
   heard: emptyHeard(), referral: false, partner: { type: 'None', name: '', email: '', phone: '' }, payer: 'me', payerOther: { name: '', email: '', phone: '' },
   schedule: { date: '', window: '', timePref: 'none', timeNote: '', deliveryLater: false, deliveryDate: '', deliveryTimePref: 'none', deliveryTimeNote: '' }, notes: '',
   shipping: { serviceLevel: '', shipBy: '', arriveBy: '', flexible: false, customs: { name: '', phone: '', email: '' } },
@@ -77,12 +77,13 @@ S.shipping = { ...fresh().shipping, ...(S.shipping || {}), customs: { ...fresh()
 
 let orderId = null, orderSig = null;   // order created at the moment of payment
 let existing = null;                    // an order opened from a payment link (?order=…)
+let payCanceled = false;                // back from Stripe without paying (?canceled=1)
 let quoteData = null, avail = null, confirmed = null, delAvail = null;
 let payMethod = 'card';
 let saveMethod = false;
 let busy = false;
 
-const persist = () => sessionStorage.setItem('cad-order', JSON.stringify(S));
+const persist = () => { if (STEPS[step] === 'Done') return; sessionStorage.setItem('cad-order', JSON.stringify(S)); sessionStorage.setItem('cad-step', String(step)); };
 // What actually gets priced / booked: drop fields that don't apply to the chosen service.
 const payload = () => {
   const o = JSON.parse(JSON.stringify(S));
@@ -333,7 +334,7 @@ const qualifyLabel = (path, label) => {
 const HEARD_SOURCES = [['referral', 'Referred by someone'], ['google', 'Google / online search'], ['ai', 'AI assistant (ChatGPT, etc.)'], ['social', 'Instagram / social media'], ['van', 'Saw our van / event'], ['other', 'Other']];
 const REFERRER_KINDS = [['friend', 'Friend or family'], ['gallery', 'Gallery'], ['showroom', 'Furniture showroom'], ['designer', 'Interior designer'], ['auction', 'Auction house'], ['other_business', 'Other business']];
 const BUSINESS_REFERRERS = ['gallery', 'showroom', 'designer', 'auction', 'other_business'];
-const CONTACT_ROLES = ['Homeowner', 'Designer', 'Home / estate manager', 'Gallery owner', 'Gallery staff', 'Assistant', 'Art advisor / collector rep', 'Building manager / concierge', 'Other'];
+const CONTACT_ROLES = ['Homeowner', 'Interior designer', 'Home / estate manager', 'Gallery owner', 'Gallery staff', 'Assistant', 'Art advisor / collector rep', 'Building manager / concierge', 'Other'];
 const HANG_HEIGHTS = [['standard', 'Standard eye level (gallery height)'], ['higher', 'Higher than eye level']];
 const HANG_WHERES = [['mantel', 'Above a mantel or fireplace'], ['high', 'Higher than eye level (ladder needed)'], ['stairwell', 'In a stairwell'], ['other', 'Other']];
 const HANG_PICKS = [['standard', 'Eye level / gallery standard (57–60" to center)'], ['high', 'Higher than eye level (ladder needed)'], ['mantel', 'Above a mantel or fireplace'], ['stairwell', 'In a stairwell']];
@@ -348,7 +349,7 @@ const defaultContactRole = (clientType) => {
   switch (clientType) {
     case 'Collector': return { role: 'Homeowner', other: '' };
     case 'Gallery': return { role: 'Gallery owner', other: '' };
-    case 'Interior designer': return { role: 'Designer', other: '' };
+    case 'Interior designer': return { role: 'Interior designer', other: '' };
     case 'Furniture showroom': return { role: 'Other', other: 'Furniture showroom' };
     case 'Auction house': return { role: 'Other', other: 'Auction house' };
     case 'Artist': return { role: 'Other', other: 'Artist' };
@@ -360,9 +361,6 @@ const applySameAsMe = (k) => {
   if (!a || !a.sameAsMe) return;
   a.contactName = S.contact.name;
   a.contactPhone = S.contact.phone;
-  const d = defaultContactRole(S.contact.clientType);
-  a.contactRole = d.role;
-  a.contactRoleOther = d.other;
 };
 const syncHeardPayload = (o) => {
   const h = { ...emptyHeard(), ...(o.heard || {}) };
@@ -437,7 +435,7 @@ const hangSummary = (it, i) => {
     const where = it.hangWhere === 'other' && it.hangWhereOther ? it.hangWhereOther : (it.hangWhere ? hangWhereLabel(it.hangWhere) : '');
     const bottom = it.hangBottomFt ? ` · ${it.hangBottomFt} ft to the bottom` : '';
     const photos = it.hangPhotos && it.hangPhotos.length ? ` · ${CADAccess.plural(it.hangPhotos.length, 'photo')}` : '';
-    return `${name}: Higher than eye level${where ? ' — ' + where : ''}${bottom}${photos}`;
+    return `${name}: ${where || 'Higher than eye level'}${bottom}${photos}`;
   }
   return `${name}: Standard eye level (${it.centerHeight || 59}" center)`;
 };
@@ -511,9 +509,8 @@ const accessBlock = (key, a) => {
 const payPlan = (q) => {
   if (isQuote(q)) {
     return `<div class="plan"><div class="plan-head">Quote request · no payment due yet</div>
-      <div class="sum-row"><span>Regular rate</span><span class="amt">${fmt(q.regularTotal || q.total)}</span></div>
-      ${q.tripPremium === false ? '' : `<div class="sum-row"><span>Quoted range (1.5×–2×)</span><span class="amt"><b>${fmt(q.quoteRange.low)}–${fmt(q.quoteRange.high)}</b></span></div>`}
-      ${q.crating ? '<div class="sum-row"><span>Custom crating</span><span>Quoted by CAD</span></div>' : ''}
+      ${q.tripPremium ? `<div class="sum-row"><span>Regular rate</span><span class="amt">${fmt(q.regularTotal || q.total)}</span></div>
+      <div class="sum-row"><span>Estimated range</span><span class="amt"><b>${fmt(q.quoteRange.low)}–${fmt(q.quoteRange.high)}</b></span></div>` : '<div class="sum-row"><span>Price</span><span>Priced by CAD</span></div>'}
       ${q.extraQuoted ? `<div class="sum-row"><span>${esc(q.extraQuoted)}</span><span>Quoted by CAD</span></div>` : ''}
       <p class="mini" style="margin:4px 0 10px">${esc(q.quoteNote || 'CAD sets a final price in this range. Nothing is charged until you approve it and pay.')}</p></div>`;
   }
@@ -526,17 +523,19 @@ const payPlan = (q) => {
 };
 const priceCard = (q, withProtection) => `<div class="card price-card">
   ${q ? q.lines.map((l) => `<div class="sum-row"><span>${esc(l.label)}</span><span class="amt">${l.included ? 'Included' : fmt(l.amount)}</span></div>`).join('') : '<div class="sum-row"><span>Calculating…</span><span class="amt"></span></div>'}
-  ${withProtection ? '<p class="mini" style="margin:6px 0 0">Declared value protection (1.5%) is included on every piece valued $50,000 or less. Pieces over $50,000 carry high-value handling instead.</p>' : ''}
-  ${q ? `<div class="total"><span>${isQuote(q) ? 'Regular rate' : 'Total'}</span><span class="amt">${fmt(q.regularTotal || q.total)}</span></div>${payPlan(q)}` : ''}
+  ${withProtection ? '<p class="mini" style="margin:6px 0 0">Declared value protection is 1.5% of each piece’s declared value (pieces up to $50,000), added to your price. Pieces over $50,000 carry high-value handling instead.</p>' : ''}
+  ${q ? `${isQuote(q) && !q.tripPremium ? '' : `<div class="total"><span>${isQuote(q) ? 'Regular rate' : 'Total'}</span><span class="amt">${fmt(q.regularTotal || q.total)}</span></div>`}${payPlan(q)}` : ''}
 </div>`;
 
 // ---------- payment block (shared by new orders and payment links) ----------
 const paymentBlock = (q) => {
-  const saveToggle = CFG.payment.savePaymentMethod ? toggleRaw('saveMethod', saveMethod, 'Save for next time', 'Keep this card or bank account on file so your next booking is one tap.') : '';
+  const saveToggle = CFG.payment.savePaymentMethod ? toggleRaw('saveMethod', saveMethod, 'Save this payment method', 'We keep it on file with CAD for future bookings.') : '';
   if (CFG.stripe) {
     return `<div class="card"><span class="badge">Stripe test mode</span>
       <p class="mini" style="margin:0 0 12px">You’ll pay on Stripe’s secure page: Apple Pay, Google Pay, card or bank (ACH).</p>${saveToggle}<div class="err" id="err"></div></div>`;
   }
+  // Mock checkout (prefilled test numbers, mock Apple / Google Pay) only when the server runs with TEST_MODE=1.
+  if (!CFG.testMode) return `<div class="card"><p class="mini" style="margin:0">Online payment isn’t switched on yet. Please contact CAD to complete your booking.</p><div class="err" id="err"></div></div>`;
   const fields = payMethod === 'ach'
     ? `<div class="row"><div class="field"><label class="f" for="routing">Routing number</label><input type="text" id="routing" value="110000000" inputmode="numeric" autocomplete="off"></div><div class="field"><label class="f" for="account">Account number</label><input type="text" id="account" value="000123456789" inputmode="numeric" autocomplete="off"></div></div>
        <p class="mini" style="margin:0 0 12px">Your job is confirmed the moment you submit. The bank transfer shows as “ACH processing” until it clears, usually a few business days.</p>`
@@ -561,13 +560,13 @@ const needsTwoDates = () => !!(svc().needsPickup && svc().needsDropoff && !isShi
 const routeHint = (day) => (day && day.routeType === 'downAndBack')
   ? `<p class="mini route-hint">This is a down-and-back route, so we have more flexibility to come early or on our way back.</p>`
   : '';
-const timeReassure = `<div class="time-reassure"><p>We build each route day to serve everyone efficiently, so we can’t promise an exact time at booking. We’ll keep you posted as we get closer: the part of day a few days before, a 2-hour window the day before, a 30–60 minute window that morning, and a 15-minute heads-up when we’re on the way. Need a guaranteed time? Ask about a dedicated trip.</p></div>`;
+const timeReassure = `<div class="time-reassure"><p>We build each route day to serve everyone efficiently, so we can’t promise an exact time at booking. We’ll be in touch before your date to confirm the arrival window. Need a guaranteed time? Ask about a dedicated trip.</p></div>`;
 const timePrefBlock = (prefPath, notePath, { showReassure = false } = {}) => {
   const pref = get(prefPath) || 'none';
   return `<h2>Time preference or constraints <span class="opt">(not guaranteed)</span></h2>
     <div class="chips" data-chips="${prefPath}">${TIME_PREF_OPTS.map(([v, l]) => `<button type="button" class="chip ${(pref || 'none') === v ? 'on' : ''}" data-v="${esc(v)}">${esc(l)}</button>`).join('')}</div>
-    ${input(notePath, 'Time note (optional)', { ph: 'e.g. not available before 10am' })}
-    <p class="mini">Need it before 10am? Tell us in the note; we’ll do our best but can’t promise.</p>
+    ${input(notePath, 'Time note (optional)', { ph: 'e.g. Must be done by noon' })}
+    <p class="mini">Tell us any time limits in the note; we’ll do our best but can’t promise.</p>
     ${showReassure ? timeReassure : ''}`;
 };
 const promiseCard = (sub, extraStyle = '') => {
@@ -580,7 +579,7 @@ const promiseCard = (sub, extraStyle = '') => {
     ? [timePrefSummary(S.schedule.timePref, S.schedule.timeNote) && `Pickup: ${timePrefSummary(S.schedule.timePref, S.schedule.timeNote)}`,
        timePrefSummary(S.schedule.deliveryTimePref, S.schedule.deliveryTimeNote) && `Delivery: ${timePrefSummary(S.schedule.deliveryTimePref, S.schedule.deliveryTimeNote)}`].filter(Boolean).join(' · ')
     : timePrefSummary(S.schedule.timePref, S.schedule.timeNote);
-  const line = sp ? (S.rush || S.dedicated ? 'Preferred date · confirmed with your quote' : 'Your date · price confirmed with your quote')
+  const line = sp ? (S.rush || S.dedicated ? 'Preferred date · confirmed with your quote' : 'Price confirmed with your quote')
     : (prefs || sub || '');
   return `<div class="promise ${sp ? 'quote' : ''}" style="${extraStyle}"><span class="pi">${sp ? '⏱' : '✓'}</span><span><b>${title}</b><span>${esc(line)}</span></span></div>`;
 };
@@ -595,10 +594,10 @@ function deliveryBlock() {
   const cross = crossRegion() ? `<p class="note">Pickup and delivery are in different regions, so delivery is usually 1–2 weeks later on the next ${esc(quoteData.regions.dropoff)} route day.</p>` : '';
   const chip = `<div class="pickup-chip" data-pickup-chip><span><b>Pickup</b> ${esc(shortDate(S.schedule.date))}</span><button type="button" class="edit" data-change-pickup>Change</button></div>`;
   return `${chip}
-    <h1 class="when-h1">Choose your <b>DELIVERY</b> date</h1>
-    <p class="sub">Pick a route day that serves the delivery address, on or after your pickup date. Same-day delivery is available when that route serves both areas.</p>
+    <h1 class="when-h1">Choose your delivery date</h1>
+    <p class="sub">Pick a route day that serves the delivery address, on or after your pickup date. Same-day delivery is available when that route serves both areas. Same-day isn’t available between Northern and Southern California.</p>
     ${cross}
-    <div class="region">● ${esc((delAvail && delAvail.zone ? delAvail.zone + ' · ' : '') || '')}${esc((delAvail && delAvail.region) || 'your area')} route</div>
+    <div class="region">● ${esc((delAvail && (delAvail.area || delAvail.region)) || 'Your area')} route</div>
     ${days}`;
 }
 async function loadDelivery() {
@@ -613,14 +612,14 @@ async function loadDelivery() {
 // ---------- photo rules (Chad): optional unless the job needs eyes on it first ----------
 const HEAVY_LB = 500;
 const itemPhotoReason = (it) => (num(it.weight) > HEAVY_LB ? 'Photo required for items over 500 lb.'
-  : it.type === 'other' ? 'Photos required: out-of-the-ordinary items.'
+  : it.type === 'other' ? 'Please add a photo so we can plan the right handling.'
   : it.fragile ? 'Photo required for special handling.' : '');
 const photosOk = (it) => !itemPhotoReason(it) || (it.photos || []).length > 0;
 const sitePhotosOk = () => true;
 const hangPhotosOk = (it) => it.hangHeight !== 'higher' || it.hangWhere !== 'stairwell' || (it.hangPhotos || []).length > 0;
-const valueHint = (it) => (shipService() ? 'What this piece is worth, for shipping insurance.'
+const valueHint = (it) => (shipService() ? 'Its current value. Our shipping partner uses it for coverage.'
   : num(it.value) > 50000 ? 'Over $50,000: high-value handling applies and declared value protection isn’t offered. Please use your own fine art insurance.'
-  : num(it.value) > 0 ? 'Declared value protection (1.5%) is included.' : 'What this piece is worth. Used for insurance.');
+  : num(it.value) > 0 ? 'Declared value protection: 1.5% of the declared value, added to your price.' : 'Its current value. We use it to set declared value protection.');
 const weightRequired = (it) => shipService() || it.type === 'sculpture' || it.type === 'other';
 const weightOk = (it) => !weightRequired(it) || !!it.weightUnsure || num(it.weight) > 0;
 function updateItemHints(i) {
@@ -700,7 +699,7 @@ const views = {
         <p class="mini" style="margin:-4px 0 10px">Approximate inches are fine.</p>`;
       const value = input(`${p}.value`, 'Declared value per piece ($)', { ph: 'e.g. 12,000', attrs: 'inputmode="numeric"', req: true })
         + `<p class="mini" style="margin:-4px 0 8px" data-valhint="${i}">${valueHint(item)}</p>`;
-      const ph = { painting: 'e.g. Oil on canvas by J. Smith', photograph: 'e.g. Signed gelatin silver print', mirror: 'e.g. Venetian mirror, gilt', wallart: 'e.g. Mixed media, wall sculpture', sculpture: 'e.g. Bronze on plinth', furniture: 'e.g. Walnut credenza', decor: item.furnitureKind === 'Other (describe)' ? 'e.g. Ceramic garden stool, pair of candlesticks' : 'e.g. Pair of table lamps', other: 'e.g. Antique clock, wine collection', custom: 'e.g. Pick up 3 crates from storage and hold them' }[type];
+      const ph = { painting: 'e.g. Oil on canvas by J. Smith', photograph: 'e.g. Signed gelatin silver print', mirror: 'e.g. Venetian mirror, gilt', wallart: 'e.g. Mixed media, wall sculpture', sculpture: 'e.g. Bronze on plinth', furniture: 'e.g. Walnut credenza', decor: item.furnitureKind === 'Other (describe)' ? 'e.g. Ceramic garden stool, pair of candlesticks' : 'e.g. Pair of table lamps', other: 'e.g. Antique clock, Murano glass chandelier', custom: 'e.g. Collect two pieces from a framer and deliver them with the rest' }[type];
       const kinds = type === 'furniture' ? (CFG.pricing.furnitureKinds || []) : decorKindOptions();
       const sizeOpts = sizeOptionsFor(type, item.furnitureKind);
       const allowedSizes = sizeOpts.map((o) => Array.isArray(o) ? o[0] : o);
@@ -713,10 +712,10 @@ const views = {
         ${needsWeight ? weightField(item, i, { required: true }) + value : ''}
         ${type === 'decor' ? value : ''}
         ${FRAMING_TYPES.includes(type) ? framingBlock(item, i) + value : ''}
-        ${type === 'mirror' ? value + '<p class="mini" style="margin:0 0 6px">Glass is assumed for mirrors.</p>' : ''}
+        ${type === 'mirror' ? value : ''}
         ${type === 'custom' ? '<p class="mini" style="margin:0 0 6px">Tell us what you need in the description. CAD reviews it and sends a custom quote; nothing is charged until you approve it.</p>' : ''}
         ${type === 'other' ? '<p class="mini" style="margin:0 0 6px">Priced by weight from our sculpture rates. The price covers pickup, delivery and placement wherever you want it. CAD may adjust the final quote after seeing photos.</p>' : ''}
-        ${type === 'sculpture' ? '<p class="mini" style="margin:0 0 6px">One weight-based price covers pickup, delivery and placement wherever you want it: a home, gallery, warehouse, hotel or sculpture garden. Same price either way.</p>' : ''}
+        ${type === 'sculpture' ? '<p class="mini" style="margin:0 0 6px">One weight-based price covers pickup, delivery and placement wherever you want it:</p>' : ''}
         ${hasInstall() && type === 'decor' && quoteHangList().includes(item.furnitureKind) ? `<p class="mini" style="margin:0 0 6px">${esc(item.furnitureKind)} hanging isn’t on our rate card, so this becomes a quick quote request.</p>` : ''}
         ${type === 'furniture' ? '<p class="mini" style="margin:0 0 6px">One price covers pickup, delivery and placement wherever you want it.</p>' : ''}
         ${showApproxWeight ? weightField(item, i, { approx: true }) : ''}
@@ -726,8 +725,8 @@ const views = {
           <button type="button" class="link" data-dup="${i}">Duplicate</button>
           ${S.items.length > 1 ? `<button type="button" class="link muted" data-remove="${i}">Remove</button>` : ''}</span></div>
         <div class="field"><div class="chips" data-itemtype="${i}">${itemTypes().map(([v, l]) => `<button type="button" class="chip ${type === v ? 'on' : ''}" data-v="${v}">${l}</button>`).join('')}</div></div>
-        ${type === 'photograph' ? '<p class="mini" style="margin:-4px 0 10px">Prints and photographs. Hung on a wall, so we can install it.</p>' : ''}
-        ${type === 'wallart' ? '<p class="mini" style="margin:-4px 0 10px">Mixed media, wall sculpture, etc. Hung on a wall, so we can install it.</p>' : ''}
+        ${type === 'photograph' ? `<p class="mini" style="margin:-4px 0 10px">Prints and photographs${hasInstall() ? '. Hung on a wall, so we can install it.' : ', framed or unframed.'}</p>` : ''}
+        ${type === 'wallart' ? `<p class="mini" style="margin:-4px 0 10px">Mixed media, wall sculpture, etc.${hasInstall() ? ' Hung on a wall, so we can install it.' : ''}</p>` : ''}
         ${kindRow}
         <div class="row qty">${input(`${p}.qty`, 'Qty', { type: 'number', attrs: 'min="1" inputmode="numeric"' })}${input(`${p}.description`, type === 'custom' ? 'Your request' : 'Description', { ph, req: true })}</div>
         ${shipService() ? shipExtras(item, i) : rateBlock}
@@ -737,7 +736,7 @@ const views = {
           <label class="upload">＋ Photos<span data-photolbl="${i}">${itemPhotoReason(item) ? req : ' (optional)'}</span><input type="file" accept="image/*" multiple data-upload="${i}"></label></div>
       </div>`;
     };
-    return `<h1>${S.service === 'install_only' ? 'What are we installing?' : 'How can we help?'}</h1><p class="sub">Fine art, luxury furniture and décor are our specialty, and we handle anything fragile or valuable. Approximate sizes are fine.</p>
+    return `<h1>${S.service === 'install_only' ? 'What are we installing?' : 'How can we help?'}</h1><p class="sub">Fine art, luxury furniture and décor are our specialty, and we handle other fragile or valuable pieces. Approximate sizes are fine.</p>
       <div class="choices">${Object.entries(CFG.services).map(([k, v]) => `<button type="button" class="choice ${S.service === k ? 'on' : ''}" data-service="${k}">
         <span class="ico">${ICONS[k]}</span><span class="txt"><b>${v.label}</b><span class="d">${DESC[k]}</span></span><span class="from">${base[k] == null ? 'Custom quote' : 'from ' + fmt(base[k])}</span></button>`).join('')}</div>
       ${S.service ? `<h2 id="pieces">The pieces</h2>${S.items.map(it).join('')}
@@ -753,14 +752,14 @@ const views = {
         ${key === 'dropoff' && shipService() ? input(`${key}.country`, 'Country', { ph: 'United States', attrs: 'autocomplete="country-name"', req: true }) : ''}
         ${key === 'dropoff' && shipService() && intlDest(a)
           ? `<div class="field"><label class="f" for="f-${key}.street">Full address${req}</label><textarea id="f-${key}.street" data-path="${key}.street" placeholder="Street, building, postal code, city, region">${esc(a.street)}</textarea></div>${input(`${key}.city`, 'City', { ph: 'e.g. London', req: true })}`
-          : `${input(`${key}.street`, 'Street address', { ph: '8678 Melrose Ave', attrs: 'autocomplete="street-address"', req: !optional })}
-        <div class="row keep addr3">${input(`${key}.city`, 'City', { ph: 'West Hollywood', req: !optional })}${input(`${key}.state`, 'State', { ph: 'CA', attrs: 'autocomplete="address-level1" maxlength="14"' })}${input(`${key}.zip`, 'ZIP', { ph: '90069', attrs: 'inputmode="numeric" maxlength="10"' })}</div>`}
+          : `${input(`${key}.street`, 'Street address', { ph: key === 'pickup' ? '2 Henry Adams St' : '8678 Melrose Ave', attrs: 'autocomplete="street-address"', req: !optional })}
+        <div class="row keep addr3">${input(`${key}.city`, 'City', { ph: key === 'pickup' ? 'San Francisco' : 'West Hollywood', req: !optional })}${input(`${key}.state`, 'State', { ph: 'CA', attrs: 'autocomplete="address-level1" maxlength="14"' })}${input(`${key}.zip`, 'ZIP', { ph: key === 'pickup' ? '94103' : '90069', attrs: 'inputmode="numeric" maxlength="10"' })}</div>`}
         ${key === 'dropoff' && shipService() ? `<div class="field" style="margin-top:4px"><label class="f">Destination type</label>${seg(`${key}.locationType`, [['residential', 'Residential'], ['commercial', 'Commercial']])}</div>` : ''}
-        ${input(`${key}.business`, 'Business or gallery (optional)', { ph: 'Gallery, showroom or residence' })}
+        ${input(`${key}.business`, 'Business or gallery (optional)', { ph: 'e.g. gallery, showroom, hotel' })}
         <div class="sub-head"><span>On-site <b>${key === 'pickup' ? 'pickup' : S.service === 'install_only' ? 'install' : shipService() ? 'destination' : 'delivery'}</b> contact</span><button type="button" class="pill-btn ${a.sameAsMe ? 'on' : ''}" data-same="${key}">${a.sameAsMe ? '✓ Same as me' : 'Same as me'}</button></div>
-        <div class="row keep">${input(`${key}.contactName`, 'Name', { ph: 'Name', req: !optional })}${input(`${key}.contactPhone`, 'Phone', { type: 'tel', ph: '(310) 555-0100', req: !optional, attrs: 'autocomplete="tel"' })}</div>
+        <div class="row keep">${input(`${key}.contactName`, 'Name', { ph: 'Name', req: !optional })}${input(`${key}.contactPhone`, 'Mobile', { type: 'tel', ph: '(310) 555-0100', req: !optional, attrs: 'autocomplete="tel"' })}</div>
         ${select(`${key}.contactRole`, roleLabel(key), CONTACT_ROLES, { req: !optional, placeholder: 'Please choose one', rerender: true })}
-        ${a.contactRole === 'Other' ? input(`${key}.contactRoleOther`, roleLabel(key), { req: true, ph: 'e.g. House sitter' }) : ''}
+        ${a.contactRole === 'Other' ? input(`${key}.contactRoleOther`, 'Describe their role', { req: true, ph: 'e.g. House sitter' }) : ''}
         <div class="sub-head"><span>Access</span></div>
         ${accessBlock(key, a)}
         ${key === 'dropoff' && intlDest(a) && shipService() ? `<div class="sub-head"><span>Customs / import contact</span></div>
@@ -771,27 +770,26 @@ const views = {
         ${select(`${key}.wallType`, 'Wall type', ['Not sure', 'Drywall', 'Plaster', 'Concrete / brick', 'Wood', 'Tile / stone', 'Glass'])}
         <div class="field"><label class="f">Hanging hardware</label>${seg(`${key}.hardware`, [['CAD brings it', 'CAD brings it'], ['On site', 'On site'], ['Not sure', 'Not sure']])}</div>
         ${S.items.map((it, i) => hangPieceBlock(it, i)).join('')}` : ''}
-        <div class="field" style="margin:0"><label class="f" for="f-${key}.notes">Special instructions</label><textarea id="f-${key}.notes" data-path="${key}.notes" placeholder="Gate codes, parking, anything else">${esc(a.notes)}</textarea></div>
+        <div class="field" style="margin:0"><label class="f" for="f-${key}.notes">Special instructions</label><textarea id="f-${key}.notes" data-path="${key}.notes" placeholder="Gate codes, who to ask for, anything else">${esc(a.notes)}</textarea></div>
       </div>`;
     };
     const dropTitle = shipService() ? 'Destination' : S.service === 'install_only' ? 'Installation address' : 'Delivery address';
-    return `<h1>Where are we going?</h1><p class="sub">Add the on-site details now so nobody has to chase anything after you book.</p>
+    return `<h1>Contact and addresses</h1><p class="sub">Who we’re working with and where we’re going. A few details about each address help us arrive prepared.</p>
       ${outOfState() ? `<p class="note" data-oos>${OOS_NOTE}</p>` : ''}
       <h2>Your details</h2><div class="card">
         ${input('contact.name', 'Full name', { attrs: 'autocomplete="name"', req: true })}
-        <div class="row">${input('contact.email', 'Email', { type: 'email', attrs: 'autocomplete="email" autocapitalize="off"', req: true })}${input('contact.phone', 'Mobile', { type: 'tel', ph: '(650) 460-4296', attrs: 'autocomplete="tel"', req: true })}</div>
-        <div class="row keep">${input('contact.company', 'Company (optional)')}${select('contact.clientType', 'I am a…', ['Collector', 'Gallery', 'Furniture showroom', 'Interior designer', 'Auction house', 'Artist', 'Other'])}</div>
+        <div class="row">${input('contact.email', 'Email', { type: 'email', attrs: 'autocomplete="email" autocapitalize="off"', req: true })}${input('contact.phone', 'Mobile', { type: 'tel', ph: '(415) 555-0123', attrs: 'autocomplete="tel"', req: true })}</div>
+        <div class="row keep">${input('contact.company', 'Company (optional)')}${select('contact.clientType', 'I am a…', ['Collector', 'Gallery', 'Furniture showroom', 'Interior designer', 'Auction house', 'Artist', 'Other'], { req: true, placeholder: 'Please choose one' })}</div>
         ${toggle('member', 'I’m a CAD member', '25% off published rates.', true)}
         ${S.member ? `${input('memberCode', 'Member code', { req: true, ph: 'Enter your member code', attrs: 'autocapitalize="characters" autocomplete="off" spellcheck="false"' })}
-        ${S.memberVerified && S.memberCompany ? `<p class="mini member-ok">Member rate applied for ${esc(S.memberCompany)}.</p>` : ''}
-        <p class="mini member-pitch">Not a member? CAD Membership is $200/month and gives 25% off every order — ideal if you book $1,000+ a month. Ask us about it on your order or at checkout.</p>` : ''}
-        ${toggle('heard.repeatClient', 'I’ve ordered with CAD before', 'Welcome back — we don’t need to ask how you found us.', true)}
+        ${S.memberVerified && S.memberCompany ? `<p class="mini member-ok">Member rate applied for ${esc(S.memberCompany)}.</p>` : ''}` : `<p class="mini member-pitch">Not a member? CAD Membership is $200/month and gives 25% off every order — ideal if you book $1,000+ a month. Ask us about it on your order or at checkout.</p>`}
+        ${toggle('heard.repeatClient', 'I’ve ordered with CAD before', 'Welcome back.', true)}
         ${!S.heard.repeatClient ? `${select('heard.source', 'How did you hear about us?', HEARD_SOURCES, { req: true, placeholder: 'Please choose one', rerender: true })}
         ${S.heard.source === 'referral' ? `${select('heard.referrerKind', 'Who referred you?', REFERRER_KINDS, { req: true, placeholder: 'Please choose one', rerender: true })}
         ${S.heard.referrerKind ? `${input('heard.referrerName', 'Referrer name (optional)', { ph: 'Name' })}
-        <div class="row keep">${input('heard.referrerPhone', 'Referrer phone (optional)', { type: 'tel', ph: '(650) 460-4296', attrs: 'autocomplete="tel"' })}${input('heard.referrerEmail', 'Referrer email (optional)', { type: 'email', attrs: 'autocapitalize="off" autocomplete="email"' })}</div>
-        ${BUSINESS_REFERRERS.includes(S.heard.referrerKind) ? input('heard.businessName', 'Business name (optional)', { ph: 'e.g. Hamilton Selway' }) : ''}
-        <p class="mini member-pitch">Why do we ask? We love our clients and referrals mean everything to us. If you remember who sent you our way, we’d love to thank them personally.</p>` : ''}` : ''}
+        <div class="row keep">${input('heard.referrerPhone', 'Referrer phone (optional)', { type: 'tel', ph: '(415) 555-0123', attrs: 'autocomplete="tel"' })}${input('heard.referrerEmail', 'Referrer email (optional)', { type: 'email', attrs: 'autocapitalize="off" autocomplete="email"' })}</div>
+        ${BUSINESS_REFERRERS.includes(S.heard.referrerKind) ? input('heard.businessName', 'Business name (optional)', { ph: 'Gallery or showroom name' }) : ''}
+        <p class="mini member-pitch">If someone referred you, we’d love to thank them.</p>` : ''}` : ''}
         ${S.heard.source === 'other' ? input('heard.sourceOther', 'Tell us where', { req: true, ph: 'Where did you hear about us?' }) : ''}` : ''}
       </div>
       ${svc().needsPickup ? site('pickup', 'Pickup address') : ''}
@@ -808,11 +806,11 @@ const views = {
     const card = (d) => { const [w, m, n] = d.label.replace(',', '').split(' '); return `<button type="button" class="day ${S.schedule.date === d.date && !!S.rush === !!d.rush ? 'on' : ''} ${d.rush ? 'rush' : ''}" data-date="${d.date}" data-rush="${d.rush ? 1 : ''}"><div class="dw">${w}</div><div class="dd">${m} ${n}</div><div class="rg">${d.rush ? 'Rush quote' : esc(d.shortLabel || d.routeLabel || d.region)}</div></button>`; };
     const simpleOc = (avail.days || []).some((d) => d.simpleStop);
     const intro = simpleOc
-      ? 'Because the van starts or ends Monday at our Irvine hub, a simple Orange County stop (1–2 standard items) can go on Monday. Larger OC jobs use the Thursday of a SoCal week.'
-      : 'Monday is always an LA day, so LA customers can book either Monday.';
+      ? 'A small Orange County job (1–2 standard pieces) can go on a Monday. Larger Orange County jobs go on the Thursday of a Southern California week.'
+      : avail.zone === 'LA' ? 'Los Angeles is served every Monday.' : '';
     const sel = [...avail.days, ...avail.rush].find((d) => d.date === S.schedule.date && !!S.rush === !!d.rush);
     const two = needsTwoDates();
-    const title = two ? 'Choose your <b>PICKUP</b> date' : 'Choose your date';
+    const title = two ? 'Choose your pickup date' : 'Choose your date';
     const sub = two
       ? 'Our van follows a weekly route. Pick a route day that serves the pickup address.'
       : 'Our van follows a weekly route. Pick a route day.'
@@ -820,23 +818,23 @@ const views = {
     if (S.schedule.date && !(S.schedule.timePref || '').trim()) S.schedule.timePref = 'none';
     if (S.schedule.deliveryDate && !(S.schedule.deliveryTimePref || '').trim()) S.schedule.deliveryTimePref = 'none';
     return `<h1 class="when-h1">${title}</h1><p class="sub">${sub}</p>
-      <div class="region">● ${esc(avail.zone ? avail.zone + ' · ' : '')}${esc(region)} route</div>
+      <div class="region">● ${esc(avail.area || region)} route</div>
       <div class="days" data-reqblock="date">${avail.days.map(card).join('')}</div>
-      <p class="mini">${intro}</p>
+      ${intro ? `<p class="mini">${intro}</p>` : ''}
       ${avail.rush.length ? `<h2>Need it sooner?</h2><div class="days">${avail.rush.map(card).join('')}</div>` : ''}
       ${sel ? routeHint(sel) : ''}
       ${S.schedule.date ? timePrefBlock('schedule.timePref', 'schedule.timeNote', { showReassure: true }) : ''}
       ${deliveryBlock()}
       ${ready ? promiseCard((sel && sel.routeLabel) || (region + ' route')) : ''}
-      <div class="card" style="margin-top:14px">${toggle('dedicated', 'Dedicated trip', 'The van comes just for this job, without displacing booked jobs.', true, 'first')}</div>
-      <p class="mini">Rush and dedicated trips are quoted at 1.5×–2× the regular rate. You request a quote; nothing is charged until CAD sets the price.</p>`;
+      <div class="card" style="margin-top:14px">${toggle('dedicated', 'Dedicated trip', 'A van and crew just for your job, at a time that works for you.', true, 'first')}</div>
+      <p class="mini">Rush and dedicated trips are priced individually; you’ll see the price before paying.</p>`;
   },
 
   ShipWhen() {
     const sh = S.shipping;
     const lvl = ([v, l, h]) => `<button type="button" class="choice ${sh.serviceLevel === v ? 'on' : ''}" data-level="${v}"><span class="txt"><b>${l}</b><span class="d">${h}</span></span></button>`;
     const today = new Date().toISOString().slice(0, 10);
-    return `<h1>Shipping details</h1><p class="sub">Everything Samantha needs to price your shipment, with no back-and-forth.</p>
+    return `<h1>Shipping details</h1><p class="sub">Everything Samantha needs to price your shipment.</p>
       ${outOfState() ? `<p class="note" data-oos>${OOS_NOTE}</p>` : ''}
       ${outOfState() ? `<h2>The pieces</h2>${S.items.map((it, i) => `<div class="card"><div class="item-head"><b>${esc(fmtNum(it.qty) || it.qty)}× ${esc(it.description || 'Piece ' + (i + 1))}</b></div>${shipExtras(it, i)}</div>`).join('')}` : ''}
       ${outOfState() ? `<h2>Destination type</h2><div class="card">${seg('dropoff.locationType', [['residential', 'Residential'], ['commercial', 'Commercial']])}</div>` : ''}
@@ -856,62 +854,61 @@ const views = {
     const sp = special();
     const date = avail && [...avail.days, ...avail.rush].find((d) => d.date === S.schedule.date);
     const siteRows = (label, a) => (a && a.street ? `<div class="sum-row"><span>${label}</span><span>${addr(a)}<br><span class="muted">${esc(a.contactName)} · ${esc(formatPhone(a.contactPhone))}${a.contactRole ? ` · ${esc(a.contactRole === 'Other' ? (a.contactRoleOther || 'Other') : a.contactRole)}` : ''}</span></span></div>` : '');
-    return `<h1>${sp ? 'Review your request' : 'Review & pay'}</h1><p class="sub">${sp ? 'CAD sets the final price before anything is charged.' : 'Your job is confirmed the moment you pay. No approval step.'}</p>
+    return `<h1>${sp ? 'Review your request' : 'Review & pay'}</h1><p class="sub">${sp ? 'CAD sets the final price before anything is charged.' : 'Your job is booked as soon as payment goes through. We’ll email your confirmation right away.'}</p>
       ${promiseCard((date && date.routeLabel) || (avail && avail.region ? avail.region + ' route' : 'Route day'), 'margin-top:0')}
       <div class="card">
-        <div class="sum-row"><span>Service</span><span>${esc(svc().label)}${S.crating ? ' + crating quote' : ''}${S.rush ? ' · rush' : ''}${S.dedicated ? ' · dedicated trip' : ''} <button type="button" class="edit" data-goto="0">Edit</button></span></div>
+        <div class="sum-row"><span>Service</span><span>${esc(svc().label)}${S.rush ? ' · rush' : ''}${S.dedicated ? ' · dedicated trip' : ''} <button type="button" class="edit" data-goto="0">Edit</button></span></div>
         <div class="sum-row"><span>Pieces</span><span>${S.items.map((i) => `${esc(fmtNum(i.qty) || i.qty)}× ${esc(i.description)}<br><span class="muted">${esc([TYPE_LABEL(i.type), framingText(i), i.weightUnsure ? 'weight not sure' : (i.weight ? fmtNum(i.weight) + ' lb' : ''), i.fragile ? 'special handling' : ''].filter(Boolean).join(' · '))}</span>`).join('<br>')}</span></div>
         ${svc().needsPickup ? siteRows('Pickup', S.pickup) : ''}
         ${siteRows(S.service === 'install_only' ? 'Install at' : 'Delivery', S.dropoff)}
         <div class="sum-row"><span>Booked by</span><span>${esc(S.contact.name)}<br><span class="muted">${esc(S.contact.email)}</span> <button type="button" class="edit" data-goto="1">Edit</button></span></div>
       </div>
-      ${svc().needsPickup ? siteReview('Pickup special instructions', S.pickup) : ''}
-      ${siteReview(S.service === 'install_only' ? 'Installation special instructions' : 'Delivery special instructions', S.dropoff)}
+      ${svc().needsPickup ? siteReview('Pickup details', S.pickup) : ''}
+      ${siteReview(S.service === 'install_only' ? 'Installation details' : 'Delivery details', S.dropoff)}
       <h2>${sp ? 'Estimated range' : 'Price'}</h2>
       ${priceCard(q, true)}
       ${q && q.notes && q.notes.length ? `<p class="mini">${q.notes.map((n) => esc(n)).join(' ')}</p>` : ''}
       ${S.member && S.memberVerified ? `<p class="mini">Member rate (25% off) applied${S.memberCompany ? ` for ${esc(S.memberCompany)}` : ''}.</p>` : ''}
       <h2>Who’s paying?</h2><div class="card">${seg('payer', isBizReferral() ? [['me', 'Me'], ['partner', 'Referring partner'], ['other', 'Someone else']] : [['me', 'Me'], ['other', 'Someone else']])}
         ${S.payer === 'other' ? `<div class="row" style="margin-top:12px">${input('payerOther.name', 'Payer name', { req: true })}${input('payerOther.email', 'Payer email', { type: 'email', req: true, attrs: 'autocapitalize="off" autocomplete="email"' })}</div>
-        ${input('payerOther.phone', 'Payer phone', { type: 'tel', req: true, ph: '(650) 460-4296', attrs: 'autocomplete="tel"' })}` : ''}
+        ${input('payerOther.phone', 'Payer phone', { type: 'tel', req: true, ph: '(415) 555-0123', attrs: 'autocomplete="tel"' })}` : ''}
         ${S.payer === 'partner' && !(isBizReferral() && (S.heard.businessName || S.heard.referrerName || S.partner.name)) ? `<p class="mini">Add the referring partner in <button type="button" class="edit" style="padding:0" data-goto="1">Where</button> so we know who to bill.</p>` : ''}</div>
       ${sp ? '<div class="err" id="err"></div>' : `<h2>Payment</h2>${paymentBlock(q)}`}
-      <p class="mini">${sp ? 'Rush and dedicated-trip quotes go to Samantha, who sets the price and emails you a payment link.' : 'Need to change or cancel? Reply to your confirmation email and we’ll take care of it.'}</p>`;
+      <p class="mini">${sp ? 'Samantha reviews your request and emails your price with a payment link. Nothing is charged until you approve it.' : 'Need to change or cancel? Reply to your confirmation email.'}</p>`;
   },
 
   ShipPay() {
     const sh = S.shipping, d = S.dropoff;
     const declared = S.items.reduce((s, it) => s + num(it.value) * (num(it.qty) || 1), 0);
-    const crate = { needs: 'needs crating', crated: 'already crated', not_sure: 'crating not sure' };
     return `<h1>Review your shipping request</h1><p class="sub">Samantha prices shipping and emails you a quote. Nothing is charged until you approve it.</p>
       ${outOfState() ? `<p class="note" data-oos>${OOS_NOTE}</p>` : ''}
       <div class="promise quote" style="margin-top:0"><span class="pi">✈</span><span><b>${esc(timingText(sh))}</b><span>${esc(levelText(sh.serviceLevel))}</span></span></div>
       <div class="card">
         <div class="sum-row"><span>Service</span><span>Shipping <button type="button" class="edit" data-goto="0">Edit</button></span></div>
-        <div class="sum-row"><span>Pieces</span><span>${S.items.map((i) => `${esc(fmtNum(i.qty) || i.qty)}× ${esc(i.description)}<br><span class="muted">${[i.w, i.h, i.d].filter(Boolean).map(esc).join(' × ')} in · ${i.weightUnsure ? 'weight not sure' : (i.weight ? esc(fmtNum(i.weight)) + ' lb' : '')} · ${esc(TYPE_LABEL(i.type))}${framingText(i) ? ' · ' + esc(framingText(i)) : ''}${i.fragile ? ' · special handling' : ''} · ${crate[i.crateStatus] || crate.not_sure}</span>`).join('<br>')}</span></div>
-        <div class="sum-row"><span>Pickup</span><span>${destText(S.pickup)}<br><span class="muted">${esc(S.pickup.contactName)} · ${esc(S.pickup.contactPhone)}</span></span></div>
-        <div class="sum-row"><span>Destination</span><span>${destText(d)}${d.locationType ? ` · ${esc(d.locationType)}` : ''}<br><span class="muted">${esc(d.contactName)} · ${esc(d.contactPhone)}</span> <button type="button" class="edit" data-goto="1">Edit</button></span></div>
+        <div class="sum-row"><span>Pieces</span><span>${S.items.map((i) => `${esc(fmtNum(i.qty) || i.qty)}× ${esc(i.description)}<br><span class="muted">${esc([[i.w, i.h, i.d].filter(Boolean).join(' × ') ? [i.w, i.h, i.d].filter(Boolean).join(' × ') + ' in' : '', i.weightUnsure ? 'weight not sure' : (i.weight ? fmtNum(i.weight) + ' lb' : ''), TYPE_LABEL(i.type), framingText(i), i.fragile ? 'special handling' : ''].filter(Boolean).join(' · '))}</span>`).join('<br>')}</span></div>
+        <div class="sum-row"><span>Pickup</span><span>${destText(S.pickup)}<br><span class="muted">${esc([S.pickup.contactName, formatPhone(S.pickup.contactPhone)].filter(Boolean).join(' · '))}</span></span></div>
+        <div class="sum-row"><span>Destination</span><span>${destText(d)}${d.locationType ? ` · ${esc(d.locationType)}` : ''}<br><span class="muted">${esc([d.contactName, formatPhone(d.contactPhone)].filter(Boolean).join(' · '))}</span> <button type="button" class="edit" data-goto="1">Edit</button></span></div>
         ${intlDest(d) && (sh.customs.name || sh.customs.phone) ? `<div class="sum-row"><span>Customs contact</span><span>${esc([sh.customs.name, sh.customs.phone, sh.customs.email].filter(Boolean).join(' · '))}</span></div>` : ''}
         <div class="sum-row"><span>At destination</span><span>${esc(levelText(sh.serviceLevel))} <button type="button" class="edit" data-goto="2">Edit</button></span></div>
         <div class="sum-row"><span>Booked by</span><span>${esc(S.contact.name)}<br><span class="muted">${esc(S.contact.email)}</span></span></div>
       </div>
-      ${siteReview('Pickup special instructions', S.pickup)}
-      ${siteReview('Destination special instructions', S.dropoff)}
+      ${siteReview('Pickup details', S.pickup)}
+      ${siteReview('Destination details', S.dropoff)}
       <h2>Price</h2><div class="card">
         <div class="sum-row"><span>Shipping</span><span>Custom quote</span></div>
         <div class="sum-row"><span>Insurance</span><span>Fully insured through our shipping partners</span></div>
         <p class="mini" style="margin:4px 0 0">Declared value: ${fmt(declared)}.</p>
-        <p class="mini" style="margin:6px 0 0">Samantha sets the price for packing, shipping and destination service before anything is charged. Pieces may be crated or soft-packed as needed.</p>
+        <p class="mini" style="margin:6px 0 0">Samantha sets the price for packing, shipping and destination service before anything is charged. Our shipping partner chooses the right packing for each piece.</p>
       </div>
       <h2>Who’s paying?</h2><div class="card">${seg('payer', isBizReferral() ? [['me', 'Me'], ['partner', 'Referring partner'], ['other', 'Someone else']] : [['me', 'Me'], ['other', 'Someone else']])}
         ${S.payer === 'other' ? `<div class="row" style="margin-top:12px">${input('payerOther.name', 'Payer name', { req: true })}${input('payerOther.email', 'Payer email', { type: 'email', req: true, attrs: 'autocapitalize="off" autocomplete="email"' })}</div>
-        ${input('payerOther.phone', 'Payer phone', { type: 'tel', req: true, ph: '(650) 460-4296', attrs: 'autocomplete="tel"' })}` : ''}</div>
+        ${input('payerOther.phone', 'Payer phone', { type: 'tel', req: true, ph: '(415) 555-0123', attrs: 'autocomplete="tel"' })}` : ''}</div>
       <div class="err" id="err"></div>`;
   },
 
   PayLink() {
     const o = existing, q = o.quote;
-    return `<h1>Pay to confirm</h1><p class="sub">Your quote is approved. Your job is confirmed the moment you pay.</p>
+    return `<h1>Pay to confirm</h1><p class="sub">${payCanceled ? 'Payment wasn’t completed. Your booking is saved; pay below to confirm it.' : o.approvedAt ? 'Your quote is approved. Your job is booked as soon as payment goes through.' : 'Pay below to confirm your booking.'}</p>
       <div class="promise" style="margin-top:0"><span class="pi">✓</span><span><b>${o.service === 'crating_shipping' ? esc(timingText(o.shipping || {})) : `${esc(longDate(o.schedule.date))}${o.schedule.deliveryDate ? ' · Delivery ' + esc(shortDate(o.schedule.deliveryDate)) : ''}`}</b><span>Order ${esc(o.id)}</span></span></div>
       <div class="card"><div class="sum-row"><span>Service</span><span>${esc(o.serviceLabel)}${o.rush ? ' · rush' : ''}${o.dedicated ? ' · dedicated trip' : ''}</span></div>
         <div class="sum-row"><span>Pieces</span><span>${(o.items || []).map((i) => `${esc(fmtNum(i.qty) || i.qty)}× ${esc(i.description)}`).join('<br>')}</span></div></div>
@@ -941,11 +938,9 @@ const views = {
         <div class="card">
           <div class="sum-row"><span>Service</span><span>${esc(o.serviceLabel)}${o.rush ? ' · rush' : ''}${o.dedicated ? ' · dedicated trip' : ''}</span></div>
           <div class="sum-row"><span>Preferred date</span><span>${esc(longDate(o.schedule.date))}${o.schedule.deliveryDate ? '<br>Delivery ' + esc(longDate(o.schedule.deliveryDate)) : ''}${timePrefSummary(o.schedule.timePref, o.schedule.timeNote) ? '<br><span class="muted">' + esc(timePrefSummary(o.schedule.timePref, o.schedule.timeNote)) + '</span>' : ''}</span></div>
-          <div class="sum-row"><span>Regular rate</span><span class="amt">${fmt(q.regularTotal || q.total)}</span></div>
-          ${q.tripPremium === false ? '' : `<div class="sum-row"><span>Quoted range (1.5×–2×)</span><span class="amt"><b>${fmt(q.quoteRange.low)}–${fmt(q.quoteRange.high)}</b></span></div>`}
-          ${o.crating ? '<div class="sum-row"><span>Custom crating</span><span>Quoted by CAD</span></div>' : ''}
+          ${q.tripPremium ? `<div class="sum-row"><span>Regular rate</span><span class="amt">${fmt(q.regularTotal || q.total)}</span></div>
+          <div class="sum-row"><span>Estimated range</span><span class="amt"><b>${fmt(q.quoteRange.low)}–${fmt(q.quoteRange.high)}</b></span></div>` : '<div class="sum-row"><span>Price</span><span>Priced by CAD</span></div>'}
         </div>
-        ${o.dedicated ? '<p class="mini">Dedicated trips are scheduled around existing jobs, not instead of them.</p>' : ''}
         <button type="button" class="btn ghost full" id="newOrder">Start a new booking</button>`;
     }
     const p = o.payment || {};
@@ -954,7 +949,7 @@ const views = {
     const shipDone = o.service === 'crating_shipping';
     const delLine = o.schedule.deliveryDate ? `<p class="sub" style="margin:-4px 0 10px"><strong>Delivery: ${esc(longDate(o.schedule.deliveryDate))}</strong>${timePrefSummary(o.schedule.deliveryTimePref, o.schedule.deliveryTimeNote) ? ' · ' + esc(timePrefSummary(o.schedule.deliveryTimePref, o.schedule.deliveryTimeNote)) : ''}</p>` : '';
     return `<div class="done"><div class="check">✓</div><h1>${shipDone ? 'Your shipment is confirmed.' : `You’re booked for ${esc(longDate(o.schedule.date))}.`}</h1>${delLine}
-      <p class="sub">Order <b>${esc(o.id)}</b> is confirmed. A confirmation is on its way to ${esc(o.contact.email)}. ${shipDone ? 'Samantha will confirm packing and pickup dates by email.' : 'We’ll send a reminder the day before and a live ETA when we’re close.'}</p></div>
+      <p class="sub">Order <b>${esc(o.id)}</b> is confirmed. A confirmation is on its way to ${esc(o.contact.email)}. ${shipDone ? 'Samantha will confirm packing and pickup dates by email.' : 'We’ll be in touch before your date to confirm the arrival window.'}</p></div>
       <div class="card"><div class="sum-row"><span>Service</span><span>${esc(o.serviceLabel)}</span></div>
       ${shipDone ? `<div class="sum-row"><span>Timing</span><span>${esc(timingText(o.shipping || {}))}</span></div><div class="sum-row"><span>Destination</span><span>${destText(o.dropoff)}</span></div>` : `<div class="sum-row"><span>Route</span><span>${esc(o.schedule.region)}</span></div>`}
       <div class="sum-row"><span>Payment</span><span>${ach ? `<b>ACH processing</b> · ${fmt(p.amount)}` : `Paid ${fmt(p.amount)}`} · ${how}${p.method && p.method.startsWith('mock') ? ' (test)' : ''}${p.saved ? ' · saved' : ''}</span></div>
@@ -1018,6 +1013,7 @@ function missingFields() {
     if (!String(S.contact.name || '').trim()) add('#f-contact.name', 'Full name', 'Please enter your full name.');
     if (!/\S+@\S+\.\S+/.test(S.contact.email || '')) add('#f-contact.email', 'Email', 'Please enter a valid email address.');
     if (String(S.contact.phone || '').replace(/\D/g, '').length < 7) add('#f-contact.phone', 'Mobile', 'Please enter a mobile number.');
+    if (!String(S.contact.clientType || '').trim()) add('#f-contact.clientType', 'I am a…', 'Please choose one.');
     if (S.member) {
       if (!String(S.memberCode || '').trim()) add('#f-memberCode', 'Member code', 'Please enter your member code.');
       else if (!S.memberVerified) add('#f-memberCode', 'Member code', S.memberError || 'Please enter a valid member code.');
@@ -1034,9 +1030,9 @@ function missingFields() {
       if (!String(a.street || '').trim()) add(`#f-${key}.street`, `Street address — ${title}`, `Please enter the ${title.toLowerCase()} street address.`);
       if (!String(a.city || '').trim()) add(`#f-${key}.city`, `City — ${title}`, `Please enter the ${title.toLowerCase()} city.`);
       if (!String(a.contactName || '').trim()) add(`#f-${key}.contactName`, `On-site name — ${title}`, 'Please enter the on-site contact’s name.');
-      if (!String(a.contactPhone || '').trim()) add(`#f-${key}.contactPhone`, `On-site phone — ${title}`, 'Please enter the on-site contact’s phone number.');
+      if (!String(a.contactPhone || '').trim()) add(`#f-${key}.contactPhone`, `On-site mobile — ${title}`, 'Please enter the on-site contact’s mobile number.');
       if (!String(a.contactRole || '').trim()) add(`#f-${key}.contactRole`, roleLabel(key), 'Please choose the contact’s role.');
-      else if (a.contactRole === 'Other' && !String(a.contactRoleOther || '').trim()) add(`#f-${key}.contactRoleOther`, roleLabel(key), 'Please choose the contact’s role.');
+      else if (a.contactRole === 'Other' && !String(a.contactRoleOther || '').trim()) add(`#f-${key}.contactRoleOther`, 'Describe their role', 'Please describe the contact’s role.');
     };
     if (svc().needsPickup) siteMiss('pickup', 'Pickup', true);
     const dropTitle = shipService() ? 'Destination' : S.service === 'install_only' ? 'Installation' : 'Delivery';
@@ -1182,9 +1178,11 @@ function paintEstimate() {
   if (!S.service && !existing) { el.textContent = '—'; lbl.textContent = 'Estimate'; return; }
   if ((!existing && isShip()) || (q && q.shipping && !q.approvedPrice)) { el.textContent = 'Quote'; lbl.textContent = 'Shipping'; paintButton(); return; }
   if (!q) return;
-  if (isQuote(q) && q.quoteRange) { el.textContent = q.quoteRange.low === q.quoteRange.high ? fmt(q.quoteRange.low) + '+' : `${fmt(q.quoteRange.low)}–${fmt(q.quoteRange.high)}`; lbl.textContent = q.quoteRange.low === q.quoteRange.high ? (q.crating ? 'Estimate + crating' : 'Estimate + quoted items') : 'Quote range'; }
+  if (isQuote(q) && !q.tripPremium) { el.textContent = 'Quote'; lbl.textContent = 'Priced by CAD'; }
+  else if (isQuote(q) && q.quoteRange) { el.textContent = `${fmt(q.quoteRange.low)}–${fmt(q.quoteRange.high)}`; lbl.textContent = 'Estimated range'; }
   else if (name === 'Pay') { el.textContent = fmt(q.dueNow); lbl.textContent = q.paymentPlan === 'deposit' ? 'Due today (50%)' : 'Due today'; }
-  else { el.textContent = fmt(q.total); lbl.textContent = 'Estimate'; }
+  else { el.textContent = fmt(q.total); lbl.textContent = name === 'What' ? 'Estimate · before access' : 'Estimate'; }
+  el.classList.toggle('long', el.textContent.length > 9 && el.textContent.length <= 13); el.classList.toggle('xlong', el.textContent.length > 13);
   paintButton();
 }
 function refreshQuote() {
@@ -1204,7 +1202,7 @@ function paintButton() {
   const q = existing ? existing.quote : quoteData;
   if (name === 'Pay') {
     if (existing || !special()) btn.textContent = CFG.stripe ? `Pay ${q ? fmt(q.dueNow) : ''} on Stripe` : `Pay ${q ? fmt(q.dueNow) : ''}`;
-    else btn.textContent = isShip() ? (innerWidth < 360 ? 'Request quote' : 'Request a shipping quote') : S.rush ? 'Request a rush quote' : 'Request a quote';
+    else btn.textContent = isShip() ? 'Request quote' : S.rush ? 'Request a rush quote' : 'Request a quote';
   } else btn.textContent = 'Continue';
   const wait = !canContinue();
   if (busy) { btn.disabled = true; btn.classList.remove('is-wait'); btn.removeAttribute('aria-disabled'); }
@@ -1217,6 +1215,9 @@ let lastStep = -1;
 function render() {
   if ((S.items || []).some(routeDecorMirror)) persist();
   const name = STEPS[step];
+  // Done: forget the draft so a refresh or Continue can't book (or charge) the same job twice; a refresh shows this order again.
+  if (name === 'Done' && confirmed) { sessionStorage.removeItem('cad-order'); sessionStorage.removeItem('cad-step'); }
+  else if (name !== 'Done') sessionStorage.setItem('cad-step', String(step));
   lastShipKey = shipKey(); lastPhotoKey = itemKey();
   const stepChanged = step !== lastStep;
   lastStep = step;
@@ -1385,9 +1386,18 @@ app.addEventListener('click', async (e) => {
   const t = e.target.closest('button'); if (!t) return;
   if (t.dataset.service) {
     // No auto-scroll here: the page stays exactly where the user's thumb left it.
+    if (t.dataset.service === 'install_only') {
+      // Never turn a sofa or sculpture into a "Painting" behind the customer's back (audit P1-2): ask them to choose.
+      const i = S.items.findIndex((it) => !INSTALL_TYPES.includes(it.type) || (it.type === 'decor' && !hungDecorList().includes(it.furnitureKind)));
+      if (i >= 0) {
+        const both = (CFG.services.delivery_install || {}).label || 'Pickup, Delivery + Install';
+        uploadToast(`Install only covers wall pieces. Remove ${S.items[i].description ? `“${S.items[i].description}”` : pieceName(i)} or choose ${both}.`);
+        return;
+      }
+    }
     S.service = t.dataset.service;
     if (S.service === 'crating_shipping') { S.crating = false; S.rush = false; S.dedicated = false; }
-    if (S.service === 'install_only') { S.crating = false; S.schedule.deliveryLater = false; S.items.forEach((it) => { if (!INSTALL_TYPES.includes(it.type) || (it.type === 'decor' && !hungDecorList().includes(it.furnitureKind))) { it.type = 'painting'; } }); }
+    if (S.service === 'install_only') { S.crating = false; S.schedule.deliveryLater = false; }
     persist(); avail = null; render();
     return;
   }
@@ -1439,23 +1449,35 @@ app.addEventListener('click', async (e) => {
   if (t.id === 'newOrder') { sessionStorage.clear(); location.href = '/'; }
 });
 
+// Photo uploads: never fail silently (a dropped HEIC or a network error used to just do nothing).
+const uploadToast = (msg) => {
+  let t = document.getElementById('uploadToast');
+  if (!t) { t = document.createElement('div'); t.id = 'uploadToast'; t.className = 'upload-toast'; t.setAttribute('role', 'alert'); document.body.appendChild(t); }
+  t.textContent = msg; t.hidden = false; clearTimeout(t._h); t._h = setTimeout(() => { t.hidden = true; }, 6000);
+};
+async function uploadFiles(fd) {
+  let r = null;
+  try { const res = await fetch('/api/upload', { method: 'POST', body: fd }); r = res.ok ? await res.json() : null; } catch (e) { r = null; }
+  if (!r || !(r.files || []).length) { uploadToast('That photo didn’t upload. Please try again with a JPG or PNG.'); return null; }
+  return r;
+}
 async function uploadHangPhotos(i, files) {
   const fd = new FormData(); [...files].forEach((f) => fd.append('photos', f));
   let r;
-  try { r = await (await fetch('/api/upload', { method: 'POST', body: fd })).json(); } catch (e) { return; }
+  r = await uploadFiles(fd); if (!r) return;
   if (!S.items[i]) return;
   S.items[i].hangPhotos = [...(S.items[i].hangPhotos || []), ...(r.files || [])]; persist(); render();
 }
 async function uploadWallPhotos(key, files) {
   const fd = new FormData(); [...files].forEach((f) => fd.append('photos', f));
   let r;
-  try { r = await (await fetch('/api/upload', { method: 'POST', body: fd })).json(); } catch (e) { return; }
+  r = await uploadFiles(fd); if (!r) return;
   S[key].wallPhotos = [...(S[key].wallPhotos || []), ...r.files]; persist(); render();
 }
 async function uploadSitePhotos(key, files) {
   const fd = new FormData(); [...files].forEach((f) => fd.append('photos', f));
   let r;
-  try { r = await (await fetch('/api/upload', { method: 'POST', body: fd })).json(); } catch (e) { return; }
+  r = await uploadFiles(fd); if (!r) return;
   S[key].sitePhotos = [...(S[key].sitePhotos || []), ...r.files]; persist(); render();
 }
 async function uploadAccessPhotos(target, files) {
@@ -1463,13 +1485,13 @@ async function uploadAccessPhotos(target, files) {
   if (!['pickup', 'dropoff'].includes(key) || !['stairPhotos', 'doorPhotos'].includes(field)) return;
   const fd = new FormData(); [...files].forEach((f) => fd.append('photos', f));
   let r;
-  try { r = await (await fetch('/api/upload', { method: 'POST', body: fd })).json(); } catch (e) { return; }
+  r = await uploadFiles(fd); if (!r) return;
   S[key][field] = [...(S[key][field] || []), ...(r.files || [])]; persist(); render();
 }
 async function uploadPhotos(i, files) {
   const fd = new FormData(); [...files].forEach((f) => fd.append('photos', f));
   let r;
-  try { r = await (await fetch('/api/upload', { method: 'POST', body: fd })).json(); } catch (e) { return; }
+  r = await uploadFiles(fd); if (!r) return;
   S.items[i].photos = [...(S.items[i].photos || []), ...r.files]; persist(); render();
 }
 
@@ -1492,14 +1514,14 @@ async function pay(method) {
     if (!existing) {
       const r = await placeOrder();
       if (!r.ok) return showErr(r.error);
-      if (r.pending) { confirmed = r.pending; step = STEPS.indexOf('Done'); render(); return; }
+      if (r.pending) { confirmed = r.pending; sessionStorage.setItem('cad-done', confirmed.id); step = STEPS.indexOf('Done'); render(); return; }
     }
     const id = existing ? existing.id : orderId;
     const body = { method, card: $('#card')?.value, routing: $('#routing')?.value, account: $('#account')?.value, save: !!($('#saveMethod') && $('#saveMethod').checked) };
     const { ok, j } = await api(`/api/orders/${id}/pay`, body);
     if (!ok) return showErr(j.error || 'Payment failed. Please try again.');
     if (j.redirect) { location.href = j.redirect; return; }
-    confirmed = j.order; existing = null; step = STEPS.indexOf('Done'); render();
+    confirmed = j.order; existing = null; sessionStorage.setItem('cad-done', confirmed.id); step = STEPS.indexOf('Done'); render();
   } finally { busy = false; if (STEPS[step] !== 'Done') updateNext(); }
 }
 
@@ -1537,13 +1559,26 @@ $('#nextBtn').addEventListener('click', async () => {
     const id = qs.get('order');
     const url = qs.get('session_id') ? `/api/orders/${id}/verify?session_id=${encodeURIComponent(qs.get('session_id'))}` : `/api/orders/${id}`;
     const o = (await api(url)).j.order;
+    if (o && (o.status === 'confirmed' || o.status === 'pending_approval')) { confirmed = o; quoteData = o.quote; step = STEPS.indexOf('Done'); if (o.status === 'confirmed') sessionStorage.setItem('cad-done', o.id); }
+    else if (o && o.status === 'awaiting_payment') { existing = o; payCanceled = qs.get('canceled') === '1'; step = STEPS.indexOf('Pay'); }
+    history.replaceState(null, '', '/');
+  } else if (sessionStorage.getItem('cad-done')) {
+    // Refresh after booking: show the same confirmation, never a prefilled form that could book it again.
+    const o = (await api(`/api/orders/${encodeURIComponent(sessionStorage.getItem('cad-done'))}`)).j.order;
     if (o && (o.status === 'confirmed' || o.status === 'pending_approval')) { confirmed = o; quoteData = o.quote; step = STEPS.indexOf('Done'); }
     else if (o && o.status === 'awaiting_payment') { existing = o; step = STEPS.indexOf('Pay'); }
-    history.replaceState(null, '', '/');
-  } else if (S.service && S.schedule.date) {
-    // Returning mid-booking: re-fetch route days so the date step works.
-    avail = (await api('/api/availability', payload())).j;
-    await loadDelivery();
+    else sessionStorage.removeItem('cad-done');
+  } else if (S.service) {
+    // Returning mid-booking: land on the step they were on (never past one that still needs answers).
+    const saved = Math.min(Math.max(0, parseInt(sessionStorage.getItem('cad-step'), 10) || 0), STEPS.indexOf('Pay'));
+    if (saved >= STEPS.indexOf('When') && !isShip()) {
+      const r = await api('/api/availability', payload());
+      avail = r.ok ? r.j : null;
+      if (avail && S.schedule.date) await loadDelivery();
+    }
+    step = saved;
+    if (step >= STEPS.indexOf('When') && !isShip() && !(avail && avail.days)) step = STEPS.indexOf('Where');
+    if (step === STEPS.indexOf('Pay') && !isShip() && !S.schedule.date) step = STEPS.indexOf('When');
   }
   render();
   if (S.member && S.memberCode) checkMemberCode();

@@ -40,9 +40,10 @@ const frame = async (page, i, framed, glazing) => {
 const isBlocked = async (page) => page.$eval('#nextBtn', (b) => !!(b.disabled || b.getAttribute('aria-disabled') === 'true' || b.classList.contains('is-wait')));
 const next = async (page) => { await page.click('#nextBtn:not([disabled]):not([aria-disabled="true"])'); await page.waitForTimeout(450); };
 const hasText = async (page, re) => re.test(await page.content());
-const startFresh = async (page) => { await page.goto(BASE); await page.evaluate(() => sessionStorage.clear()); await page.goto(BASE); await page.waitForSelector('[data-service]'); };
+const startFresh = async (page) => { await page.goto(BASE); await page.waitForLoadState('networkidle').catch(() => {}); await page.evaluate(() => sessionStorage.clear()); await page.goto(BASE); await page.waitForSelector('[data-service]'); };
 const me = async (page, name, email, phone) => {
   await fill(page, 'contact.name', name); await fill(page, 'contact.email', email); await fill(page, 'contact.phone', phone);
+  if (await page.$('[data-path="contact.clientType"]') && !(await page.inputValue('[data-path="contact.clientType"]'))) await page.selectOption('[data-path="contact.clientType"]', 'Collector');
   if (await page.$('[data-path="heard.source"]')) {
     const v = await page.inputValue('[data-path="heard.source"]');
     if (!v) await page.selectOption('[data-path="heard.source"]', 'google');
@@ -81,15 +82,18 @@ const fillSite = async (page, key, { street, city, zip, business, contactName, c
     await page.selectOption(`[data-path="${key}.contactRole"]`, role || 'Homeowner');
     if ((role || 'Homeowner') === 'Other' && roleOther) await fill(page, `${key}.contactRoleOther`, roleOther);
   }
-  if (role && same && await page.$(`[data-path="${key}.contactRole"]`)) await page.selectOption(`[data-path="${key}.contactRole"]`, role);
+  // "Same as me" copies name + mobile only; the role is never guessed (audit P1-1), so pick one.
+  if (same && await page.$(`[data-path="${key}.contactRole"]`)) await page.selectOption(`[data-path="${key}.contactRole"]`, role || 'Homeowner');
   await setAccess(page, key, access || {});
   if (hours) await fill(page, `${key}.hours`, hours);
   if (notes) await fill(page, `${key}.notes`, notes);
   if (await page.$(`[data-path="${key}.installLocation"]`)) await page.selectOption(`[data-path="${key}.installLocation"]`, installLocation || 'standard');
 };
+const pickDayErrors = [];
 const pickDay = async (page, opts = {}) => {
   const delivery = (opts && typeof opts === 'object') ? opts.delivery : undefined;
   await page.waitForSelector('[data-reqblock="date"] .day:not(.rush)');
+  { const reg = (await page.textContent('.region').catch(() => '')) || ''; if (/BayWest|EastBay|NapaWine|Coachella|SoCal|NorCal|·/.test(reg)) pickDayErrors.push('route line shows internal zone codes (P0-10): ' + reg.trim()); }
   await page.click('[data-reqblock="date"] .day:not(.rush)');
   await page.waitForTimeout(200);
   const del = page.locator('[data-deldate]');
@@ -222,8 +226,8 @@ const readOrders = () => JSON.parse(fs.readFileSync(path.join(DATA_ROOT, 'data',
   await next(page); await page.waitForTimeout(500);
   await expect(/split 50\/50/i, 'review missing 50/50 split (install + access fees put this job over $3,000)');
   await expect(/Balance due/i, 'review missing balance due');
-  await expect(/Pickup special instructions/i, 'review missing pickup special instructions');
-  await expect(/Delivery special instructions/i, 'review missing delivery special instructions');
+  await expect(/Pickup details/i, 'review missing pickup details card');
+  await expect(/Delivery details/i, 'review missing delivery details card');
   await expect(/Andrea B/, 'review missing pickup on-site contact');
   await expect(/Loading dock/i, 'review missing loading dock');
   await expect(/2 flights of stairs up/i, 'review missing delivery stairs');
@@ -232,11 +236,13 @@ const readOrders = () => JSON.parse(fs.readFileSync(path.join(DATA_ROOT, 'data',
   await expect(/Double doors · Fits easily/, 'review missing delivery doorway + fit');
   await expect(/Ground level, no elevator/, 'review must never print Ground level, no elevator', true);
   await expect(/Gate code 4411/, 'review missing delivery notes');
-  await expect(/confirmed the moment you pay/i, 'review missing auto-confirm copy');
+  await expect(/booked as soon as payment goes through/i, 'review missing booked-on-payment copy');
+  await expect(/No approval step/i, 'review must not say No approval step (audit P0-5)', true);
   await expect(/Apple Pay/, 'review missing Apple Pay');
   await expect(/Google Pay/, 'review missing Google Pay');
   await expect(/Bank \(ACH\)/, 'review missing ACH option');
-  await expect(/Save for next time/i, 'review missing save-method option');
+  await expect(/Save this payment method/i, 'review missing save-method option');
+  await expect(/one tap/i, 'save option must not promise one-tap rebooking (audit P0-12)', true);
   await expect(/Declared value protection/i, 'review missing protection choice');
   await expect(/change or cancel/i, 'review missing cancellation note');
   await expect(/Bill my account/i, 'Bill my account must not appear', true);
@@ -311,7 +317,8 @@ const readOrders = () => JSON.parse(fs.readFileSync(path.join(DATA_ROOT, 'data',
   await expect(/High-value handling \+200%/, 'review should show the per-item high-value line');
   await expect(/own fine art insurance/, 'review should tell high-value clients to use their own fine art insurance');
   await expect(/Declared value protection \(1\.5%\) on/, 'no protection line on a piece over $50K', true);
-  await expect(/Quoted range/i, 'rush review missing quoted range');
+  await expect(/Estimated range/i, 'rush review missing estimated range');
+  await expect(/1\.5×|Quoted range/, 'rush review must not show the multiplier (audit P1-6)', true);
   await expect(/no payment due yet/i, 'rush review missing no-payment copy');
   await expect(/data-wallet/, 'rush review must not show payment buttons', true);
   const btn3 = (await page.textContent('#nextBtn')).trim();
@@ -345,8 +352,9 @@ const readOrders = () => JSON.parse(fs.readFileSync(path.join(DATA_ROOT, 'data',
   await expect(/additional 10% off/i, 'paintings review shows 10% off line', true);
   await expect(/\$1,195/, 'paintings review should total $1,075 + $120 protection = $1,195');
   await page.click('[data-goto="1"]'); await page.waitForTimeout(300);
+  await expect(/Not a member\? CAD Membership is \$200\/month/, 'membership pitch missing (member toggle off)');
   await page.click('label.toggle:has([data-path="member"])'); await page.waitForTimeout(200);
-  await expect(/Not a member\? CAD Membership is \$200\/month/, 'membership pitch missing');
+  await expect(/Not a member\? CAD Membership/, 'membership pitch must hide once they say they are a member (audit P1-13)', true);
   if (!(await isBlocked(page))) errors.push('member toggle without a code should require the member code');
   await fill(page, 'memberCode', 'WRONG'); await page.waitForTimeout(700);
   await expect(/couldn’t find that member code|couldn't find that member code/, 'invalid member code should show a friendly error');
@@ -430,8 +438,8 @@ const readOrders = () => JSON.parse(fs.readFileSync(path.join(DATA_ROOT, 'data',
   await expect(/data-wallet/, 'shipping must not show payment buttons', true);
   {
     const shipBtn = (await page.textContent('#nextBtn')).trim();
-    const shipOk = shipBtn === 'Request a shipping quote' || ((VIEW_W || 390) < 360 && shipBtn === 'Request quote');
-    if (!shipOk) errors.push('shipping button should read Request a shipping quote (or Request quote under 360px), got: ' + shipBtn);
+    const shipOk = shipBtn === 'Request quote';
+    if (!shipOk) errors.push('shipping button should read Request quote, got: ' + shipBtn);
   }
   if (process.env.DBG) { console.log(await page.evaluate(() => document.querySelector('#app').innerText.slice(-900))); console.log(await page.evaluate(() => sessionStorage.getItem('cad-order').slice(0, 600))); }
   await expect(/Fully insured through our shipping partners/, 'shipping review should say fully insured through shipping partners');
@@ -795,7 +803,7 @@ const readOrders = () => JSON.parse(fs.readFileSync(path.join(DATA_ROOT, 'data',
   if (!mirrorOn) errors.push('choosing Mirror under Décor should switch the item type to Mirror');
   if (await page.$('[data-path="items.0.furnitureKind"]')) errors.push('after routing, Type of décor should be replaced by Mirror fields');
   if (await page.$('[data-seg="items.0.framed"]')) errors.push('routed Mirror must not ask Framed?');
-  await expect(/Glass is assumed for mirrors/, 'routed Mirror should say glass is assumed');
+  await expect(/Glass is assumed for mirrors/, 'mirror helper line was removed (audit P2-24)', true);
   await fill(page, 'items.0.description', 'Venetian mirror');
   await fill(page, 'items.0.w', 60); await fill(page, 'items.0.h', 40); await fill(page, 'items.0.d', 3); await fill(page, 'items.0.value', 4000);
   await next(page);
@@ -876,8 +884,46 @@ const readOrders = () => JSON.parse(fs.readFileSync(path.join(DATA_ROOT, 'data',
   const csv2 = fs.readFileSync(path.join(DATA_ROOT, 'data', 'schedule-2026.csv'), 'utf8');
   if (!/SHIPPING/.test(csv2)) errors.push('paid shipping job should write a SHIPPING schedule row');
 
+  // ---- Phase 2 audit fixes (app.js / styles.css) ----
+  {
+    // P0-16: a refresh after booking shows the same confirmation, never a prefilled form that could book again.
+    await page.reload(); await page.waitForTimeout(800);
+    if (!(await page.locator('.check').count())) errors.push('refresh after paying should show the confirmation again (P0-16)');
+    if (await page.locator('[data-service]').count()) errors.push('refresh after paying must not reopen the order form (P0-16)');
+    // P1-34: a refresh mid-booking lands on the same step.
+    await startFresh(page);
+    await page.click('[data-service="pickup_delivery"]'); await page.waitForTimeout(200);
+    await fill(page, 'items.0.description', 'Resume check'); await fill(page, 'items.0.w', 20); await fill(page, 'items.0.h', 20); await fill(page, 'items.0.d', 2); await fill(page, 'items.0.value', 1000);
+    await page.click('[data-itemtype="0"] button[data-v="sculpture"]'); await page.waitForTimeout(200);
+    // P1-2: switching to Install only never turns a sculpture into a painting.
+    await page.click('[data-service="install_only"]'); await page.waitForTimeout(300);
+    { const st = await page.evaluate(() => JSON.parse(sessionStorage.getItem('cad-order')));
+      if (st.service !== 'pickup_delivery' || st.items[0].type !== 'sculpture') errors.push('Install only must not silently change a sculpture into a painting (P1-2): ' + JSON.stringify({ s: st.service, t: st.items[0].type }));
+      const toast = await page.locator('#uploadToast').textContent().catch(() => '');
+      if (!/Install only covers wall pieces/.test(toast || '')) errors.push('Install only switch should explain why (P1-2)'); }
+    // P1-21: a failed upload says so.
+    await page.route('**/api/upload', (r) => r.fulfill({ status: 500, body: '{}' }));
+    await page.setInputFiles('[data-upload="0"]', path.join(__dirname, 'sample-artwork.png')); await page.waitForTimeout(800);
+    { const toast = await page.locator('#uploadToast').textContent().catch(() => '');
+      if (!/didn’t upload/.test(toast || '')) errors.push('a failed photo upload must show an error (P1-21)'); }
+    await page.unroute('**/api/upload');
+    // P0-18: an unpriced piece (weight not sure) shows "Priced by CAD", not a fake $75 "regular rate".
+    await page.click('[data-weightunsure="0"]').catch(() => {}); await page.waitForTimeout(600);
+    { const lbl = (await page.textContent('#estLabel')) || ''; const tot = (await page.textContent('#estTotal')) || '';
+      if (!/Priced by CAD/i.test(lbl) || /\$/.test(tot)) errors.push(`unpriced estimate should read Quote / Priced by CAD (P0-18), got ${tot} / ${lbl}`); }
+    await page.waitForTimeout(300);
+    await page.reload(); await page.waitForTimeout(800);
+    if (!(await page.locator('[data-service]').count())) errors.push('refresh on step 1 should stay on step 1');
+    // No crating, multiplier or internal zone codes anywhere in the app bundle shown to customers.
+    const js = await (await fetch(BASE + '/app.js')).text();
+    for (const bad of [/crating not sure/, /Custom crating/, /\+ crating quote/, /Quoted range \(1\.5×/, /Irvine hub/, /Monday is always an LA day/, /one tap/, /No approval step/, /Used for insurance/, /15-minute heads-up/, /\(650\) 460-4296/]) if (bad.test(js)) errors.push('app.js still contains ' + bad);
+    const css = await (await fetch(BASE + '/styles.css')).text();
+    if (/\.est-total\{[^}]*text-overflow:ellipsis/.test(css) || /\.seg button\{[^}]*text-overflow:ellipsis/.test(css)) errors.push('prices and seg buttons must not truncate with an ellipsis (P1-22/23)');
+  }
+
   await browser.close();
   // API-level regression checks from the Nov 16 audit (routing, validation, idempotency, emails, admin key).
+  errors.push(...new Set(pickDayErrors));
   await require('./audit-regression').run(BASE, errors);
   console.log(JSON.stringify({ engine: process.env.E2E_BROWSER || 'chromium', id1, id2, id3, errors }, null, 2));
   if (errors.length) process.exit(1);

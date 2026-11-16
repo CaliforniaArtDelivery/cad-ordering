@@ -93,14 +93,14 @@ app.post('/api/availability', (req, res) => {
   // leg=dropoff: delivery dates for the delivery address, on or after the pickup date (same day allowed).
   if (o.leg === 'dropoff' && o.dropoff && o.schedule && o.schedule.date) {
     const from = new Date(o.schedule.date + 'T12:00:00Z');
-    return res.json({ region: sched.regionFor(o.dropoff), zone: sched.zoneFor(o.dropoff), days: sched.availableDays(o.dropoff, { from, count: config.scheduling.showDays, order: o, leadTime: 0 }), rush: [] });
+    return res.json({ region: sched.regionFor(o.dropoff), zone: sched.zoneFor(o.dropoff), area: sched.customerAreaName(sched.zoneFor(o.dropoff), sched.regionFor(o.dropoff)), days: sched.availableDays(o.dropoff, { from, count: config.scheduling.showDays, order: o, leadTime: 0 }), rush: [] });
   }
   const first = svc.needsPickup ? o.pickup : o.dropoff;
   const addr = first && (first.zip || first.city) ? first : o.dropoff;
   const region = sched.regionFor(addr);
   const zone = sched.zoneFor(addr);
   res.json({
-    region, zone,
+    region, zone, area: sched.customerAreaName(zone, region),
     days: sched.availableDays(addr, { order: o }),
     rush: config.scheduling.rushEnabled ? sched.rushDays(addr, new Date(), 7, o) : [],
   });

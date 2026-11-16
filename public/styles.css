@@ -76,7 +76,7 @@ input:focus,select:focus,textarea:focus{border-color:var(--navy);background:#fff
 .sw input:checked+i{background:var(--navy)}
 .sw input:checked+i:before{transform:translateX(20px)}
 .seg{display:flex;background:var(--bg);border-radius:12px;padding:4px;gap:4px}
-.seg button{flex:1;min-width:0;min-height:44px;border:0;background:transparent;font:inherit;font-size:16px;padding:11px 8px;border-radius:9px;cursor:pointer;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.seg button{flex:1;min-width:0;min-height:44px;border:0;background:transparent;font:inherit;font-size:16px;padding:11px 8px;border-radius:9px;cursor:pointer;color:var(--muted);white-space:normal;line-height:1.25;overflow-wrap:anywhere}
 .seg button.on{background:#fff;color:var(--ink);box-shadow:0 1px 4px rgba(0,0,0,.08);font-weight:600}
 .seg.stack{flex-direction:column}
 .seg.wrap{flex-wrap:wrap}
@@ -151,7 +151,12 @@ input:focus,select:focus,textarea:focus{border-color:var(--navy);background:#fff
 .need-line[hidden]{display:none!important}
 .estimate{min-width:0}
 .est-label{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.1em;white-space:nowrap}
-.est-total{font-size:22px;font-weight:650;letter-spacing:-.02em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-variant-numeric:tabular-nums}
+.est-total{font-size:22px;font-weight:650;letter-spacing:-.02em;white-space:nowrap;font-variant-numeric:tabular-nums}
+/* Never truncate a price: long values step down instead (a cut-off price is a wrong price). */
+.est-total.long{font-size:18px}
+.est-total.xlong{font-size:15px}
+.upload-toast{position:fixed;left:50%;transform:translateX(-50%);bottom:110px;z-index:60;max-width:min(92vw,420px);background:var(--ink,#111);color:#fff;border-radius:12px;padding:12px 16px;font-size:15px;line-height:1.35;box-shadow:0 6px 24px rgba(0,0,0,.2)}
+.upload-toast[hidden]{display:none}
 .dock-actions{display:flex;gap:6px;flex:none}
 .btn{font:inherit;font-size:17px;font-weight:600;border-radius:14px;padding:14px 22px;border:0;cursor:pointer;transition:transform .15s var(--ease),opacity .2s;white-space:nowrap}
 .btn:active{transform:scale(.97)}
