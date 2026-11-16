@@ -4,7 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const config = require('./config');
-const { quote, isOutOfState, applyApprovedPrice, SERVICES, OFFERED_SERVICES, displayFrom, FURNITURE_KINDS, DECOR_KINDS, needsStairwellFit } = require('./lib/pricing');
+const { quote, isOutOfState, applyApprovedPrice, SERVICES, OFFERED_SERVICES, displayFrom, FURNITURE_KINDS, DECOR_KINDS, needsStairwellFit, numVal } = require('./lib/pricing');
 const sched = require('./lib/scheduling');
 const schedule = require('./lib/schedule');
 const email = require('./lib/email');
@@ -260,7 +260,7 @@ app.post('/api/orders', (req, res) => {
     heard: b.heard || {},
     referral: !!b.referral,
     // In-CA: mandatory on pieces valued $50K or less (none offered above). Shipping quotes: the customer's choice.
-    declaredValueProtection: shipping ? false : (b.items || []).some((it) => Number(it.value) > 0 && Number(it.value) <= 50000),
+    declaredValueProtection: shipping ? false : (b.items || []).some((it) => numVal(it.value) > 0 && numVal(it.value) <= 50000),
     items: (b.items || []).map(routeDecorMirror), pickup: b.pickup || {}, dropoff: b.dropoff || {},
     contact: b.contact, partner: b.partner || {}, payer: b.payer || 'me', payerOther: b.payerOther || {},
     schedule: shipping

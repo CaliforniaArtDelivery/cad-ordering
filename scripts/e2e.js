@@ -182,7 +182,7 @@ const readOrders = () => JSON.parse(fs.readFileSync(path.join(DATA_ROOT, 'data',
   await expect(/Painting \/ fine art/, 'Painting / fine art chip must be gone', true);
   if (await page.$('[data-seg="items.1.framed"]')) errors.push('sculpture must not ask Framed?');
   await expect(/insurance/i, 'must never say insurance', true);
-  await expect(/Required declared value protection: 1\.5% of this value \(\$420 per piece\), included in your price\./, 'value hint should state the required 1.5% protection charge ($28,000 → $420)');
+  await expect(/Required declared value protection: 1\.5% of this piece’s declared value \(\$420 per piece\)\./, 'value hint should state the required 1.5% protection charge ($28,000 → $420)');
   await page.waitForTimeout(400);
   await shot(page, '01-what');
   await next(page);
@@ -285,14 +285,14 @@ const readOrders = () => JSON.parse(fs.readFileSync(path.join(DATA_ROOT, 'data',
   if (!(await page.locator('[data-deldate]').count())) errors.push('cross-region job should still let the customer pick a delivery date');
   await next(page); await page.waitForTimeout(500);
   await expect(/data-path="declaredValueProtection"/, 'in-CA jobs must not offer an optional protection toggle', true);
-  await expect(/Declared value protection \(required, 1\.5% of \$135,000\)/, 'required protection line missing (pieces at $50K or less)');
+  await expect(/Required declared value protection: 1\.5% of \$135,000/, 'required protection line missing (3 × $45,000 eligible pieces)');
   // Chad, Nov 16 2026: protection is a required 1.5% charge, worded honestly on the review and in the bar.
   { const note = ((await page.textContent('[data-protection-note]').catch(() => '')) || '').trim();
-    if (note !== 'Declared value protection is a required charge on every piece valued up to $50,000: 1.5% of its declared value, included in the price above. Pieces over $50,000 aren’t eligible; they carry a high-value handling charge instead.') errors.push('review: protection note wording: ' + note);
+    if (note !== 'Required declared value protection is 1.5% of the declared value of each eligible piece (valued up to $50,000), included in the price above.') errors.push('review: protection note wording: ' + note);
     const dn = await page.$eval('#estNote', (e) => (e.hidden ? '' : e.textContent.trim())).catch(() => '');
-    if (dn !== 'Incl. required 1.5% protection') errors.push('bar: should say "Incl. required 1.5% protection", got ' + dn);
+    if (dn !== 'Includes required declared value protection') errors.push('bar: should say "Includes required declared value protection", got ' + dn);
     const pc = (await page.textContent('.price-card').catch(() => '')) || '';
-    if (/optional|insured|\btax/i.test(pc)) errors.push('review price card must not say optional / insured / tax'); }
+    if (/optional|insur|\btax|every piece|full coverage/i.test(pc)) errors.push('review price card must not say optional / insurance / tax / every piece / full coverage'); }
   await expect(/split 50\/50/i, 'over-$3k review missing 50/50 split');
   await expect(/Balance due at pickup/i, 'over-$3k review missing balance due at pickup');
   // Normal branch (no access review) keeps the regular price labels (Dot round 3).
@@ -311,8 +311,8 @@ const readOrders = () => JSON.parse(fs.readFileSync(path.join(DATA_ROOT, 'data',
   const id2 = (await page.textContent('.done b')).trim();
   { const ob = path.join(DATA_ROOT, 'outbox'); const f = fs.readdirSync(ob).find((x) => x.startsWith(id2 + '-') && x.includes('confirmation'));
     const m = f ? fs.readFileSync(path.join(ob, f), 'utf8').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ') : '';
-    if (!/Declared value protection \(required\) \$2,025\.00: 1\.5% of \$135,000\.00 declared value \(pieces up to \$50,000\), included in the total/.test(m)) errors.push('confirmation email: required protection line missing or reworded: ' + (m.match(/Declared value protection[^<]{0,140}/) || [''])[0]);
-    if (/\btax|insured|optional/i.test(m)) errors.push('confirmation email must not mention tax, insured or optional'); }
+    if (!m.includes('Required declared value protection: $2,025 (1.5% of $135,000 in eligible pieces).')) errors.push('confirmation email: required protection line missing or reworded: ' + (m.match(/declared value protection[^<]{0,140}/i) || [''])[0]);
+    if (/\btax|insur|optional/i.test(m)) errors.push('confirmation email must not mention tax, insurance or optional'); }
   const o2 = readOrders().find((o) => o.id === id2);
   if (!o2 || o2.pickup.contactRole !== 'Interior designer' || o2.dropoff.contactRole !== 'Interior designer') errors.push('Same as me stops should be saved with the booker’s "I am a…" role (Interior designer): ' + (o2 && [o2.pickup.contactRole, o2.dropoff.contactRole]));
   if (!o2 || o2.status !== 'confirmed') errors.push('ACH order should be confirmed on submit');
@@ -327,7 +327,9 @@ const readOrders = () => JSON.parse(fs.readFileSync(path.join(DATA_ROOT, 'data',
   await fill(page, 'items.0.description', 'Photograph, rushed for an opening'); await fill(page, 'items.0.w', 30); await fill(page, 'items.0.h', 40); await fill(page, 'items.0.d', 2); await frame(page, 0, 'yes', 'no');
   if (!(await isBlocked(page))) errors.push('declared value should be required for in-CA pieces');
   await fill(page, 'items.0.value', 120000); await page.press('[data-path="items.0.value"]', 'Tab'); await page.waitForTimeout(300);
-  await expect(/high-value handling applies/, 'item over $50K should explain high-value handling');
+  await page.waitForFunction(() => /per piece/.test((document.querySelector('[data-valhint="0"]') || {}).textContent || ''), null, { timeout: 5000 }).catch(() => {});
+  { const h = ((await page.textContent('[data-valhint="0"]').catch(() => '')) || '').trim();
+    if (h !== 'This piece isn’t eligible for declared value protection. A high-value handling charge applies instead, at least 1.5% of its declared value ($1,800 per piece).') errors.push('value hint over $50K (with the charge): ' + h); }
   await next(page);
   await me(page, 'Priya Shah', 'priya@example.com', '310-555-0177');
   await fillSite(page, 'pickup', { street: '8678 Melrose Ave', city: 'West Hollywood', zip: '90069', same: true });
@@ -339,9 +341,11 @@ const readOrders = () => JSON.parse(fs.readFileSync(path.join(DATA_ROOT, 'data',
   await page.waitForSelector('[data-deldate]'); await page.click('[data-deldate]'); await page.waitForTimeout(300);
   await shot(page, '08-when-rush');
   await next(page); await page.waitForTimeout(500);
-  await expect(/High-value handling \+200%/, 'review should show the per-item high-value line');
-  await expect(/own fine art insurance/, 'review should tell high-value clients to use their own fine art insurance');
-  await expect(/Declared value protection \(required/, 'no protection line on a piece over $50K', true);
+  await expect(/High-value handling \(minimum 1\.5% of declared value\) · Photograph, rushed for an opening \(\$120,000\)/, 'review should show the per-item high-value line at the 1.5% minimum');
+  { const note = ((await page.textContent('[data-protection-note]').catch(() => '')) || '').trim();
+    if (note !== 'Pieces valued over $50,000 aren’t eligible; they carry a high-value handling charge instead, never less than 1.5% of the piece’s declared value.') errors.push('review note over $50K: ' + note); }
+  await expect(/Required declared value protection: 1\.5% of/, 'no protection line on a piece over $50K', true);
+  await expect(/insurance/i, 'over-$50K review must not mention insurance', true);
   if (await page.$eval('#estNote', (e) => !e.hidden).catch(() => false)) errors.push('bar must not mention protection when no piece carries it (quote over $50K)');
   await expect(/Estimated range/i, 'rush review missing estimated range');
   await expect(/1\.5×|Quoted range/, 'rush review must not show the multiplier (audit P1-6)', true);
@@ -685,17 +689,23 @@ const readOrders = () => JSON.parse(fs.readFileSync(path.join(DATA_ROOT, 'data',
   // ---- Declared value / high-value boundaries via API (120 lb sculpture = $400 normal price) ----
   const qAPI = async (body) => (await (await fetch(BASE + '/api/quote', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })).json());
   const hv = async (value) => qAPI({ service: 'pickup_delivery', items: [{ qty: 1, type: 'sculpture', weight: 120, value, description: 'S' }], pickup: { zip: '90069' }, dropoff: { zip: '90210' } });
-  for (const [v, pct, total] of [[50000, 0, 1150], [50001, 100, 800], [100001, 200, 1200], [300001, 300, 1600], [500001, 400, 2000], [750001, 500, 2400], [1000001, 600, 2800]]) {
+  // Chad, Nov 16 2026: over $50,000 pays the greater of the +% markup or 1.5% of declared value (so the price never drops).
+  let prevTotal = 0;
+  for (const [v, pct, total] of [[49999, 0, 1149.99], [50000, 0, 1150], [50001, 100, 1150.02], [100001, 200, 1900.02], [300001, 300, 4900.02], [500001, 400, 7900.02], [750001, 500, 11650.02], [1000001, 600, 15400.02]]) {
     const r = await hv(v);
     const hl = r.lines.find((l) => /High-value handling/.test(l.label));
-    const dvp = r.lines.find((l) => /Declared value protection/.test(l.label));
-    if (pct === 0 && (hl || !dvp || dvp.amount !== 750)) errors.push(`$${v}: should get mandatory 1.5% protection ($750), no markup: ` + JSON.stringify(r.lines));
-    if (pct && (dvp || !hl || !hl.label.includes(`+${pct}%`) || hl.amount !== 400 * pct / 100)) errors.push(`$${v}: should be High-value handling +${pct}% ($${400 * pct / 100}) and no protection: ` + JSON.stringify(r.lines));
+    const dvp = r.lines.find((l) => /declared value protection/i.test(l.label));
+    const hvAmt = Math.max(400 * pct / 100, Math.round(v * 1.5) / 100);
+    if (pct === 0 && (hl || !dvp || dvp.amount !== Math.round(v * 1.5) / 100)) errors.push(`$${v}: should get required 1.5% protection, no markup: ` + JSON.stringify(r.lines));
+    if (pct && (dvp || !hl || hl.amount !== hvAmt || !/minimum 1\.5% of declared value/.test(hl.label))) errors.push(`$${v}: should be high-value handling $${hvAmt} (1.5% minimum) and no protection: ` + JSON.stringify(r.lines));
     if (r.total !== total) errors.push(`$${v}: total should be $${total}, got ${r.total}`);
-    if (pct && !r.notes.some((n) => /own fine art insurance/.test(n))) errors.push(`$${v}: missing own-insurance note`);
+    if (r.total < prevTotal) errors.push(`$${v}: price dropped from $${prevTotal} to $${r.total}`);
+    prevTotal = r.total;
+    if (pct && !r.notes.includes('Pieces valued over $50,000 aren’t eligible for declared value protection. They carry a high-value handling charge instead, never less than 1.5% of the piece’s declared value.')) errors.push(`$${v}: missing high-value note`);
+    if ((r.notes || []).some((n) => /insur/i.test(n))) errors.push(`$${v}: notes must not mention insurance`);
   }
   const shipHV = await qAPI({ service: 'crating_shipping', items: [{ qty: 1, type: 'painting', value: 900000, description: 'x' }] });
-  if (shipHV.lines.some((l) => /High-value|Declared value protection/.test(l.label)) || !shipHV.notes.some((n) => /Fully insured through our shipping partners/.test(n))) errors.push('shipping quotes: no protection/markup, and say fully insured through shipping partners');
+  if (shipHV.lines.some((l) => /High-value|declared value protection/i.test(l.label)) || !shipHV.notes.some((n) => /Fully insured through our shipping partners/.test(n))) errors.push('shipping quotes: no protection/markup, and say fully insured through shipping partners');
   const noVal = await post({ ...baseOrder, items: [{ qty: 1, type: 'painting', framed: 'no', description: 'No value' }] });
   if (noVal.status !== 400) errors.push('in-CA order without a declared value should be rejected');
 

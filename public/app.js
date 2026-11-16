@@ -527,7 +527,7 @@ const payPlan = (q) => {
 const accessTbc = (q) => !!(q && (q.notes || []).includes(CADAccess.PRICE_NOTE));
 const priceCard = (q, withProtection) => `<div class="card price-card">
   ${q ? q.lines.map((l) => `<div class="sum-row"><span>${esc(l.label)}</span><span class="amt">${l.included ? 'Included' : fmt(l.amount)}</span></div>`).join('') : '<div class="sum-row"><span>Calculating…</span><span class="amt"></span></div>'}
-  ${withProtection ? `<p class="mini" style="margin:6px 0 0" data-protection-note>${PROTECTION_NOTE}</p>` : ''}
+  ${withProtection && protectionNote(q) ? `<p class="mini" style="margin:6px 0 0" data-protection-note>${protectionNote(q)}</p>` : ''}
   ${q ? `${accessTbc(q) ? `<p class="mini access-tbc" data-access-tbc><b>${esc(CADAccess.PRICE_NOTE)}</b></p>` : ''}${isQuote(q) && !q.tripPremium ? '' : `<div class="total"><span>${isQuote(q) ? 'Regular rate' : accessTbc(q) ? CADAccess.TBC_TOTAL : 'Total'}</span><span class="amt">${fmt(q.regularTotal || q.total)}</span></div>`}${payPlan(q)}` : ''}
 </div>`;
 
@@ -623,13 +623,23 @@ const photosOk = (it) => !itemPhotoReason(it) || (it.photos || []).length > 0;
 const sitePhotosOk = () => true;
 const hangPhotosOk = (it) => it.hangHeight !== 'higher' || it.hangWhere !== 'stairwell' || (it.hangPhotos || []).length > 0;
 const valueHint = (it) => (shipService() ? 'Its current value. Our shipping partner uses it for coverage.'
-  : num(it.value) > 50000 ? 'Over $50,000: high-value handling applies and declared value protection isn’t offered. Please use your own fine art insurance.'
-  : num(it.value) > 0 ? `Required declared value protection: 1.5% of this value (${fmt(Math.round(num(it.value) * 1.5) / 100)} per piece), included in your price.`
+  : num(it.value) > 50000 ? `This piece isn’t eligible for declared value protection. A high-value handling charge applies instead, at least 1.5% of its declared value${hvChargeText(it)}.`
+  : num(it.value) > 0 ? `Required declared value protection: 1.5% of this piece’s declared value (${fmt(Math.round(num(it.value) * 1.5) / 100)} per piece).`
   : PROTECTION_HINT);
-// Declared value protection (Chad, Nov 16 2026): a required 1.5% charge on every piece valued up to $50,000. Never optional.
-const PROTECTION_HINT = 'Its current value. Pieces up to $50,000 carry a required declared value protection charge of 1.5% of it.';
-const PROTECTION_NOTE = 'Declared value protection is a required charge on every piece valued up to $50,000: 1.5% of its declared value, included in the price above. Pieces over $50,000 aren’t eligible; they carry a high-value handling charge instead.';
-const PROTECTION_DOCK = 'Incl. required 1.5% protection';
+// The piece's high-value handling charge, once the live quote has priced it.
+const hvChargeText = (it) => {
+  const q = existing ? existing.quote : quoteData;
+  const h = q && (q.highValueItems || []).find((x) => S.items[x.index] === it);
+  return h && h.perPiece > 0 ? ` (${fmt(h.perPiece)} per piece)` : '';
+};
+// Declared value protection (Chad + Dot, Nov 16 2026): required, 1.5% of each ELIGIBLE piece's declared value
+// (pieces valued $50,000 or less). Never optional, never called insurance or full coverage.
+const PROTECTION_HINT = 'Its current value. Pieces valued up to $50,000 carry required declared value protection: 1.5% of their declared value.';
+const protectionNote = (q) => [
+  q && q.protection && q.protection.amount > 0 ? 'Required declared value protection is 1.5% of the declared value of each eligible piece (valued up to $50,000), included in the price above.' : '',
+  q && (q.highValueItems || []).length ? 'Pieces valued over $50,000 aren’t eligible; they carry a high-value handling charge instead, never less than 1.5% of the piece’s declared value.' : '',
+].filter(Boolean).join(' ');
+const PROTECTION_DOCK = 'Includes required declared value protection';
 const weightRequired = (it) => shipService() || it.type === 'sculpture' || it.type === 'other';
 const weightOk = (it) => !weightRequired(it) || !!it.weightUnsure || num(it.weight) > 0;
 function updateItemHints(i) {
@@ -749,7 +759,7 @@ const views = {
     return `<h1>${S.service === 'install_only' ? 'What are we installing?' : 'How can we help?'}</h1><p class="sub">Fine art, luxury furniture and décor are our specialty, and we handle other fragile or valuable pieces. Approximate sizes are fine.</p>
       <div class="choices">${Object.entries(CFG.services).map(([k, v]) => `<button type="button" class="choice ${S.service === k ? 'on' : ''}" data-service="${k}">
         <span class="ico">${ICONS[k]}</span><span class="txt"><b>${v.label}</b><span class="d">${DESC[k]}</span></span><span class="from">${base[k] == null ? 'Custom quote' : 'from ' + fmt(base[k])}</span></button>`).join('')}</div>
-      <p class="mini" data-from-note>Starting prices are before the required declared value protection: 1.5% of each piece’s declared value, on pieces up to $50,000.</p>
+      <p class="mini" data-from-note>Starting prices don’t include required declared value protection on eligible pieces, or any high-value handling charge.</p>
       ${S.service ? `<h2 id="pieces">The pieces</h2>${S.items.map(it).join('')}
         <button type="button" class="add" id="addItem">＋ Add another piece</button>
         
@@ -1200,6 +1210,8 @@ function paintEstimate() {
   el.classList.toggle('long', el.textContent.length > 9 && el.textContent.length <= 13); el.classList.toggle('xlong', el.textContent.length > 13);
   // The bar's price includes the required protection charge: say so under it.
   const pn = $('#estNote'); if (pn) { const on = !!(q.protection && q.protection.amount > 0 && !isQuote(q)); pn.hidden = !on; pn.textContent = on ? PROTECTION_DOCK : ''; }
+  // High-value charges arrive with the quote: refresh the value hints on the pieces step.
+  if (name === 'What') S.items.forEach((_, i) => updateItemHints(i));
   paintButton();
 }
 function refreshQuote() {

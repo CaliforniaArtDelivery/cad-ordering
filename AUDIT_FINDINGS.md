@@ -52,7 +52,7 @@ Commits (local, not pushed): `95cd8a6` phase 1 · `6fd85e3` access fixes · `3d7
 | P1-16 | “Final price is confirmed by CAD” | Fixed in phase 1 |  |
 | P1-17 | “Other” item pricing vs instant pay | Fixed (Chad, Nov 16 2026) | “CAD may adjust the final quote after reviewing photos” removed; priced by weight and paid now |
 | P1-18 | Estimate changes between steps | Fixed in phase 2 (app.js) · Tax decided | Step 1 dock says “Estimate · before access”. Chad, Nov 16 2026: no sales tax line anywhere |
-| P1-19 | Value cliff at $50,000 | Kept as is (Chad, Nov 16 2026), noted | $50,000 → $750 protection; $50,001 → no protection, +100% handling on that piece. Consistent in pricing, server, app and tests |
+| P1-19 | Value cliff at $50,000 | Fixed (Chad approved, Nov 16 2026) | Over $50,000 pays the greater of high-value handling or 1.5% of declared value, so the price never drops crossing $50,000 |
 | P1-20 | “Referring partner” payer goes nowhere | Needs Chad’s decision | Same decision as P0-8 |
 | P1-21 | Silent upload failures | Fixed in phase 2 (app.js) | Toast: “That photo didn’t upload…” |
 | P1-22 | Dock price truncates | Fixed in phase 2 (app.js) | No ellipsis; long prices step down in size |
@@ -518,20 +518,23 @@ Tests: e2e (review wording in both branches, dock label, Same as me role hidden/
 
 ## Chad’s pricing decisions (Nov 16, 2026)
 
-1. **Declared value protection stays a required 1.5% line, worded honestly.** Every in-California piece valued $50,000 or less carries it; it is never optional and the copy never implies it is insurance. Strings:
-   - Price line (estimate, review, Done, admin): “Declared value protection (required, 1.5% of $135,000)”
-   - Review note: “Declared value protection is a required charge on every piece valued up to $50,000: 1.5% of its declared value, included in the price above. Pieces over $50,000 aren’t eligible; they carry a high-value handling charge instead.”
-   - Bar (under the price): “Incl. required 1.5% protection”
-   - Value hint: “Required declared value protection: 1.5% of this value ($420 per piece), included in your price.” Empty value: “Its current value. Pieces up to $50,000 carry a required declared value protection charge of 1.5% of it.”
-   - Service cards: “Starting prices are before the required declared value protection: 1.5% of each piece’s declared value, on pieces up to $50,000.”
-   - Confirmation email: “Declared value protection (required) $2,025.00: 1.5% of $135,000.00 declared value (pieces up to $50,000), included in the total”
-   - Admin order detail: price lines plus “Declared value protection (required): $X, 1.5% of $Y declared (pieces up to $50,000). Not optional; included in the total.”
-   - `config.pricing.valuation` is now `optional: false, maxValue: 50000`. Quotes carry `quote.protection = { declared, rate, amount, maxValue }`.
-   - **$50,000 cliff (noted, unchanged):** $50,000 or less → 1.5% protection (max $750 per piece). Over $50,000 (even $50,001) → no protection, high-value handling +100% of that piece’s normal price (tiers up to +600% over $1M). For a cheap-to-move piece, $50,001 can cost less than $50,000 (e.g. a 120 lb sculpture: $1,150 at $50,000 vs $800 at $50,001). The pricing, server (`declaredValueProtection`), app hints and tests all use the same “over $50,000” test.
+1. **Declared value protection stays a required 1.5% line, worded honestly** (reworded after Dot’s review of `2d1e278`). It applies to ELIGIBLE pieces only: each piece valued $50,000 or less, times its quantity. Pieces over $50,000 never count toward it (also fixed: a value typed with commas, e.g. “50,000”, now counts). It is never optional and never called insurance or full coverage. Strings:
+   - Price line (estimate, review, Done, admin): “Required declared value protection: 1.5% of $X” (X = eligible value)
+   - Bottom bar, only when a piece carries it: “Includes required declared value protection” (full-width line under the price and buttons)
+   - Value hint, $50,000 or less: “Required declared value protection: 1.5% of this piece’s declared value ($420 per piece).”
+   - Value hint, over $50,000: “This piece isn’t eligible for declared value protection. A high-value handling charge applies instead, at least 1.5% of its declared value ($1,800 per piece).” (the amount appears once the live quote has priced it)
+   - Value hint, no value yet: “Its current value. Pieces valued up to $50,000 carry required declared value protection: 1.5% of their declared value.”
+   - Review note: “Required declared value protection is 1.5% of the declared value of each eligible piece (valued up to $50,000), included in the price above.” plus, when a piece is over $50,000: “Pieces valued over $50,000 aren’t eligible; they carry a high-value handling charge instead, never less than 1.5% of the piece’s declared value.” Each sentence shows only when it applies.
+   - Quote note (over $50,000): “Pieces valued over $50,000 aren’t eligible for declared value protection. They carry a high-value handling charge instead, never less than 1.5% of the piece’s declared value.” (the old “use your own fine art insurance” line is gone)
+   - Service cards: “Starting prices don’t include required declared value protection on eligible pieces, or any high-value handling charge.”
+   - Confirmation email: “Required declared value protection: $2,025 (1.5% of $135,000 in eligible pieces).”
+   - Admin order detail: “Required declared value protection: $X (1.5% of $Y in eligible pieces, each valued up to $50,000). Not optional; included in the total.” plus each high-value piece’s charge.
+   - `quote.protection = { eligibleValue, amount, rate, maxValue }`; `quote.highValueItems = [{ index, pct, perPiece, qty, minimumApplied }]`.
+   - **$50,000 cliff fixed (Chad approved, Nov 16 2026):** a piece over $50,000 pays the greater of its high-value handling charge (+100% to +600% of its normal price) or 1.5% of its declared value (`config.pricing.valuation.highValueFloor: true`). When the 1.5% minimum wins, the line reads “High-value handling (minimum 1.5% of declared value) · piece ($value)”. Example, 120 lb sculpture: $49,999 → $1,149.99, $50,000 → $1,150, $50,001 → $1,150.02 (was $800). Tested across 8 piece types/services at quantities 1 and 3, and in the e2e API table up to $1,000,001.
 2. **Over 500 lb and 72"+ pieces book and pay now.** Pricing never routed these to quote review. The leftover “an additional delivery fee may apply. CAD confirms it.” (72"+ sculpture or other item), “Over 700 lb … starting rate shown, CAD confirms.” and “CAD may adjust the final quote after reviewing photos.” (other items) are removed, as is the unused `stairsNote`. Kept: photo for 501 lb+ and unknown weight, fit questions for large or heavy pieces, the 72"+ oversize fees and the $1,000 over-700 lb rate. Unknown weight still goes to CAD for a price, because there is no weight to price from.
 3. **No sales tax.** No tax line or tax wording anywhere; tests check the quote output and the customer and admin sources.
 
-Tests: `scripts/pricing-test.js` (protection label, amount, $50,000 / $50,001 boundary, mixed jobs, install only, shipping; heavy and 72"+ pieces payable with no review notes; no tax), audit-regression §11 (600 lb / 80", 750 lb, 72" and stairs + fit orders book, pay and confirm; photo and fit still required; email protection line; no tax), e2e (review, bar, value hint, email wording; no protection note on a quote over $50,000; banned strings in the app bundle).
+Tests: `scripts/pricing-test.js` (protection label and eligible-only amount with mixed eligible/ineligible pieces and quantities, comma values, $49,999 / $50,000 / $50,001 across piece types and quantities with the 1.5% minimum, install only, shipping; heavy and 72"+ pieces payable with no review notes; no tax), audit-regression §11 (600 lb / 80", 750 lb, 72" and stairs + fit orders book, pay and confirm; photo and fit still required; email protection line; no tax), e2e (review, bar, value hints with amounts, email wording; over-$50,000 review shows only the high-value sentence; API price table never drops; banned strings in the app bundle); audit-regression also checks a mixed order’s line and email ($170,000 eligible of $230,000 declared).
 
 ## Probe artifacts
 - /tmp/aud/probe.js, probe2.js, probe3.js, probe4.js, with output in /tmp/aud/quotes.txt.

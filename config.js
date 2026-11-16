@@ -92,7 +92,9 @@ module.exports = {
     },
     // Declared value protection (Chad, Nov 16 2026): REQUIRED on every in-California piece valued $50,000 or less,
     // 1.5% of the declared value. Not optional. Pieces over $50,000 get high-value handling instead (no protection).
-    valuation: { optional: false, rate: 0.015, maxValue: 50000, label: 'Declared value protection (required, 1.5%' },
+    // highValueFloor (Chad approved, Nov 16 2026: the rule): a piece over $50,000 pays the GREATER of its high-value
+    // handling charge or 1.5% of its declared value, so the price never drops when a value crosses $50,000.
+    valuation: { optional: false, rate: 0.015, maxValue: 50000, highValueFloor: true },
     // Member plan
     membership: { monthly: 200, discount: 0.25, label: 'CAD membership (25% off)' },
     // Furniture card footnote only: furniture-only orders of $1,000 or more get an additional 10% off the total.

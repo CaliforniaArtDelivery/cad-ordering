@@ -298,11 +298,24 @@ async function run(BASE, errors, { dataRoot = process.env.STORAGE_DIR || ROOT, a
     await no('80" sculpture up stairs without the fit answers', order({ type: 'sculpture', weight: 200, w: 20, h: 80, d: 20, value: '20000' }, { accessMode: 'stairs', stairFlights: '2', stairDir: 'up', fits: '' }), /tight turns|fit/);
     if (h600 && h600.j.id) {
       const m = text(mails(h600.j.id, 'confirmation')[0] || '');
-      if (!m.includes('Declared value protection (required) $300.00: 1.5% of $20,000.00 declared value (pieces up to $50,000), included in the total')) errors.push('decision 1: confirmation email should carry the required protection line ($300 on $20,000)');
-      if (/\btax/i.test(m) || /insured|optional/i.test(m)) errors.push('decisions 1/3: confirmation email must not mention tax, insured or optional');
+      if (!m.includes('Required declared value protection: $300 (1.5% of $20,000 in eligible pieces).')) errors.push('decision 1: confirmation email should carry the required protection line ($300 on $20,000)');
+      if (/\btax/i.test(m) || /insur|optional/i.test(m)) errors.push('decisions 1/3: confirmation email must not mention tax, insured or optional');
       const qq = h600.j.quote;
-      if (!qq.protection || qq.protection.amount !== 300 || qq.protection.declared !== 20000) errors.push('decision 1: order quote should record protection $300 on $20,000');
+      if (!qq.protection || qq.protection.amount !== 300 || qq.protection.eligibleValue !== 20000) errors.push('decision 1: order quote should record protection $300 on $20,000');
       if ((qq.lines || []).some((l) => /\btax/i.test(l.label))) errors.push('decision 3: no tax line');
+    }
+    // Dot, Nov 16 2026: protection is 1.5% of ELIGIBLE pieces only (each <= $50,000, times quantity), in the line and the email.
+    const mix = await ok('mixed eligible and ineligible pieces', post('/api/orders', base({ items: [item({ description: tag(), qty: 2, value: '10000' }), item({ description: tag(), qty: 1, value: '60000' }), item({ description: tag(), qty: 3, value: '50000' })] })));
+    if (mix.j.id) {
+      const ql = mix.j.quote.lines || [];
+      const dl = ql.find((l) => /^Required declared value protection: /.test(l.label));
+      if (!dl || dl.label !== 'Required declared value protection: 1.5% of $170,000' || dl.amount !== 2550) errors.push('eligible-only protection: 2 × $10,000 + 3 × $50,000 = $170,000 → $2,550 (the $60,000 piece excluded): ' + JSON.stringify(dl));
+      const hl = ql.find((l) => /^High-value handling/.test(l.label));
+      if (!hl || hl.amount !== 900 || !/minimum 1\.5% of declared value/.test(hl.label)) errors.push('the $60,000 piece should pay high-value handling at the 1.5% minimum ($900): ' + JSON.stringify(hl));
+      await post(`/api/orders/${mix.j.id}/pay`, { method: 'card', card: '4242424242424242' });
+      const m = text(mails(mix.j.id, 'confirmation')[0] || '');
+      if (!m.includes('Required declared value protection: $2,550 (1.5% of $170,000 in eligible pieces).')) errors.push('eligible-only protection: email line wrong: ' + (m.match(/Required declared value protection[^.]{0,120}\./) || [''])[0]);
+      if (/\$230,000/.test(m)) errors.push('email must never show the total declared value incl. ineligible pieces as the protection base');
     }
   }
   return errors;
