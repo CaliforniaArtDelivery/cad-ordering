@@ -96,7 +96,7 @@ async function run(BASE, errors, { dataRoot = process.env.STORAGE_DIR || ROOT, a
 
   // ---- 5. Emails: wording, commas, payer copies, install address (P0-7, P0-8, P0-15, P1-10) ----
   const banned = /\(she may consult Chad\)|rush or dedicated trip quote|1\.5× to 2×|handler|Drop-off|crat(e|ed|ing)|\$\d{4,}\.\d\d/i;
-  const weightQ = await post('/api/orders', base({ items: [item({ type: 'sculpture', framed: '', weight: '', weightUnsure: true, description: 'Bronze, weight unknown' })], payer: 'other', payerOther: { name: 'Paul Payer', email: 'payer@example.com', phone: '2125550103' } }));
+  const weightQ = await post('/api/orders', base({ items: [item({ type: 'sculpture', framed: '', weight: '', weightUnsure: true, photos: ['/uploads/x.png'], description: 'Bronze, weight unknown' })], payer: 'other', payerOther: { name: 'Paul Payer', email: 'payer@example.com', phone: '2125550103' } }));
   if (weightQ.j.status !== 'pending_approval') errors.push('weight-unknown sculpture should be a quote request');
   else {
     const m = text(mails(weightQ.j.id, 'quote_received')[0] || '');
@@ -156,7 +156,7 @@ async function run(BASE, errors, { dataRoot = process.env.STORAGE_DIR || ROOT, a
   // Not sure: priced like no stairs, but always flagged for review, with the customer note.
   const fns = await qFee({ accessMode: 'not_sure', fits: 'yes' });
   if (fns.fee) errors.push('access: Not sure should not add a stairs fee');
-  if (!/We’ll confirm access with you before the job\./.test(JSON.stringify(fns.j))) errors.push('access: Not sure quote must say "We’ll confirm access with you before the job."');
+  if (!(fns.j.notes || []).includes(A.PRICE_NOTE)) errors.push('access: Not sure quote must carry the access-to-be-confirmed price line');
   const ns = A.normalize({ accessMode: 'not_sure' });
   if (!ns.accessReview || ns.stairKind !== 'none') errors.push('access: Not sure should set accessReview');
   if (A.summary(ns).some((x) => /Ground level/.test(x))) errors.push('access: Not sure must never read as Ground level');
@@ -181,7 +181,7 @@ async function run(BASE, errors, { dataRoot = process.env.STORAGE_DIR || ROOT, a
   const dk = A.normalize({ accessMode: 'ground', dock: 'yes' });
   if (dk.dock !== 'yes' || !dk.loadingDock || !A.summary(dk).includes('Loading dock: yes')) errors.push('access: Loading dock should be kept for ground level too');
   const skipped = A.summary(A.normalize({ accessMode: 'elevator', floor: '12' }));
-  if (skipped.join(' · ') !== 'Elevator to floor 12') errors.push('access: skipped answers must not appear: ' + skipped.join(' · '));
+  if (skipped.join(' · ') !== 'Elevator, floor 12') errors.push('access: skipped answers must not appear: ' + skipped.join(' · '));
   const one = A.summary(A.normalize({ accessMode: 'stairs', stairFlights: '1', stairDir: 'up', stairTurns: 'yes', stairPhotos: ['a'], fits: 'tight', doorPhotos: ['a', 'b'], narrowestIn: '28' })).join(' · ');
   if (!/1 photo of the stairs/.test(one) || !/2 photos of the tight spot/.test(one) || /photo\(s\)/.test(one)) errors.push('access: plurals wrong: ' + one);
   if (!/Narrowest opening 28 in/.test(one)) errors.push('access: narrowest opening missing from summary');
@@ -200,9 +200,63 @@ async function run(BASE, errors, { dataRoot = process.env.STORAGE_DIR || ROOT, a
   if (!pr.needsStairwellFit(tall, ord(A.normalize({ accessMode: 'elevator', floor: '3', elevatorStairs: 'stairs', stairFlights: '1', stairDir: 'up' })))) errors.push('stairwell fit: elevator + stairs should ask for a 90" piece');
   // ACCESS_COPY.txt matches the new copy.
   const copy = fs.readFileSync(path.join(ROOT, 'ACCESS_COPY.txt'), 'utf8');
-  ['Not sure', 'Any stairs on the way?', 'Service elevator available?', 'Loading dock available?', 'Doors (optional)', 'Think doors, halls, turns, stairs and the elevator.', 'Photos of the tight spot and the way in, so we can plan the carry.', 'Photos help if you have them.', 'Narrowest opening (inches)', 'Enter the total number of flights (4 or more).', 'We’ll confirm access with you before the job.']
+  ['Not sure', 'Any stairs on the way?', 'Count steps before or after the elevator.', 'Service elevator available?', 'Loading dock available?', 'Doors (optional)', 'Think doors, halls, turns, stairs and the elevator.', 'Please add a photo of the tight spot and the way in.', 'Photos help if you have them.', 'Narrowest opening (inches)', 'Total number of flights', 'Enter the total number of flights (4 or more).', 'e.g. 3, Basement', 'Elevator, floor 30', A.PRICE_NOTE, 'Add a photo so we can plan for the weight.']
     .forEach((t) => { if (!copy.includes(t)) errors.push('ACCESS_COPY.txt missing: ' + t); });
-  ['send them later', 'Doorway (optional)', 'steps on the way to the elevator', 'photo(s)'].forEach((t) => { if (copy.includes(t)) errors.push('ACCESS_COPY.txt still has: ' + t); });
+  ['send them later', 'Doorway (optional)', 'steps on the way to the elevator', 'photo(s)', 'Elevator to floor', 'Exact number of flights', 'the way in, so we can plan the carry'].forEach((t) => { if (copy.includes(t)) errors.push('ACCESS_COPY.txt still has: ' + t); });
+
+  // ---- 8. Boundaries (Chad, Nov 16 second review): server side ----
+  {
+    let n = 0;
+    const tag = () => `Boundary ${Date.now()}-${++n}`;
+    const order = (it, dropoff) => post('/api/orders', base({ items: [item({ description: tag(), ...it })], dropoff: addr({ contactName: 'Rita Recipient', contactPhone: '4155550102', contactRole: 'Homeowner', ...dropoff }) }));
+    const ok = async (name, r) => { const x = await r; if (x.s !== 200) errors.push(`boundary: ${name} should be accepted (got ${x.s} ${x.j.error || ''})`); return x; };
+    const no = async (name, r, re) => { const x = await r; if (x.s !== 400 || (re && !re.test(x.j.error || ''))) errors.push(`boundary: ${name} should be refused${re ? ' with ' + re : ''} (got ${x.s} ${x.j.error || ''})`); return x; };
+    const oneFlight = { accessMode: 'stairs', stairFlights: '1', stairDir: 'up', stairTurns: 'no', fits: 'yes' };
+    // 80" vs 81": stairwell fit confirmation on real stairs.
+    await ok('80" piece on 1 flight without stairwell confirmation', order({ w: 80, h: 30, d: 2 }, oneFlight));
+    await no('81" piece on 1 flight without stairwell confirmation', order({ w: 81, h: 30, d: 2 }, oneFlight), /stairwell fit/);
+    await ok('81" piece on 1 flight with stairwell confirmation', order({ w: 81, h: 30, d: 2, fitsStairwell: true }, oneFlight));
+    // 150 vs 151 lb: the fit question becomes required.
+    await ok('150 lb sculpture, ground, no fit answer', order({ type: 'sculpture', framed: '', weight: '150', w: 20, h: 30, d: 20 }, { fits: '' }));
+    await no('151 lb sculpture, ground, no fit answer', order({ type: 'sculpture', framed: '', weight: '151', w: 20, h: 30, d: 20 }, { fits: '' }), /will everything fit easily/);
+    // 500 vs 501 lb, unknown weight: photos.
+    await ok('500 lb sculpture without a photo', order({ type: 'sculpture', framed: '', weight: '500', w: 20, h: 30, d: 20 }, {}));
+    await no('501 lb sculpture without a photo', order({ type: 'sculpture', framed: '', weight: '501', w: 20, h: 30, d: 20 }, {}), /photos/);
+    await ok('501 lb sculpture with a photo', order({ type: 'sculpture', framed: '', weight: '501', w: 20, h: 30, d: 20, photos: ['/uploads/x.png'] }, {}));
+    await no('unknown weight without a photo', order({ type: 'sculpture', framed: '', weight: '', weightUnsure: true, w: 20, h: 30, d: 20 }, {}), /unknown weight/);
+    await ok('unknown weight with a photo', order({ type: 'sculpture', framed: '', weight: '', weightUnsure: true, w: 20, h: 30, d: 20, photos: ['/uploads/x.png'] }, {}));
+    // Floor as text.
+    const bas = await ok('elevator, floor Basement', order({}, { accessMode: 'elevator', floor: 'Basement', elevatorStairs: 'no' }));
+    if (bas.j.order && !A.summary(bas.j.order.dropoff).includes('Elevator, floor Basement')) errors.push('boundary: summary should read "Elevator, floor Basement"');
+    // 4+ flights: whole number of 4 or more.
+    const four = (stairs) => ({ accessMode: 'stairs', stairFlights: '4plus', stairs, stairDir: 'up' });
+    const f4 = await ok('4 flights in the 4+ field', order({}, four('4')));
+    if (f4.j.order && f4.j.order.dropoff.stairs !== 4) errors.push('boundary: 4 flights should be stored as 4');
+    await no('3 in the 4+ field', order({}, four('3')), /number of flights \(4 or more\)/);
+    await no('4.5 in the 4+ field', order({}, four('4.5')), /number of flights \(4 or more\)/);
+    const q4 = await post('/api/quote', { service: 'pickup_delivery', items: heavyIt, pickup: { zip: '90069' }, dropoff: { zip: '90210', ...four('3') } });
+    if ((q4.j.lines || []).some((l) => /^Stairs/.test(l.label))) errors.push('boundary: an invalid 4+ count must not be priced');
+    // Every elevator stairs answer.
+    const elev = (x) => ({ accessMode: 'elevator', floor: '30', ...x });
+    await no('elevator with stairs unanswered', order({}, elev({})), /stairs on the way to the elevator/);
+    await ok('elevator, stairs No', order({}, elev({ elevatorStairs: 'no' })));
+    await ok('elevator, A few steps', order({}, elev({ elevatorStairs: 'steps' })));
+    await no('elevator, Stairs without flights', order({}, elev({ elevatorStairs: 'stairs' })), /number of flights/);
+    await ok('elevator, Stairs with 2 flights up', order({}, elev({ elevatorStairs: 'stairs', stairFlights: '2', stairDir: 'up' })));
+    const ns = await ok('elevator, stairs Not sure', order({}, elev({ elevatorStairs: 'not_sure' })));
+    if (ns.j.order && !ns.j.order.accessReview) errors.push('boundary: elevator stairs Not sure should set accessReview');
+    if (ns.j.order && !(ns.j.order.quote.notes || []).includes(A.PRICE_NOTE)) errors.push('boundary: elevator stairs Not sure should show the access-to-be-confirmed price line');
+    // Fit Not sure: review flag, photos optional, price line in the email.
+    const fns2 = await ok('fit Not sure without photos', order({}, { fits: 'not_sure' }));
+    if (fns2.j.order && !fns2.j.order.accessReview) errors.push('boundary: fit Not sure should set accessReview');
+    if (fns2.j.id) {
+      await post(`/api/orders/${fns2.j.id}/pay`, { method: 'card', card: '4242424242424242' });
+      const m = text(mails(fns2.j.id, 'confirmation')[0] || '');
+      if (!m.includes(A.PRICE_NOTE)) errors.push('boundary: confirmation email should carry the access-to-be-confirmed line');
+      if (/final price/i.test(m)) errors.push('boundary: access-review email must not call the price final');
+    }
+    await no('tight fit without a photo', order({}, { fits: 'tight' }), /photos of the tight spot/);
+  }
   return errors;
 }
 

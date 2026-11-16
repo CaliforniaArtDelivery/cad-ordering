@@ -124,7 +124,7 @@ function validate(o) {
   // Access (Chad): "How do we get in?" is required at every stop, plus the follow-ups and photos it triggers.
   const ACCESS_ERR = {
     accessMode: 'access (how do we get in?)', stairFlights: 'number of flights', stairs: 'number of flights (4 or more)', stairDir: 'stairs up or down',
-    stairTurns: 'tight turns on the stairs', stairPhotos: 'photos of the stairs and path', floor: 'elevator floor',
+    stairTurns: 'tight turns on the stairs', stairPhotos: 'photos of the stairs and path', floor: 'elevator floor', elevatorStairs: 'stairs on the way to the elevator',
     fits: 'will everything fit easily', doorPhotos: 'photos of the tight spot and the way in',
   };
   const accessStops = [];
@@ -137,10 +137,10 @@ function validate(o) {
     if (!/\S+@\S+\.\S+/.test(o.payerOther?.email || '')) errs.push('payer email');
     if (String(o.payerOther?.phone || '').replace(/\D/g, '').length < 7) errs.push('payer phone');
   }
-  // Photo rules: required for items over 500 lb and 'other' items and special-handling pieces. Technical carries and high installs are below.
+  // Photo rules: required for items over 500 lb or of unknown weight, and 'other' items and special-handling pieces. Technical carries and high installs are below.
   const numVal = (s) => { const n = Number(String(s ?? '').replace(/,/g, '')); return Number.isFinite(n) ? n : 0; };
-  const needsPhoto = (it) => numVal(it.weight) > 500 || it.type === 'other' || !!it.fragile;
-  if ((o.items || []).some((it) => needsPhoto(it) && !(it.photos || []).length)) errs.push('photos (items over 500 lb or unusual pieces or special handling)');
+  const needsPhoto = (it) => numVal(it.weight) > 500 || !!it.weightUnsure || it.type === 'other' || !!it.fragile;
+  if ((o.items || []).some((it) => needsPhoto(it) && !(it.photos || []).length)) errs.push('photos (items over 500 lb or of unknown weight, unusual pieces or special handling)');
   if (SERVICES[o.service]?.install) {
     (o.items || []).forEach((it) => {
       if (isHungItem(it) && it.hangHeight === 'higher' && it.hangWhere === 'stairwell' && !((it.hangPhotos || []).length)) errs.push('photos of the stairwell');

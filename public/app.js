@@ -478,13 +478,13 @@ const accessBlock = (key, a) => {
   let h = `<div class="field" data-access="${key}"><label class="f">How do we get in?${req}</label>${seg(`${key}.accessMode`, A.MODES, 'stack')}</div>`;
   if (mode === 'not_sure') h += `<p class="mini" style="margin:0 0 8px">${A.REVIEW_NOTE}</p>`;
   if (mode === 'elevator') {
-    h += input(`${key}.floor`, 'Floor', { ph: 'e.g. 30', attrs: 'inputmode="numeric"', req: true });
+    h += input(`${key}.floor`, 'Floor', { ph: 'e.g. 3, Basement', attrs: 'autocapitalize="words" maxlength="30"', req: true });
     h += `<div class="field"><label class="f">${opt('Service elevator available?')}</label>${seg(`${key}.serviceElevator`, A.YNS, 'wrap')}</div>`;
-    h += `<div class="field"><label class="f">${opt('Any stairs on the way?')}</label>${seg(`${key}.elevatorStairs`, A.ELEV_STAIRS, 'wrap')}</div>`;
+    h += `<div class="field"><label class="f">Any stairs on the way?${req}</label>${seg(`${key}.elevatorStairs`, A.ELEV_STAIRS, 'wrap')}<p class="mini">Count steps before or after the elevator.</p></div>`;
   }
   if (A.usesStairs(a)) {
     h += `<div class="field"><label class="f">How many flights?${req}</label>${seg(`${key}.stairFlights`, A.FLIGHTS, 'wrap')}
-      ${String(a.stairFlights) === '4plus' ? input(`${key}.stairs`, 'Exact number of flights', { type: 'number', ph: 'e.g. 5', attrs: 'inputmode="numeric" min="4" step="1"', req: true }) : ''}</div>`;
+      ${String(a.stairFlights) === '4plus' ? input(`${key}.stairs`, 'Total number of flights', { type: 'number', ph: 'e.g. 4', attrs: 'inputmode="numeric" min="4" step="1"', req: true }) : ''}</div>`;
     h += `<div class="field"><label class="f">Up or down?${req}</label>${seg(`${key}.stairDir`, A.DIRS, 'wrap')}</div>`;
     h += `<div class="field"><label class="f">${big ? 'Any tight turns or narrow spots?' + req : opt('Any tight turns or narrow spots?')}</label>${seg(`${key}.stairTurns`, A.YNS, 'wrap')}${big ? firmNote : ''}</div>`;
     if (A.stairPhotosNeeded(a)) h += `<p class="mini req-line">Photos of the stairs and path — required, so we can plan the carry.</p>${photoRow(key, 'stairPhotos', 'Photos of the stairs and path', true)}`;
@@ -493,7 +493,7 @@ const accessBlock = (key, a) => {
     h += `<div class="field"><label class="f">${opt('Loading dock available?')}</label>${seg(`${key}.dock`, A.YNS, 'wrap')}</div>`;
     h += `<div class="field"><label class="f">${opt('Doors')}</label>${seg(`${key}.doorway`, A.DOORWAYS, 'wrap')}</div>`;
     h += `<div class="field"><label class="f">${big ? 'Will everything fit easily?' + req : opt('Will everything fit easily?')}</label>${seg(`${key}.fits`, A.FITS, 'wrap')}<p class="mini">Think doors, halls, turns, stairs and the elevator.</p>${big ? firmNote : ''}</div>`;
-    if (A.doorPhotosNeeded(a)) h += `<p class="mini req-line">Photos of the tight spot and the way in, so we can plan the carry.</p>${photoRow(key, 'doorPhotos', 'Photos', true)}`;
+    if (A.doorPhotosNeeded(a)) h += `<p class="mini req-line">Please add a photo of the tight spot and the way in.</p>${photoRow(key, 'doorPhotos', 'Photos', true)}`;
     else if (a.fits === 'not_sure') h += `<p class="mini" style="margin:0 0 8px">Photos help if you have them.</p>${photoRow(key, 'doorPhotos', 'Photos', false)}`;
     if (A.fitUnsure(a)) h += input(`${key}.narrowestIn`, opt('Narrowest opening (inches)'), { type: 'number', ph: 'e.g. 30', attrs: 'inputmode="numeric" min="1" step="1"' });
   }
@@ -521,10 +521,12 @@ const payPlan = (q) => {
   }
   return `<div class="plan"><div class="sum-row"><span>Due today · paid in full at booking</span><span class="amt"><b>${fmt(q.dueNow)}</b></span></div></div>`;
 };
+// Access flagged Not sure (mode, fit or elevator stairs): the pricing API adds CADAccess.PRICE_NOTE; show it next to the price.
+const accessTbc = (q) => !!(q && (q.notes || []).includes(CADAccess.PRICE_NOTE));
 const priceCard = (q, withProtection) => `<div class="card price-card">
   ${q ? q.lines.map((l) => `<div class="sum-row"><span>${esc(l.label)}</span><span class="amt">${l.included ? 'Included' : fmt(l.amount)}</span></div>`).join('') : '<div class="sum-row"><span>Calculating…</span><span class="amt"></span></div>'}
   ${withProtection ? '<p class="mini" style="margin:6px 0 0">Declared value protection is 1.5% of each piece’s declared value (pieces up to $50,000), added to your price. Pieces over $50,000 carry high-value handling instead.</p>' : ''}
-  ${q ? `${isQuote(q) && !q.tripPremium ? '' : `<div class="total"><span>${isQuote(q) ? 'Regular rate' : 'Total'}</span><span class="amt">${fmt(q.regularTotal || q.total)}</span></div>`}${payPlan(q)}` : ''}
+  ${q ? `${accessTbc(q) ? `<p class="mini access-tbc" data-access-tbc><b>${esc(CADAccess.PRICE_NOTE)}</b></p>` : ''}${isQuote(q) && !q.tripPremium ? '' : `<div class="total"><span>${isQuote(q) ? 'Regular rate' : 'Total'}</span><span class="amt">${fmt(q.regularTotal || q.total)}</span></div>`}${payPlan(q)}` : ''}
 </div>`;
 
 // ---------- payment block (shared by new orders and payment links) ----------
@@ -612,6 +614,7 @@ async function loadDelivery() {
 // ---------- photo rules (Chad): optional unless the job needs eyes on it first ----------
 const HEAVY_LB = 500;
 const itemPhotoReason = (it) => (num(it.weight) > HEAVY_LB ? 'Photo required for items over 500 lb.'
+  : it.weightUnsure ? 'Add a photo so we can plan for the weight.'
   : it.type === 'other' ? 'Please add a photo so we can plan the right handling.'
   : it.fragile ? 'Photo required for special handling.' : '');
 const photosOk = (it) => !itemPhotoReason(it) || (it.photos || []).length > 0;
@@ -867,7 +870,7 @@ const views = {
       ${siteReview(S.service === 'install_only' ? 'Installation details' : 'Delivery details', S.dropoff)}
       <h2>${sp ? 'Estimated range' : 'Price'}</h2>
       ${priceCard(q, true)}
-      ${q && q.notes && q.notes.length ? `<p class="mini">${q.notes.map((n) => esc(n)).join(' ')}</p>` : ''}
+      ${q && q.notes && q.notes.filter((n) => n !== CADAccess.PRICE_NOTE).length ? `<p class="mini">${q.notes.filter((n) => n !== CADAccess.PRICE_NOTE).map((n) => esc(n)).join(' ')}</p>` : ''}
       ${S.member && S.memberVerified ? `<p class="mini">Member rate (25% off) applied${S.memberCompany ? ` for ${esc(S.memberCompany)}` : ''}.</p>` : ''}
       <h2>Who’s paying?</h2><div class="card">${seg('payer', isBizReferral() ? [['me', 'Me'], ['partner', 'Referring partner'], ['other', 'Someone else']] : [['me', 'Me'], ['other', 'Someone else']])}
         ${S.payer === 'other' ? `<div class="row" style="margin-top:12px">${input('payerOther.name', 'Payer name', { req: true })}${input('payerOther.email', 'Payer email', { type: 'email', req: true, attrs: 'autocapitalize="off" autocomplete="email"' })}</div>
@@ -1053,7 +1056,8 @@ function missingFields() {
       const ACCESS_GAP = {
         accessMode: [`[data-seg="${key}.accessMode"]`, 'How do we get in?', 'Please tell us how we get in.'],
         stairFlights: [`[data-seg="${key}.stairFlights"]`, 'How many flights?', 'Please choose how many flights of stairs.'],
-        stairs: [`#f-${key}.stairs`, 'Exact number of flights', 'Enter the total number of flights (4 or more).'],
+        stairs: [`#f-${key}.stairs`, 'Total number of flights', 'Enter the total number of flights (4 or more).'],
+        elevatorStairs: [`[data-seg="${key}.elevatorStairs"]`, 'Any stairs on the way?', 'Please tell us if there are stairs on the way to the elevator.'],
         stairDir: [`[data-seg="${key}.stairDir"]`, 'Up or down?', 'Please tell us if the stairs go up or down.'],
         stairTurns: [`[data-seg="${key}.stairTurns"]`, 'Tight turns or narrow spots?', 'Please tell us about tight turns or narrow spots.'],
         stairPhotos: [`[data-accessupload="${key}.stairPhotos"]`, 'Photos of the stairs and path', 'Please add a photo of the stairs and path.'],
@@ -1181,7 +1185,7 @@ function paintEstimate() {
   if (isQuote(q) && !q.tripPremium) { el.textContent = 'Quote'; lbl.textContent = 'Priced by CAD'; }
   else if (isQuote(q) && q.quoteRange) { el.textContent = `${fmt(q.quoteRange.low)}–${fmt(q.quoteRange.high)}`; lbl.textContent = 'Estimated range'; }
   else if (name === 'Pay') { el.textContent = fmt(q.dueNow); lbl.textContent = q.paymentPlan === 'deposit' ? 'Due today (50%)' : 'Due today'; }
-  else { el.textContent = fmt(q.total); lbl.textContent = name === 'What' ? 'Estimate · before access' : 'Estimate'; }
+  else { el.textContent = fmt(q.total); lbl.textContent = name === 'What' ? 'Estimate · before access' : accessTbc(q) ? 'Estimate · access to confirm' : 'Estimate'; }
   el.classList.toggle('long', el.textContent.length > 9 && el.textContent.length <= 13); el.classList.toggle('xlong', el.textContent.length > 13);
   paintButton();
 }

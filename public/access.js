@@ -20,10 +20,14 @@
   const DOORWAYS = [['single', 'Single door'], ['double', 'Double doors'], ['not_sure', 'Not sure']];
   const FITS = [['yes', 'Yes'], ['tight', 'Tight fit'], ['not_sure', 'Not sure']];
   // Elevator buildings can also have real stairs on the way (Nov 2026).
-  const ELEV_STAIRS = [['no', 'No'], ['steps', 'A few steps'], ['stairs', 'Stairs']];
+  // Required (Chad, Nov 16): Not sure flags the stop for CAD to confirm.
+  const ELEV_STAIRS = [['no', 'No'], ['steps', 'A few steps (3 or fewer)'], ['stairs', 'Stairs'], ['not_sure', 'Not sure']];
   const ELEV_STEPS = ELEV_STAIRS; // old name, kept for callers
   const MODE_KEYS = MODES.map(([k]) => k);
   const REVIEW_NOTE = 'We’ll confirm access with you before the job.';
+  // Shown next to the price whenever access is flagged for review (mode, fit or elevator stairs = Not sure).
+  const PRICE_NOTE = 'Access to be confirmed. If stairs or a tricky carry add a fee, we’ll confirm it with you before charging anything.';
+  const wholeFlights = (v) => { const n = num(v); return has(v) && Number.isInteger(n) && n >= 4 && /^\s*\d+\s*$/.test(String(v)); };
 
   const num = (s) => { const n = Number(String(s == null ? '' : s).replace(/,/g, '')); return Number.isFinite(n) ? n : 0; };
   const has = (v) => v != null && String(v).trim() !== '';
@@ -66,13 +70,13 @@
     a.elevator = mode === 'elevator';
     a.loadingDock = a.dock === 'yes';
     // "Not sure": CAD confirms access before the job. Never priced as plain ground level without this flag.
-    a.accessReview = mode === 'not_sure';
+    a.accessReview = needsReview(a);
     a.stairsPlus = false;
     const stairsFrom = () => {
       const f = String(a.stairFlights == null ? '' : a.stairFlights);
       a.steps = false;
       if (f === 'half') { a.stairKind = 'half'; a.stairs = 0.5; }
-      else if (f === '4plus') { a.stairKind = 'flights'; a.stairsPlus = true; a.stairs = num(a.stairs) >= 4 ? Math.round(num(a.stairs)) : ''; }
+      else if (f === '4plus') { a.stairKind = 'flights'; a.stairsPlus = true; a.stairs = wholeFlights(a.stairs) ? num(a.stairs) : (has(a.stairs) && num(a.stairs) !== 0 ? String(a.stairs).trim() : ''); }
       else if (['1', '2', '3'].includes(f)) { a.stairKind = 'flights'; a.stairs = Number(f); }
       else { a.stairKind = ''; a.stairs = 0; }
     };
@@ -95,10 +99,11 @@
     if (!a) return out;
     const big = firm(items);
     if (!MODE_KEYS.includes(a.accessMode)) { out.push('accessMode'); return out; }
-    if (a.accessMode === 'elevator' && !(num(a.floor) >= 1)) out.push('floor');
+    if (a.accessMode === 'elevator' && !has(a.floor)) out.push('floor');
+    if (a.accessMode === 'elevator' && !has(a.elevatorStairs)) out.push('elevatorStairs');
     if (usesStairs(a)) {
       if (!has(a.stairFlights)) out.push('stairFlights');
-      else if (String(a.stairFlights) === '4plus' && !(num(a.stairs) >= 4)) out.push('stairs');
+      else if (String(a.stairFlights) === '4plus' && !wholeFlights(a.stairs)) out.push('stairs');
       if (!has(a.stairDir)) out.push('stairDir');
       if (big && !has(a.stairTurns)) out.push('stairTurns');
       if (stairPhotosNeeded(a) && !(a.stairPhotos || []).length) out.push('stairPhotos');
@@ -111,7 +116,7 @@
   const flightsWords = (a) => {
     const f = String(a.stairFlights == null ? '' : a.stairFlights);
     if (f === 'half') return 'Half flight of stairs';
-    const n = f === '4plus' ? num(a.stairs) : Number(f);
+    const n = f === '4plus' ? (wholeFlights(a.stairs) ? num(a.stairs) : 0) : Number(f);
     if (!(n > 0)) return f === '4plus' ? '4+ flights of stairs' : 'Stairs';
     return `${plural(n, 'flight')} of stairs`;
   };
@@ -134,11 +139,12 @@
     else if (mode === 'not_sure') bits.push(`Access not sure: ${REVIEW_NOTE}`);
     else if (mode === 'stairs') stairBits(a, bits, '');
     else if (mode === 'elevator') {
-      bits.push(has(a.floor) ? `Elevator to floor ${String(a.floor).trim()}` : 'Elevator');
+      bits.push(has(a.floor) ? `Elevator, floor ${String(a.floor).trim()}` : 'Elevator');
       if (YNS_WORD[a.serviceElevator]) bits.push(`Service elevator: ${YNS_WORD[a.serviceElevator]}`);
       if (a.elevatorStairs === 'no') bits.push('No stairs on the way');
       else if (a.elevatorStairs === 'steps') bits.push('A few steps (3 or fewer) on the way');
       else if (a.elevatorStairs === 'stairs') stairBits(a, bits, ' on the way to the elevator');
+      else if (a.elevatorStairs === 'not_sure') bits.push('Not sure about stairs on the way');
     } else {
       // Older orders saved before the access questions were rebuilt.
       if (a.floor) bits.push(`Floor ${a.floor}`);
@@ -162,7 +168,10 @@
     if ((a.doorPhotos || []).length) bits.push(`${plural(a.doorPhotos.length, 'photo')} of the tight spot and the way in`);
     return bits;
   }
-  const needsReview = (a) => !!a && a.accessMode === 'not_sure';
+  function needsReview(a) {
+    if (!a || !MODE_KEYS.includes(a.accessMode)) return false;
+    return a.accessMode === 'not_sure' || a.fits === 'not_sure' || (a.accessMode === 'elevator' && a.elevatorStairs === 'not_sure');
+  }
 
-  return { MODES, FLIGHTS, DIRS, YNS, DOORWAYS, FITS, ELEV_STAIRS, ELEV_STEPS, MODE_KEYS, REVIEW_NOTE, HEAVY_LB, LONG_IN, isBigPiece, firm, normalize, gaps, summary, stairPhotosNeeded, doorPhotosNeeded, usesStairs, fitUnsure, needsReview, plural };
+  return { MODES, FLIGHTS, DIRS, YNS, DOORWAYS, FITS, ELEV_STAIRS, ELEV_STEPS, MODE_KEYS, REVIEW_NOTE, PRICE_NOTE, wholeFlights, HEAVY_LB, LONG_IN, isBigPiece, firm, normalize, gaps, summary, stairPhotosNeeded, doorPhotosNeeded, usesStairs, fitUnsure, needsReview, plural };
 });

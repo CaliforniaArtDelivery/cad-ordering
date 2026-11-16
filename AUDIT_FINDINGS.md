@@ -36,7 +36,7 @@ Commits (local, not pushed): `95cd8a6` phase 1 · `6fd85e3` access fixes · `3d7
 | P1-1 | Silent defaults | Fixed in phase 2 (app.js) (partly) · Needs Chad’s decision | Client type and Same-as-me role no longer preselected. Hang height “eye level”, 59" center, furniture Sofa/Medium, décor kind change the flow or price: Chad |
 | P1-2 | Install only turns sofas into paintings | Fixed in phase 2 (app.js) | Switch is blocked with an explanation |
 | P1-3 | Furniture has no size fields | Needs Chad’s decision | Adds a question |
-| P1-4 | Unknown weight skips heavy photo | Needs Chad’s decision | Photo rule change |
+| P1-4 | Unknown weight skips heavy photo | Fixed (Chad’s decision, second review) | Weight “Not sure” now requires a photo (“Add a photo so we can plan for the weight.”), browser and server; 501 lb+ still requires one |
 | P1-5 | Rush/dedicated text on every quote | Fixed in phase 2 (app.js) |  |
 | P1-6 | Multiplier math shown | Fixed in phase 1 + Fixed in phase 2 (app.js) | “Estimated range”, no 1.5×–2× |
 | P1-7 | Dedicated-trip internal-speak | Fixed in phase 2 (app.js) |  |
@@ -493,6 +493,14 @@ Commits (local, not pushed): `95cd8a6` phase 1 · `6fd85e3` access fixes · `3d7
 - **“Will everything fit?” had no “No”: verified fixed** (Yes / Tight fit / Not sure).
 - **Stairwell-fit for “A few steps (3 or fewer)”: fixed.** It now fires for real stairs (including stairs on the way to an elevator); for a few steps only when the piece is also over 150 lb.
 - **Dot review fixes:** Elevator → “Any stairs on the way?” (No / A few steps / Stairs) reusing flights, up-or-down and tight turns, same fees as Stairs (tested: $300 for 2 flights; pickup half flight + delivery elevator with 2 flights = $375). 5th answer “Not sure”: no stairs fee, never shown as ground level, sets `accessReview` (order, “ACCESS REVIEW” in the schedule sheet notes and admin list), estimate + review say “We’ll confirm access with you before the job.” Loading dock available? for every mode; Service elevator available?; Doors (optional); fit helper for every mode; tight-fit photo line and “Photos help if you have them.”; optional Narrowest opening (inches); “Enter the total number of flights (4 or more).”; no skipped answer is ever printed; “1 photo” / “2 photos”. The shipping destination card already asked the access questions, so it keeps them.
+
+## Dot’s second review: Chad’s decisions (applied Nov 16, 2026)
+- Elevator **“Any stairs on the way?” is required**: No / A few steps (3 or fewer) / Stairs / Not sure, with the helper “Count steps before or after the elevator.”; Not sure sets the access-review flag.
+- Fit photo line: “Please add a photo of the tight spot and the way in.” (at least one photo). The 4+ input is now “Total number of flights” (placeholder “e.g. 4”), and a whole number of 4 or more is required in the browser and on the server. An invalid count is never priced.
+- Review, email and sheet say “Elevator, floor 30”. Floor takes text (Basement, Ground, Mezzanine, B1, 30) with the placeholder “e.g. 3, Basement”.
+- Access, fit or elevator stairs = Not sure: checkout stays allowed and the access-review flag is set. The estimate (dock: “Estimate · access to confirm”), the review and payment-link price cards, and the confirmation email show “Access to be confirmed. If stairs or a tricky carry add a fee, we’ll confirm it with you before charging anything.” No line calls the price final (tested).
+- Photos: over 500 lb (501+) still required; unknown weight now required too. Fit Not sure keeps photos optional.
+- Boundary tests in the browser (e2e) and on the server (audit-regression §8): 80"/81", 150/151 lb, 500/501 lb, unknown weight, floor “Basement”, 4 flights accepted, 3 (and 4.5) rejected, and every elevator stairs answer.
 
 ## Probe artifacts
 - /tmp/aud/probe.js, probe2.js, probe3.js, probe4.js, with output in /tmp/aud/quotes.txt.

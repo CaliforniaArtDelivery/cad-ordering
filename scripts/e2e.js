@@ -232,7 +232,7 @@ const readOrders = () => JSON.parse(fs.readFileSync(path.join(DATA_ROOT, 'data',
   await expect(/Loading dock/i, 'review missing loading dock');
   await expect(/2 flights of stairs up/i, 'review missing delivery stairs');
   await expect(/A few steps \(3 or fewer\) on the way/i, 'review missing pickup steps (with elevator)');
-  await expect(/Elevator to floor 2/, 'review missing pickup elevator floor');
+  await expect(/Elevator, floor 2/, 'review missing pickup elevator floor');
   await expect(/Double doors · Fits easily/, 'review missing delivery doorway + fit');
   await expect(/Ground level, no elevator/, 'review must never print Ground level, no elevator', true);
   await expect(/Gate code 4411/, 'review missing delivery notes');
@@ -271,7 +271,7 @@ const readOrders = () => JSON.parse(fs.readFileSync(path.join(DATA_ROOT, 'data',
   await me(page, 'Cyd G.', 'cyd@example.com', '805-555-0144');
   await page.selectOption('[data-path="contact.clientType"]', 'Interior designer');
   await fillSite(page, 'pickup', { street: '1153 Camino Dos Rios', city: 'Thousand Oaks', zip: '91360', same: true });
-  await fillSite(page, 'dropoff', { street: '850 Sanitarium Rd', city: 'Deer Park', zip: '94576', same: true, access: { mode: 'elevator', floor: '3' } });
+  await fillSite(page, 'dropoff', { street: '850 Sanitarium Rd', city: 'Deer Park', zip: '94576', same: true, access: { mode: 'elevator', floor: '3', elevStairs: 'no' } });
   await next(page); await pickDay(page);
   await expect(/different regions, so delivery is usually 1–2 weeks later/, 'cross-region job should explain the later delivery day');
   if (await page.locator('[data-path="schedule.deliveryLater"]').count()) errors.push('later-delivery toggle should be gone on cross-region jobs');
@@ -518,10 +518,13 @@ const readOrders = () => JSON.parse(fs.readFileSync(path.join(DATA_ROOT, 'data',
     if (!(await count('[data-seg="pickup.serviceElevator"]')) || !(await count('[data-seg="pickup.dock"]'))) errors.push('access: Elevator should ask Service elevator and Loading dock');
     if (!(await isBlocked(page))) errors.push('access: Elevator without a floor must block Continue');
     await fill(page, 'pickup.floor', '30');
-    if (await isBlocked(page)) errors.push('access: Elevator to floor 30 should allow Continue');
+    if (!(await isBlocked(page))) errors.push('access: Elevator without an answer to Any stairs on the way? must block Continue (required)');
+    await expect(/Count steps before or after the elevator\./, 'access: elevator stairs helper text');
+    await segClick(page, 'pickup.elevatorStairs', 'no');
+    if (await isBlocked(page)) errors.push('access: Elevator, floor 30, no stairs should allow Continue');
     // Dot review fixes: labels as questions, stairs on the way to the elevator, Not sure, dock + fit helper everywhere.
     { const t = await page.evaluate(() => document.querySelector('#app').innerText);
-      for (const l of ['Service elevator available? (optional)', 'Any stairs on the way? (optional)', 'Loading dock available? (optional)', 'Doors (optional)', 'Think doors, halls, turns, stairs and the elevator.']) if (!t.includes(l)) errors.push('access copy missing: ' + l);
+      for (const l of ['Service elevator available? (optional)', 'Any stairs on the way?', 'Loading dock available? (optional)', 'Doors (optional)', 'Think doors, halls, turns, stairs and the elevator.']) if (!t.includes(l)) errors.push('access copy missing: ' + l);
       for (const l of ['Doorway (optional)', 'Any steps on the way to the elevator?']) if (t.includes(l)) errors.push('access copy still shows: ' + l); }
     await segClick(page, 'pickup.elevatorStairs', 'stairs');
     if (!(await count('[data-seg="pickup.stairFlights"]')) || !(await count('[data-seg="pickup.stairDir"]')) || !(await count('[data-seg="pickup.stairTurns"]'))) errors.push('access: Elevator + Stairs should reuse flights / up-or-down / tight turns');
@@ -568,6 +571,11 @@ const readOrders = () => JSON.parse(fs.readFileSync(path.join(DATA_ROOT, 'data',
     await shot(page, '27-where-access');
     await next(page); await pickDay(page); await next(page); await page.waitForTimeout(500);
     await expect(/1 flight of stairs down · Not sure about tight turns on the stairs · 1 photo of the stairs/, 'review: pickup stairs in plain words');
+    // Fit = Not sure at pickup: the access-to-be-confirmed line sits next to the price, and nothing calls the price final.
+    await expect(/Access to be confirmed\. If stairs or a tricky carry add a fee, we’ll confirm it with you before charging anything\./, 'review: access-review price line missing');
+    if (!(await page.locator('.price-card [data-access-tbc]').count())) errors.push('review: access-review line must be inside the price card');
+    { const pc = (await page.textContent('.price-card').catch(() => '')) || ''; if (/final/i.test(pc)) errors.push('review: price card must not call the price final when access is to be confirmed'); }
+    { const lbl = (await page.textContent('#estLabel')) || ''; if (!/access to confirm|Due today/i.test(lbl)) errors.push('dock label with access review: ' + lbl); }
     await expect(/Ground level, straight in \(no stairs\) · Double doors · Tight fit · 1 photo of the tight spot and the way in/, 'review: delivery access in plain words');
     await expect(/Ground level, no elevator/, 'review must never print Ground level, no elevator', true);
     await expect(/Stairs — Piece 1/, 'small painting (no weight, under 72") should have no stairs fee', true);
@@ -859,7 +867,7 @@ const readOrders = () => JSON.parse(fs.readFileSync(path.join(DATA_ROOT, 'data',
   if (!/Loading dock: yes/.test(csv)) errors.push('CSV PU Notes missing loading dock');
   if (!/A few steps \(3 or fewer\) on the way/.test(csv)) errors.push('CSV PU Notes missing steps-with-elevator');
   if (!/2 flights of stairs up · No tight turns on the stairs · Double doors · Fits easily/.test(csv)) errors.push('CSV DE Notes missing stairs + doorway');
-  if (!/Elevator to floor 2 · Service elevator: yes · A few steps \(3 or fewer\) on the way · Loading dock: yes/.test(csv)) errors.push('CSV PU Notes missing elevator floor / service elevator / dock');
+  if (!/Elevator, floor 2 · Service elevator: yes · A few steps \(3 or fewer\) on the way · Loading dock: yes/.test(csv)) errors.push('CSV PU Notes missing elevator floor / service elevator / dock');
   if (!/Gate code 4411/.test(csv)) errors.push('CSV DE Notes missing special instructions');
   if (!/customer chose a later delivery date/.test(csv)) errors.push('CSV missing separate later-delivery row');
   if (!/Plaster wall, hardware: CAD brings it/.test(csv)) errors.push('CSV DE Notes missing wall type and hardware');
@@ -914,6 +922,53 @@ const readOrders = () => JSON.parse(fs.readFileSync(path.join(DATA_ROOT, 'data',
     await page.waitForTimeout(300);
     await page.reload(); await page.waitForTimeout(800);
     if (!(await page.locator('[data-service]').count())) errors.push('refresh on step 1 should stay on step 1');
+    // ---- Boundaries in the browser (Chad, Nov 16 second review) ----
+    await startFresh(page);
+    await page.click('[data-service="pickup_delivery"]'); await page.waitForTimeout(200);
+    await fill(page, 'items.0.description', 'Boundary piece'); await fill(page, 'items.0.w', 20); await fill(page, 'items.0.h', 30); await fill(page, 'items.0.d', 20); await fill(page, 'items.0.value', 1000);
+    await page.click('[data-itemtype="0"] button[data-v="sculpture"]'); await page.waitForTimeout(200);
+    const photoLine = async () => page.$eval('[data-photoreq="0"]', (el) => (el.hidden ? '' : el.textContent.trim())).catch(() => '');
+    await fill(page, 'items.0.weight', 500); await page.waitForTimeout(300);
+    if (await photoLine()) errors.push('browser boundary: 500 lb must not require a photo');
+    await fill(page, 'items.0.weight', 501); await page.waitForTimeout(300);
+    if (!/over 500 lb/.test(await photoLine())) errors.push('browser boundary: 501 lb must require a photo');
+    if (!(await isBlocked(page))) errors.push('browser boundary: 501 lb without a photo must block Continue');
+    await fill(page, 'items.0.weight', ''); await page.click('[data-weightunsure="0"]'); await page.waitForTimeout(400);
+    if ((await photoLine()) !== 'Add a photo so we can plan for the weight.') errors.push('browser boundary: unknown weight must require a photo with the weight helper line, got: ' + (await photoLine()));
+    if (!(await isBlocked(page))) errors.push('browser boundary: unknown weight without a photo must block Continue');
+    const b = await page.evaluate(() => {
+      const stop = (x) => CADAccess.normalize({ ...x });
+      const set = (x) => { Object.assign(S.dropoff, { accessMode: '', stairFlights: '', stairDir: '', stairs: 0, elevatorStairs: '', floor: '' }, x); CADAccess.normalize(S.dropoff); };
+      const gapsFor = (x) => { set(x); step = STEPS.indexOf('Where'); const m = missingFields(); step = 0; return m.map((g) => g.label).filter((l) => / — Delivery$/.test(l)).map((l) => l.replace(/ — Delivery$/, '')).filter((l) => /How do we get in|How many flights|Total number|Up or down|Tight turns|Photos of|^Floor$|Any stairs|Will everything fit/.test(l)); };
+      const out = {};
+      S.items = [{ ...S.items[0], type: 'painting', weightUnsure: false, weight: '', photos: ['/x.png'], framed: 'no', w: 20, h: 30, d: 2 }];
+      set({ accessMode: 'stairs', stairFlights: '1', stairDir: 'up' });
+      out.fit80 = pieceNeedsStairwellFit({ w: 80, h: 30, d: 2 }); out.fit81 = pieceNeedsStairwellFit({ w: 81, h: 30, d: 2 });
+      set({ accessMode: 'steps' });
+      out.steps150 = pieceNeedsStairwellFit({ w: 81, h: 30, d: 2, weight: 150 }); out.steps151 = pieceNeedsStairwellFit({ w: 81, h: 30, d: 2, weight: 151 });
+      out.big150 = CADAccess.firm([{ weight: 150 }]); out.big151 = CADAccess.firm([{ weight: 151 }]);
+      out.basement = gapsFor({ accessMode: 'elevator', floor: 'Basement', elevatorStairs: 'no' });
+      out.basementSummary = CADAccess.summary(stop({ accessMode: 'elevator', floor: 'Basement', elevatorStairs: 'no' })).join(' · ');
+      out.four = gapsFor({ accessMode: 'stairs', stairFlights: '4plus', stairs: '4', stairDir: 'up' });
+      out.three = gapsFor({ accessMode: 'stairs', stairFlights: '4plus', stairs: '3', stairDir: 'up' });
+      out.elevNone = gapsFor({ accessMode: 'elevator', floor: '30' });
+      out.elevNo = gapsFor({ accessMode: 'elevator', floor: '30', elevatorStairs: 'no' });
+      out.elevSteps = gapsFor({ accessMode: 'elevator', floor: '30', elevatorStairs: 'steps' });
+      out.elevStairs = gapsFor({ accessMode: 'elevator', floor: '30', elevatorStairs: 'stairs' });
+      out.elevStairsDone = gapsFor({ accessMode: 'elevator', floor: '30', elevatorStairs: 'stairs', stairFlights: '2', stairDir: 'up' });
+      out.elevNotSure = gapsFor({ accessMode: 'elevator', floor: '30', elevatorStairs: 'not_sure' }); out.elevNotSureFlag = S.dropoff.accessReview;
+      set({ accessMode: 'ground', fits: 'not_sure' }); out.fitNotSureFlag = S.dropoff.accessReview; out.fitNotSureGaps = gapsFor({ accessMode: 'ground', fits: 'not_sure' });
+      return out;
+    });
+    if (!b.elevNone.length) errors.push('browser boundary: the gap check returned nothing (test is not exercising validation)');
+    const want = { fit80: false, fit81: true, steps150: false, steps151: true, big150: false, big151: true, elevNotSureFlag: true, fitNotSureFlag: true };
+    for (const [k, v] of Object.entries(want)) if (b[k] !== v) errors.push(`browser boundary: ${k} should be ${v}, got ${b[k]}`);
+    const none = (k) => { if (b[k].length) errors.push(`browser boundary: ${k} should have no delivery gaps, got ${b[k].join(', ')}`); };
+    ['basement', 'four', 'elevNo', 'elevSteps', 'elevStairsDone', 'elevNotSure', 'fitNotSureGaps'].forEach(none);
+    if (!b.three.includes('Total number of flights')) errors.push('browser boundary: 3 in the 4+ field must be rejected: ' + b.three.join(', '));
+    if (!b.elevNone.includes('Any stairs on the way?')) errors.push('browser boundary: elevator stairs unanswered must be required: ' + b.elevNone.join(', '));
+    if (!b.elevStairs.includes('How many flights?') || !b.elevStairs.includes('Up or down?')) errors.push('browser boundary: elevator + Stairs must ask flights and direction: ' + b.elevStairs.join(', '));
+    if (b.basementSummary !== 'Elevator, floor Basement · No stairs on the way') errors.push('browser boundary: Basement summary: ' + b.basementSummary);
     // No crating, multiplier or internal zone codes anywhere in the app bundle shown to customers.
     const js = await (await fetch(BASE + '/app.js')).text();
     for (const bad of [/crating not sure/, /Custom crating/, /\+ crating quote/, /Quoted range \(1\.5×/, /Irvine hub/, /Monday is always an LA day/, /one tap/, /No approval step/, /Used for insurance/, /15-minute heads-up/, /\(650\) 460-4296/]) if (bad.test(js)) errors.push('app.js still contains ' + bad);
