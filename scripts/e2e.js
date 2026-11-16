@@ -331,7 +331,7 @@ const readOrders = () => JSON.parse(fs.readFileSync(path.join(ROOT, 'data', 'ord
   await startFresh(page);
   await page.click('[data-service="install_only"]'); await page.waitForTimeout(300);
   if (await page.locator('[data-itemtype="0"] button[data-v="furniture"]').count()) errors.push('install-only should not offer furniture');
-  await expect(/Need custom crating/, 'install-only should not offer crating', true);
+  await expect(/Need custom crating/, 'crating question must be gone', true);
   await fill(page, 'items.0.description', 'Large abstract on canvas'); await fill(page, 'items.0.w', 40); await fill(page, 'items.0.h', 50); await fill(page, 'items.0.d', 2); await frame(page, 0, 'no'); await fill(page, 'items.0.value', 8000);
   await next(page);
   if (await page.locator('[data-path="pickup.street"]').count()) errors.push('install-only must not ask a pickup address');
@@ -346,18 +346,7 @@ const readOrders = () => JSON.parse(fs.readFileSync(path.join(ROOT, 'data', 'ord
   await page.click('#nextBtn'); await page.waitForSelector('.check'); await page.waitForTimeout(400);
   await expect(/You’re booked for/, 'install-only should book instantly');
 
-  // ---- Order 8: custom crating → quote request, no instant pay ----
-  await startFresh(page);
-  await page.click('[data-service="pickup_delivery"]'); await page.waitForTimeout(300);
-  await fill(page, 'items.0.description', 'Fragile mixed-media piece'); await fill(page, 'items.0.w', 20); await fill(page, 'items.0.h', 24); await fill(page, 'items.0.d', 6); await fill(page, 'items.0.value', 3000); await frame(page, 0, 'yes', 'yes');
-  await page.click('label.toggle:has([data-path="crating"])'); await page.waitForTimeout(300);
-  await next(page); await laTrip(page, 'Lee Park', 'lee@example.com');
-  await expect(/data-wallet/, 'crating job must not show payment buttons', true);
-  await expect(/Custom crating/, 'crating quote should list crating as quoted by CAD');
-  if ((await page.textContent('#nextBtn')).trim() !== 'Request a quote') errors.push('crating button should read Request a quote');
-  await shot(page, '17-review-crating-quote');
-  await page.click('#nextBtn'); await page.waitForSelector('.check'); await page.waitForTimeout(400);
-  await expect(/Quote request received/, 'crating should end at Quote request received');
+  // Custom crating question removed (Chad): the shipping partner decides packing.
 
   const IMG = path.join(__dirname, 'sample-artwork.png');
   const toggleOn = (p) => page.click(`label.toggle:has([data-path="${p}"])`);
@@ -367,11 +356,11 @@ const readOrders = () => JSON.parse(fs.readFileSync(path.join(ROOT, 'data', 'ord
   await startFresh(page);
   await page.click('[data-service="crating_shipping"]'); await page.waitForTimeout(300);
   await expect(/Out-of-state shipping by air or ground/, 'shipping card subtitle missing');
-  await expect(/Within California we always provide white-glove delivery/, 'shipping card should say California jobs are always white-glove');
+  await expect(/If pickup and delivery are both in California, choose Pickup \+ Delivery above/, 'shipping card should send in-state jobs to Pickup + Delivery');
   await expect(/Custom quote/, 'shipping card should say Custom quote');
   await fill(page, 'items.0.description', 'Large abstract, oil on linen'); await frame(page, 0, 'no');
   await fill(page, 'items.0.w', 60); await fill(page, 'items.0.h', 48); await fill(page, 'items.0.d', 3); await fill(page, 'items.0.weight', 35); await fill(page, 'items.0.value', 20000);
-  await page.click('[data-seg="items.0.crateStatus"] [data-v="needs"]'); await page.waitForTimeout(200);
+  if (await page.$('[data-seg="items.0.crateStatus"]')) errors.push('shipping must not ask about packing or crating');
   await expect(/Need custom crating\?/, 'shipping should not show the generic crating toggle', true);
   await shot(page, '20-shipping-what');
   await next(page);
@@ -411,7 +400,7 @@ const readOrders = () => JSON.parse(fs.readFileSync(path.join(ROOT, 'data', 'ord
   await shot(page, '24-shipping-done', { full: false });
   const shipOrder = readOrders()[0];
   if (shipOrder.service !== 'crating_shipping' || shipOrder.status !== 'pending_approval' || shipOrder.schedule.date) errors.push('shipping order should be a pending crating_shipping quote with no route date');
-  if (shipOrder.dropoff.country !== 'France' || shipOrder.shipping.serviceLevel !== 'inside' || shipOrder.items[0].crateStatus !== 'needs' || shipOrder.declaredValueProtection || Number(shipOrder.items[0].value) !== 20000) errors.push('shipping order: country / service level / crating / value wrong, or protection set');
+  if (shipOrder.dropoff.country !== 'France' || shipOrder.shipping.serviceLevel !== 'inside' || shipOrder.declaredValueProtection || Number(shipOrder.items[0].value) !== 20000) errors.push('shipping order: country / service level / crating / value wrong, or protection set');
   const shipMail = fs.readdirSync(path.join(ROOT, 'outbox')).find((x) => x.startsWith(shipOrder.id) && x.includes('quote_received'));
   const shipHtml = shipMail ? fs.readFileSync(path.join(ROOT, 'outbox', shipMail), 'utf8') : '';
   if (!/Shipping quote request received/.test(shipHtml) || !/France/.test(shipHtml) || !/Inside delivery/.test(shipHtml)) errors.push('shipping quote email should be labeled shipping and list destination + service level');

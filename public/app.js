@@ -631,12 +631,11 @@ const shipExtras = (item, i) => {
     ${weightField(item, i, { required: true })}
     ${input(`${p}.value`, 'Declared value ($)', { ph: 'e.g. 12,000', attrs: 'inputmode="numeric"', req: true })}
     ${framingBlock(item, i)}
-    ${handlingBlock(item, i)}
-    <div class="field" style="margin-top:10px"><label class="f">Packing</label>${seg(`${p}.crateStatus`, [['needs', 'Needs packing'], ['crated', 'Already packed'], ['not_sure', 'Not sure']])}</div>`;
+    ${handlingBlock(item, i)}`;
 };
 const shipReady = () => S.items.every((it) => weightOk(it) && num(it.value) > 0 && dimsOk(it))
   && !!S.shipping.serviceLevel && !!(S.shipping.shipBy || S.shipping.flexible);
-const LEVELS = [['curbside', 'Curbside', 'Delivered to the curb or loading dock.'], ['inside', 'Inside delivery', 'Carried in and placed in the room of your choice.'], ['unpack', 'Inside + unpack & install', 'We unpack, place or hang, and check every piece.'], ['unpack_debris', 'Unpack, install + debris removal', 'Full white-glove: crate and packing removed.']];
+const LEVELS = [['curbside', 'Curbside', 'Delivered to the curb or loading dock.'], ['inside', 'Inside delivery', 'Carried in and placed in the room of your choice.'], ['unpack', 'Inside + unpack & install', 'We unpack, place or hang, and check every piece.'], ['unpack_debris', 'Unpack, install + debris removal', 'Full white-glove: all packing removed.']];
 const levelText = (v) => (LEVELS.find((l) => l[0] === v) || [, '—'])[1];
 const timingText = (s) => [s.shipBy && `Ship by ${shortDate(s.shipBy)}`, s.arriveBy && `Arrive by ${shortDate(s.arriveBy)}`, s.flexible ? 'Flexible' : ''].filter(Boolean).join(' · ') || 'Flexible';
 const destText = (a) => [a.street, [a.city, intlDest(a) ? '' : a.state].filter(Boolean).join(', '), a.zip, intlDest(a) ? a.country : ''].filter(Boolean).map(esc).join(', ');
@@ -696,7 +695,7 @@ const views = {
         <span class="ico">${ICONS[k]}</span><span class="txt"><b>${v.label}</b><span class="d">${DESC[k]}</span></span><span class="from">${base[k] == null ? 'Custom quote' : 'from ' + fmt(base[k])}</span></button>`).join('')}</div>
       ${S.service ? `<h2 id="pieces">The pieces</h2>${S.items.map(it).join('')}
         <button type="button" class="add" id="addItem">＋ Add another piece</button>
-        ${shipService() ? '<p class="mini">Tell us whether each piece is already crated or needs custom crating. Samantha prices packing, shipping and destination service together. Pieces may be crated or soft-packed as needed.</p>' : S.service === 'install_only' ? '' : `<div class="card" style="margin-top:12px">${toggle('crating', 'Need custom crating?', 'Built by our trusted partner. This turns your booking into a quick quote request; nothing is charged until CAD sets the price.', true, 'first')}</div>`}
+        
         <p class="mini">${shipService() ? 'Shipping is for out-of-state orders and is always custom quoted. Within California we always provide white-glove delivery. Nothing is charged until you approve Samantha’s quote.' : `${esc(CFG.notice || '')} Jobs with an address outside California are custom quoted as Shipping. Within California we always provide white-glove delivery.`}</p>` : ''}`;
   },
 
