@@ -310,8 +310,12 @@ async function run(BASE, errors, { dataRoot = process.env.STORAGE_DIR || ROOT, a
       const ql = mix.j.quote.lines || [];
       const dl = ql.find((l) => /^Required declared value protection: /.test(l.label));
       if (!dl || dl.label !== 'Required declared value protection: 1.5% of $170,000' || dl.amount !== 2550) errors.push('eligible-only protection: 2 × $10,000 + 3 × $50,000 = $170,000 → $2,550 (the $60,000 piece excluded): ' + JSON.stringify(dl));
-      const hl = ql.find((l) => /^High-value handling/.test(l.label));
-      if (!hl || hl.amount !== 87.5 || !/High-value handling \+100%/.test(hl.label)) errors.push('the $60,000 piece should pay high-value handling +100% of its moving price ($87.50): ' + JSON.stringify(hl));
+      const hl = ql.find((l) => /High-value handling/i.test(l.label));
+      if (hl) errors.push('customer quote must not show a high-value handling line: ' + JSON.stringify(hl));
+      const hv = (mix.j.quote.highValueItems || [])[0];
+      if (!hv || hv.perPiece !== 87.5 || hv.qty !== 1) errors.push('admin should still record +100% = $87.50 on the $60,000 piece: ' + JSON.stringify(mix.j.quote.highValueItems));
+      const del = ql.find((l) => /^Painting delivery/.test(l.label));
+      if (!del || del.amount !== 612.5) errors.push('the $87.50 markup should be folded into Painting delivery × 6 ($612.50): ' + JSON.stringify(del));
       await post(`/api/orders/${mix.j.id}/pay`, { method: 'card', card: '4242424242424242' });
       const m = text(mails(mix.j.id, 'confirmation')[0] || '');
       if (!m.includes('Required declared value protection: $2,550 (1.5% of $170,000 in eligible pieces).')) errors.push('eligible-only protection: email line wrong: ' + (m.match(/Required declared value protection[^.]{0,120}\./) || [''])[0]);
