@@ -27,7 +27,7 @@ module.exports = {
   pricing: {
     currency: 'usd',
     source: 'CAD 2025 statewide pickup & delivery rate cards on Notes/Info',
-    exampleRatesNotice: 'Final price is confirmed by CAD.',
+    exampleRatesNotice: 'Prices are from CAD’s published rate card.',
     // Painting delivery / install by piece count (non-member). After 7 pieces, +$50 delivery / +$50 install each.
     // Member column is 25% off, rounded to the nearest $5 as printed on the card.
     paintingDelivery: { nonMember: [200, 300, 375, 425, 475, 525, 575], member: [150, 225, 280, 320, 355, 395, 430], extra: 50 },
@@ -267,7 +267,27 @@ module.exports = {
     leadTimeDays: 2,
     showDays: 12,
     rushEnabled: true,
-    blackoutDates: ['2026-11-26', '2026-11-27', '2026-12-24', '2026-12-25', '2027-01-01'],
+    // No regular route days on federal and major holidays, plus Thanksgiving Friday, Christmas Eve and New Year's Eve.
+    // Weekend holidays also block the observed weekday. Extend this list each year (covers bookings out to the end of 2027).
+    blackoutDates: [
+      // 2026
+      '2026-11-26', '2026-11-27', '2026-12-24', '2026-12-25', '2026-12-31',
+      // 2027
+      '2027-01-01', // New Year's Day
+      '2027-01-18', // Martin Luther King Jr. Day
+      '2027-02-15', // Presidents' Day
+      '2027-03-28', // Easter Sunday
+      '2027-05-31', // Memorial Day
+      '2027-06-18', '2027-06-19', // Juneteenth (Sat) and observed Fri
+      '2027-07-04', '2027-07-05', // Independence Day (Sun) and observed Mon
+      '2027-09-06', // Labor Day
+      '2027-10-11', // Columbus / Indigenous Peoples' Day
+      '2027-11-11', // Veterans Day
+      '2027-11-25', '2027-11-26', // Thanksgiving and the Friday after
+      '2027-12-24', '2027-12-25', // Christmas Eve and Christmas Day (Sat)
+      '2027-12-31', // New Year's Eve (also New Year's Day 2028 observed)
+      '2028-01-01', // New Year's Day
+    ],
     // Time-of-day guidance (CAD scheduling practice):
     // Routes are built from midday outward. Jobs typically run 10am–evening, with
     // preferred starts 11am–1pm. 8–9am is only used on packed days or for

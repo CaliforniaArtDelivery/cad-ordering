@@ -1,6 +1,6 @@
 # CAD online ordering — flow summary (4 steps)
 
-Test URL: https://finite-inspired-court.liveapps.dev · Admin (Samantha): /admin?key=cad-admin
+Test URL: https://finite-inspired-court.liveapps.dev · Admin (Samantha): /admin?key=<ADMIN_KEY>
 Test payments only: card 4242 4242 4242 4242 · ACH routing 110000000 / account 000123456789 · Apple Pay / Google Pay buttons are mock in test mode.
 Orders go only to `data/orders.json` + `data/schedule-2026.csv` (never the real CAD SCHEDULE sheet). Emails are written to `outbox/` (never sent).
 

@@ -11,7 +11,14 @@ const email = require('./lib/email');
 
 const PORT = process.env.PORT || 3000;
 const BASE_URL = process.env.BASE_URL || `http://localhost:${PORT}`;
-const ADMIN_KEY = process.env.ADMIN_KEY || 'cad-admin';   // prototype only
+// Admin access needs a strong ADMIN_KEY from the environment. No default: unset, short, or the old public
+// 'cad-admin' value turns admin off entirely (orders, CSV, approvals, outbox).
+const ADMIN_KEY = String(process.env.ADMIN_KEY || '');
+const ADMIN_ON = ADMIN_KEY.length >= 16 && ADMIN_KEY !== 'cad-admin';
+if (!ADMIN_ON) console.warn('Admin is OFF: set ADMIN_KEY to a long random value (16+ characters) to turn it on.');
+// TEST_MODE=1 allows the mock card / ACH / Apple Pay / Google Pay path (no real money). Without it, and without
+// Stripe, payments are refused instead of silently confirming jobs.
+const TEST_MODE = /^(1|true|yes)$/i.test(String(process.env.TEST_MODE || ''));
 const storage = require('./lib/storage');
 const { TYPES, framingErrors, itemLine, isHungItem, routeDecorMirror } = require('./lib/itemtypes');
 const { lookupMember, resolveMember } = require('./lib/members');
@@ -24,7 +31,7 @@ let stripe = null;
 const key = process.env.STRIPE_SECRET_KEY || '';
 if (key.startsWith('sk_test_')) stripe = require('stripe')(key);
 else if (key) console.warn('STRIPE_SECRET_KEY is not a test key (sk_test_…). Refusing; using mock payments.');
-console.log(stripe ? 'Payments: Stripe Checkout (TEST mode) — card + ACH' : 'Payments: MOCK (no STRIPE_SECRET_KEY) — card + ACH');
+console.log(stripe ? 'Payments: Stripe Checkout (TEST mode) — card + ACH' : TEST_MODE ? 'Payments: MOCK (TEST_MODE=1) — card + ACH' : 'Payments: OFF (no Stripe key and TEST_MODE is not set)');
 
 const load = () => (fs.existsSync(ORDERS) ? JSON.parse(fs.readFileSync(ORDERS, 'utf8')) : []);
 const save = (orders) => fs.writeFileSync(ORDERS, JSON.stringify(orders, null, 2));
@@ -71,7 +78,7 @@ app.get('/api/config', (_, res) => res.json({
     valuationRate: config.pricing.valuation.rate,
     membershipMonthly: config.pricing.membership.monthly,
   },
-  stripe: !!stripe, notice: config.pricing.exampleRatesNotice,
+  stripe: !!stripe, testMode: !stripe && TEST_MODE, notice: config.pricing.exampleRatesNotice,
 }));
 app.post('/api/upload', upload.array('photos', 10), (req, res) => res.json({ files: (req.files || []).map((f) => `/uploads/${f.filename}`) }));
 app.post('/api/quote', (req, res) => res.json(quote(req.body)));
@@ -153,26 +160,87 @@ function validate(o) {
     if ((o.items || []).some((it) => it.type !== 'custom' && !(numVal(it.value) > 0))) errs.push('declared value for every piece');
     const twoDates = SERVICES[o.service]?.needsPickup && SERVICES[o.service]?.needsDropoff;
     if (twoDates && (!o.schedule?.deliveryDate || o.schedule.deliveryDate < o.schedule.date)) errs.push('delivery date');
+    else errs.push(...scheduleErrors(o));
+    // Same item rules as the order form (public/app.js missingFields).
+    const items = o.items || [];
+    if (items.some((it) => !(numVal(it.qty) > 0))) errs.push('quantity for every piece');
+    const needsDims = (it) => !['custom', 'furniture'].includes(it.type || 'painting');
+    if (items.some((it) => needsDims(it) && !['w', 'h', 'd'].every((k) => numVal(it[k]) > 0))) errs.push('size in inches (W × H × D) for every piece');
+    if (items.some((it) => ['sculpture', 'other'].includes(it.type) && !(it.weightUnsure || numVal(it.weight) > 0))) errs.push('weight (or “Not sure”) for sculpture and other pieces');
+  }
+  // On-site contact role at every stop, worded for the person on site (it may or may not be the booker).
+  const stops = [];
+  if (SERVICES[o.service]?.needsPickup) stops.push(['pickup', o.pickup]);
+  if (SERVICES[o.service]?.needsDropoff) stops.push([SERVICES[o.service]?.install && !SERVICES[o.service]?.needsPickup ? 'install' : (SERVICES[o.service]?.shipping ? 'destination' : 'delivery'), o.dropoff]);
+  stops.forEach(([name, a]) => {
+    if (!a || !a.street) return;
+    if (!String(a.contactRole || '').trim()) errs.push(`${name} contact role`);
+    else if (a.contactRole === 'Other' && !String(a.contactRoleOther || '').trim()) errs.push(`${name} contact role (describe it)`);
+  });
+  if (o.contact && o.contact.email && !/\S+@\S+\.\S+/.test(o.contact.email)) errs.push('a valid email address');
+  if (o.contact && String(o.contact.phone || '').replace(/\D/g, '').length < 7) errs.push('your mobile number');
+  return errs;
+}
+
+// The date must be one the booking form could offer: a route day for that address (or a rush weekday when rush is
+// chosen), not a holiday, not in the past, not inside the lead time. Delivery must be a route day for the delivery
+// address on or after pickup. The browser enforces this too; the server is the one that counts.
+function scheduleErrors(o) {
+  const errs = [];
+  const svc = SERVICES[o.service] || {};
+  const d = String((o.schedule && o.schedule.date) || '');
+  if (!d) return [];
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return ['a date'];
+  const blackout = config.scheduling.blackoutDates || [];
+  if (d < sched.ptYmd()) return ['a date in the future (that date has passed)'];
+  if (blackout.includes(d)) return ['another date (we don’t run routes on that holiday)'];
+  const first = svc.needsPickup ? o.pickup : o.dropoff;
+  const addr = first && (first.zip || first.city) ? first : o.dropoff;
+  const ok = o.rush
+    ? sched.rushDays(addr, new Date(), 7, o).some((x) => x.date === d) || sched.availableDays(addr, { order: o, count: 400 }).some((x) => x.date === d)
+    : sched.availableDays(addr, { order: o, count: 400 }).some((x) => x.date === d);
+  if (!ok) errs.push('an available route day for that address (please go back and pick a date from the list)');
+  const dd = String((o.schedule && o.schedule.deliveryDate) || '');
+  if (ok && svc.needsPickup && svc.needsDropoff && dd) {
+    if (blackout.includes(dd)) errs.push('another delivery date (we don’t run routes on that holiday)');
+    else if (!sched.availableDays(o.dropoff, { from: sched.utcDate(d), count: 400, order: o, leadTime: 0 }).some((x) => x.date === dd)) errs.push('an available delivery day for the delivery address');
   }
   return errs;
 }
+
+// Idempotency: the same order body twice within a day (double tap, retry, refresh after paying) returns the
+// order that already exists instead of creating a second job or a second payment.
+const DEDUPE_MS = 24 * 3600 * 1000;
+const fingerprint = (b) => crypto.createHash('sha256').update(JSON.stringify(b)).digest('hex');
+const newOrderId = (all) => {
+  let id;
+  do { id = 'CAD-' + Date.now().toString(36).toUpperCase().slice(-6) + (id ? crypto.randomBytes(1).toString('hex').toUpperCase() : ''); } while (all.some((o) => o.id === id));
+  return id;
+};
+const payerCopy = (o) => (o.payer === 'other' && o.payerOther && /\S+@\S+\.\S+/.test(o.payerOther.email || '')
+  && String(o.payerOther.email).trim().toLowerCase() !== String((o.contact && o.contact.email) || '').trim().toLowerCase()
+  ? { to: String(o.payerOther.email).trim(), name: o.payerOther.name || '' } : null);
 
 app.post('/api/orders', (req, res) => {
   const b = req.body;
   const errs = validate(b);
   if (errs.length) return res.status(400).json({ error: 'Missing: ' + errs.join(', ') });
-  const special = quote(b).paymentPlan === 'quote'; // rush, dedicated, crating, shipping, or anything the rate cards don't cover
+  const fp = fingerprint(b);
+  const dup = load().find((x) => x.fingerprint === fp && Date.now() - Date.parse(x.createdAt) < DEDUPE_MS);
+  if (dup) return res.json({ id: dup.id, quote: dup.quote, status: dup.status, order: dup, duplicate: true });
+  const special = quote(b).paymentPlan === 'quote'; // rush, dedicated, shipping, or anything the rate cards don't cover
   const outOfState = !SERVICES[b.service].shipping && isOutOfState(b);
   const shipping = !!SERVICES[b.service].shipping || outOfState;
   const svcKey = shipping ? 'crating_shipping' : b.service;
   const order = {
-    id: 'CAD-' + Date.now().toString(36).toUpperCase().slice(-6),
+    id: newOrderId(load()),
     createdAt: new Date().toISOString(),
+    fingerprint: fp,
     status: special ? 'pending_approval' : 'awaiting_payment',
     service: svcKey, serviceLabel: SERVICES[svcKey].label,
     ...(outOfState ? { requestedService: b.service, outOfState: true } : {}),
     ...(shipping ? { shipping: b.shipping || {} } : {}),
-    crating: !!b.crating, rush: !!b.rush, dedicated: !!b.dedicated,
+    crating: false, rush: !!b.rush, dedicated: !!b.dedicated,
     member: !!resolveMember(b),
     memberCode: (resolveMember(b) || {}).code || '',
     memberCompany: (resolveMember(b) || {}).company || '',
@@ -193,6 +261,8 @@ app.post('/api/orders', (req, res) => {
   if (special) {
     const sent = email.send('quote_received', order);
     update(order.id, (x) => x.emails.push(sent));
+    const pc = payerCopy(order);
+    if (pc) { const s2 = email.send('payer_quote', order, pc); update(order.id, (x) => x.emails.push(s2)); }
   }
   res.json({ id: order.id, quote: order.quote, status: order.status, order: findOrder(order.id) });
 });
@@ -209,6 +279,8 @@ function finalize(id, payment) {
   if (!o.emails.find((e) => e.kind === 'confirmation')) {
     const sent = email.send('confirmation', o);
     update(id, (x) => x.emails.push(sent));
+    const pc = payerCopy(o);
+    if (pc) { const s2 = email.send('payer_receipt', findOrder(id), pc); update(id, (x) => x.emails.push(s2)); }
     schedule.appendOrder(findOrder(id));
   }
   return findOrder(id);
@@ -269,7 +341,8 @@ app.post('/api/orders/:id/pay', async (req, res) => {
     return res.json({ redirect: session.url });
   }
 
-  // MOCK payment (no Stripe key): card or ACH test details.
+  // MOCK payment (no Stripe key): card or ACH test details. Only with TEST_MODE=1.
+  if (!TEST_MODE) return res.status(503).json({ error: 'Online payment isn’t available right now. Please call us and we’ll take payment by phone.' });
   const payMethod = method === 'ach' || method === 'us_bank_account' || method === 'mock_ach' ? 'ach' : 'card';
   if (payMethod === 'ach') {
     const routing = String(req.body.routing || '').replace(/\D/g, '');
@@ -352,7 +425,11 @@ app.get('/api/orders/:id/verify', async (req, res) => {
 });
 
 // ---------- Admin (prototype: simple shared key) ----------
-const admin = (req, res, next) => ((req.query.key || req.get('x-admin-key')) === ADMIN_KEY ? next() : res.status(401).json({ error: 'admin key required' }));
+const adminKeyOk = (k) => ADMIN_ON && typeof k === 'string' && k.length === ADMIN_KEY.length && crypto.timingSafeEqual(Buffer.from(k), Buffer.from(ADMIN_KEY));
+const admin = (req, res, next) => {
+  if (!ADMIN_ON) return res.status(503).json({ error: 'Admin is turned off on this server (ADMIN_KEY is not set).' });
+  return adminKeyOk(req.query.key || req.get('x-admin-key')) ? next() : res.status(401).json({ error: 'admin key required' });
+};
 app.get('/api/admin/orders', admin, (_, res) => res.json({ orders: load().map((o) => ({ ...o, itemLines: (o.items || []).map(itemLine), ...(o.service === 'crating_shipping' ? { shippingLines: require('./lib/shiptext').lines(o) } : {}) })), columns: schedule.COLUMNS, letters: schedule.LETTERS }));
 app.get('/api/admin/schedule.csv', admin, (_, res) => {
   const rows = [schedule.COLUMNS, ...load().filter((o) => o.status === 'confirmed').flatMap(schedule.rowsForOrder)];
@@ -387,11 +464,13 @@ app.post('/api/admin/orders/:id/approve', admin, (req, res) => {
   });
   const sent = email.send('quote_approved', findOrder(o.id));
   update(o.id, (x) => x.emails.push(sent));
+  const pc = payerCopy(findOrder(o.id));
+  if (pc) { const s2 = email.send('quote_approved', findOrder(o.id), pc); update(o.id, (x) => x.emails.push(s2)); }
   res.json({ order: findOrder(o.id), paymentUrl: email.payUrl(updated), email: sent });
 });
 
-app.use('/outbox', (req, res, next) => (req.query.key === ADMIN_KEY ? next() : res.status(401).end()), express.static(storage.dir('outbox')));
+app.use('/outbox', (req, res, next) => (adminKeyOk(req.query.key) ? next() : res.status(401).end()), express.static(storage.dir('outbox')));
 app.get('/admin', (_, res) => res.sendFile(path.join(__dirname, 'public', 'admin.html')));
 
 app.use((err, req, res, next) => { console.error(err); res.status(500).json({ error: err.message }); });
-app.listen(PORT, () => console.log(`CAD ordering prototype → ${BASE_URL}  (admin: ${BASE_URL}/admin?key=${ADMIN_KEY})`));
+app.listen(PORT, () => console.log(`CAD ordering prototype → ${BASE_URL}  (admin: ${ADMIN_ON ? BASE_URL + '/admin?key=<ADMIN_KEY>' : 'off'})`));

@@ -5,10 +5,10 @@ Mobile-first, 4-step booking flow (What are we moving? → Where are we going? �
 ## Run
 ```bash
 npm install
-npm start              # http://localhost:3000   admin: http://localhost:3000/admin?key=cad-admin
+npm start              # http://localhost:3000   admin: http://localhost:3000/admin?key=<your ADMIN_KEY>
 npm run e2e            # headless end-to-end test (needs Playwright, a dev dependency), writes screenshots/
 ```
-Env vars (all optional): `PORT`, `BASE_URL`, `ADMIN_KEY` (default `cad-admin`), `STRIPE_SECRET_KEY` (**sk_test_ only**, live keys are refused; without it a mock card/ACH step is shown).
+Env vars: `PORT`, `BASE_URL`, `ADMIN_KEY` (required for admin: a long random value, 16+ characters; there is no default and admin stays off without it), `TEST_MODE=1` (allows the mock card / ACH / wallet payment step; without it and without Stripe, payments are refused), `STRIPE_SECRET_KEY` (**sk_test_ only**, live keys are refused).
 
 ## Pricing
 - Official 2025 published rate cards (paintings by quantity, sculpture by weight, furniture/décor by type and size).
@@ -30,7 +30,7 @@ Every booking captures on-site details in the flow — no chasing after the fact
 Standard orders auto-confirm at checkout as soon as the customer pays (including ACH). There is no human confirmation step. Only rush and dedicated-trip quotes go to Samantha to set a price before payment.
 
 ## Rush and dedicated trips
-These are a “request a quote” path, not auto-confirmed. The customer sees an estimated range of 1.5× to 2× the regular rate. The order is saved as pending CAD approval, with no payment until an admin sets a final price on `/admin?key=cad-admin` and a payment-link email is written to `outbox/` (never sent). Dedicated trips must not displace existing scheduled jobs.
+These are a “request a quote” path, not auto-confirmed. The customer sees an estimated range of 1.5× to 2× the regular rate. The order is saved as pending CAD approval, with no payment until an admin sets a final price on `/admin?key=<ADMIN_KEY>` and a payment-link email is written to `outbox/` (never sent). Dedicated trips must not displace existing scheduled jobs.
 
 ## Files
 - `config.js` — 2025 published rates (from the Notes/Info tab of the CAD SCHEDULE sheet), payment policy, route-week anchor (Nov 16 = NorCal), zone-based route days, blackout dates, time windows.

@@ -16,7 +16,9 @@ services:
         value: "22"
       - key: NODE_ENV
         value: production
-      - key: ADMIN_KEY
-        value: cad-admin
+      - key: ADMIN_KEY                 # set in the Render dashboard; never committed. Admin is off without it.
+        sync: false
+      - key: TEST_MODE                 # test deployment: mock payments only (no real money)
+        value: "1"
       - key: BASE_URL                  # used in payment links inside outbox emails; update if Render assigns another name
         value: https://cad-ordering-test.onrender.com
