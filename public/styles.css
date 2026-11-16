@@ -11,6 +11,8 @@
 html{-webkit-text-size-adjust:100%;text-size-adjust:100%;background:var(--bg);
   /* keyboard focus / scrollIntoView never lands a field under the bottom dock */
   scroll-padding-top:16px;scroll-padding-bottom:calc(var(--dock-h) + 16px)}
+/* Fields scrolled into view (focus, error jumps) stop above the fixed estimate bar. */
+input,select,textarea,button,.field{scroll-margin-bottom:calc(var(--dock-h) + 16px)}
 body{margin:0;min-height:100vh;min-height:100dvh;background:var(--bg);color:var(--ink);overflow-x:clip;
   font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Inter","Helvetica Neue",Arial,sans-serif;-webkit-font-smoothing:antialiased;-webkit-tap-highlight-color:transparent}
 button{-webkit-tap-highlight-color:transparent;touch-action:manipulation}

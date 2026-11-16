@@ -26,7 +26,10 @@
   const MODE_KEYS = MODES.map(([k]) => k);
   const REVIEW_NOTE = 'We’ll confirm access with you before the job.';
   // Shown next to the price whenever access is flagged for review (mode, fit or elevator stairs = Not sure).
-  const PRICE_NOTE = 'Access to be confirmed. If stairs or a tricky carry add a fee, we’ll confirm it with you before charging anything.';
+  const PRICE_NOTE = 'Access isn’t confirmed yet. If it needs an added fee, we’ll go over it with you and get your OK before charging it.';
+  // The customer still pays the base amount now; these labels replace "Total" and "Due today · paid in full at booking".
+  const TBC_TOTAL = 'Estimated total (before access check)';
+  const TBC_DUE = 'Due today (base price)';
   const wholeFlights = (v) => { const n = num(v); return has(v) && Number.isInteger(n) && n >= 4 && /^\s*\d+\s*$/.test(String(v)); };
 
   const num = (s) => { const n = Number(String(s == null ? '' : s).replace(/,/g, '')); return Number.isFinite(n) ? n : 0; };
@@ -173,5 +176,5 @@
     return a.accessMode === 'not_sure' || a.fits === 'not_sure' || (a.accessMode === 'elevator' && a.elevatorStairs === 'not_sure');
   }
 
-  return { MODES, FLIGHTS, DIRS, YNS, DOORWAYS, FITS, ELEV_STAIRS, ELEV_STEPS, MODE_KEYS, REVIEW_NOTE, PRICE_NOTE, wholeFlights, HEAVY_LB, LONG_IN, isBigPiece, firm, normalize, gaps, summary, stairPhotosNeeded, doorPhotosNeeded, usesStairs, fitUnsure, needsReview, plural };
+  return { MODES, FLIGHTS, DIRS, YNS, DOORWAYS, FITS, ELEV_STAIRS, ELEV_STEPS, MODE_KEYS, REVIEW_NOTE, PRICE_NOTE, TBC_TOTAL, TBC_DUE, wholeFlights, HEAVY_LB, LONG_IN, isBigPiece, firm, normalize, gaps, summary, stairPhotosNeeded, doorPhotosNeeded, usesStairs, fitUnsure, needsReview, plural };
 });

@@ -47,6 +47,15 @@ app.use(express.json({ limit: '2mb' }));
 app.use((req, _res, next) => {
   const b = req.body;
   if (b && typeof b === 'object') ['pickup', 'dropoff'].forEach((k) => { if (b[k] && typeof b[k] === 'object') ACCESS.normalize(b[k]); });
+  // "Same as me" contact: the role is the booker's own "I am a…" answer. Any role the client sent is ignored, and with
+  // no "I am a…" answer the role stays empty so validation refuses it (no silent default).
+  if (b && typeof b === 'object') ['pickup', 'dropoff'].forEach((k) => {
+    const a = b[k];
+    if (!a || typeof a !== 'object' || !a.sameAsMe) return;
+    a.contactRole = String((b.contact && b.contact.clientType) || '').trim().slice(0, 60);
+    a.contactRoleOther = '';
+    a.contactRoleFrom = 'booker';
+  });
   next();
 });
 app.use(express.static(path.join(__dirname, 'public')));
@@ -175,8 +184,9 @@ function validate(o) {
   if (SERVICES[o.service]?.needsDropoff) stops.push([SERVICES[o.service]?.install && !SERVICES[o.service]?.needsPickup ? 'install' : (SERVICES[o.service]?.shipping ? 'destination' : 'delivery'), o.dropoff]);
   stops.forEach(([name, a]) => {
     if (!a || !a.street) return;
-    if (!String(a.contactRole || '').trim()) errs.push(`${name} contact role`);
-    else if (a.contactRole === 'Other' && !String(a.contactRoleOther || '').trim()) errs.push(`${name} contact role (describe it)`);
+    if (a.sameAsMe && !String(a.contactRole || '').trim()) errs.push(`your “I am a…” answer (used as the ${name} contact role)`);
+    else if (!String(a.contactRole || '').trim()) errs.push(`${name} contact role`);
+    else if (!a.sameAsMe && a.contactRole === 'Other' && !String(a.contactRoleOther || '').trim()) errs.push(`${name} contact role (describe it)`);
   });
   if (o.contact && o.contact.email && !/\S+@\S+\.\S+/.test(o.contact.email)) errs.push('a valid email address');
   if (o.contact && String(o.contact.phone || '').replace(/\D/g, '').length < 7) errs.push('your mobile number');

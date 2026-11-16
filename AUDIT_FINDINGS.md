@@ -502,6 +502,14 @@ Commits (local, not pushed): `95cd8a6` phase 1 · `6fd85e3` access fixes · `3d7
 - Photos: over 500 lb (501+) still required; unknown weight now required too. Fit Not sure keeps photos optional.
 - Boundary tests in the browser (e2e) and on the server (audit-regression §8): 80"/81", 150/151 lb, 500/501 lb, unknown weight, floor “Basement”, 4 flights accepted, 3 (and 4.5) rejected, and every elevator stairs answer.
 
+## Dot round 3 (live build NO, applied Nov 16, 2026)
+
+1. **Not sure → base price now.** When any stop is flagged for access review, the review, payment page, Done page and confirmation email show the note “Access isn’t confirmed yet. If it needs an added fee, we’ll go over it with you and get your OK before charging it.”, “Estimated total (before access check)” instead of “Total”, and “Due today (base price)” instead of “Due today · paid in full at booking” (50/50: balance marked “before access check”; email: “Paid today (base price)”). The bottom bar stays “Estimate · access to confirm”, including on the payment step. No “paid in full” or “final” wording appears in that branch. Normal orders are unchanged.
+2. **Same as me hides the contact role.** The role field is shown only when the contact is someone else (it comes back if Same as me is turned off or the name/mobile is edited). The browser sends no role for a Same as me stop; the server sets the role from the booker’s “I am a…” answer, ignores any role the client sent, and refuses the order if “I am a…” is blank (no silent default).
+3. **Narrow screens.** Fields carry `scroll-margin-bottom` equal to the measured dock height, and a focus handler (plus `visualViewport` resize for the on-screen keyboard) scrolls the focused field above the dock. e2e checks every field at 430px and the last field at the bottom of the page.
+
+Tests: e2e (review wording in both branches, dock label, Same as me role hidden/shown, payload, 430px focus) and audit-regression §9–10 (email wording in both branches, server role from “I am a…”, client role ignored, blank “I am a…” refused).
+
 ## Probe artifacts
 - /tmp/aud/probe.js, probe2.js, probe3.js, probe4.js, with output in /tmp/aud/quotes.txt.
 - Test orders and emails are in /tmp/auditstore (not in the repo).

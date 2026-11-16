@@ -256,6 +256,30 @@ async function run(BASE, errors, { dataRoot = process.env.STORAGE_DIR || ROOT, a
       if (/final price/i.test(m)) errors.push('boundary: access-review email must not call the price final');
     }
     await no('tight fit without a photo', order({}, { fits: 'tight' }), /photos of the tight spot/);
+    // ---- 9. Dot round 3: "Not sure" pays the base price now; wording on the confirmation email ----
+    if (fns2.j.id) {
+      const m = text(mails(fns2.j.id, 'confirmation')[0] || '');
+      for (const want of [A.PRICE_NOTE, A.TBC_TOTAL, 'Paid today (base price)']) if (!m.includes(want)) errors.push(`round 3: access-review confirmation email must say "${want}"`);
+      if (/paid in full/i.test(m) || / Total \$/.test(m) || /\bfinal\b/i.test(m)) errors.push('round 3: access-review email must not say paid in full, a bare Total, or final');
+    }
+    if (A.PRICE_NOTE !== 'Access isn’t confirmed yet. If it needs an added fee, we’ll go over it with you and get your OK before charging it.') errors.push('round 3: price note text changed: ' + A.PRICE_NOTE);
+    const plain = await ok('normal branch order', order({}, {}));
+    if (plain.j.id) {
+      if (plain.j.order && plain.j.order.accessReview) errors.push('round 3: plain order must not be flagged for access review');
+      await post(`/api/orders/${plain.j.id}/pay`, { method: 'card', card: '4242424242424242' });
+      const m = text(mails(plain.j.id, 'confirmation')[0] || '');
+      if (!/Paid in full at booking/.test(m) || !/ Total \$/.test(m)) errors.push('round 3: normal branch email must keep "Total" and "Paid in full at booking"');
+      if (m.includes(A.PRICE_NOTE) || m.includes(A.TBC_TOTAL) || /base price/.test(m)) errors.push('round 3: normal branch email must not carry access-check wording');
+    }
+    // ---- 10. Dot round 3: "Same as me" contact uses the booker's own "I am a…" role ----
+    const meBase = (dropoff, contact) => base({ items: [item({ description: tag() })], dropoff: addr({ contactName: 'Bea Buyer', contactPhone: '3105550100', contactRole: '', sameAsMe: true, ...dropoff }), contact: { name: 'Bea Buyer', email: 'buyer@example.com', phone: '3105550100', ...contact } });
+    const same1 = await ok('Same as me with an "I am a…" role', post('/api/orders', meBase({}, { clientType: 'Gallery' })));
+    if (same1.j.order && same1.j.order.dropoff.contactRole !== 'Gallery') errors.push('round 3: Same as me contact role should be the booker’s "I am a…" (Gallery), got ' + same1.j.order.dropoff.contactRole);
+    const same2 = await ok('Same as me ignores a client-sent role', post('/api/orders', meBase({ contactRole: 'Homeowner' }, { clientType: 'Interior designer' })));
+    if (same2.j.order && same2.j.order.dropoff.contactRole !== 'Interior designer') errors.push('round 3: Same as me must ignore a client-sent role, got ' + same2.j.order.dropoff.contactRole);
+    await no('Same as me without an "I am a…" role (no silent default)', post('/api/orders', meBase({ contactRole: 'Homeowner' }, {})), /I am a/);
+    await no('someone else without a role', order({}, { contactRole: '' }), /delivery contact role/);
+    if (same1.j.id) { const m = text(mails(same1.j.id)[0] || ''); if (/Homeowner/.test(m)) errors.push('round 3: Same as me email must not show a default role'); }
   }
   return errors;
 }

@@ -82,8 +82,8 @@ const fillSite = async (page, key, { street, city, zip, business, contactName, c
     await page.selectOption(`[data-path="${key}.contactRole"]`, role || 'Homeowner');
     if ((role || 'Homeowner') === 'Other' && roleOther) await fill(page, `${key}.contactRoleOther`, roleOther);
   }
-  // "Same as me" copies name + mobile only; the role is never guessed (audit P1-1), so pick one.
-  if (same && await page.$(`[data-path="${key}.contactRole"]`)) await page.selectOption(`[data-path="${key}.contactRole"]`, role || 'Homeowner');
+  // "Same as me": the role field is hidden; the booker's own "I am a…" is used (Dot round 3).
+  if (same && await page.locator(`[data-path="${key}.contactRole"]`).isVisible().catch(() => false)) pickDayErrors.push(`${key}: role field must be hidden for Same as me`);
   await setAccess(page, key, access || {});
   if (hours) await fill(page, `${key}.hours`, hours);
   if (notes) await fill(page, `${key}.notes`, notes);
@@ -252,6 +252,12 @@ const readOrders = () => JSON.parse(fs.readFileSync(path.join(DATA_ROOT, 'data',
   await expect(/Standard eye level \(59" center\)/, 'review missing default 59" center height');
   await expect(/Loading zone only/, 'review missing parking restriction');
   if (!/^Pay \$/.test(await page.textContent('#nextBtn'))) errors.push('review button should be "Pay $…"');
+  // Order 1 has pickup fit = Not sure (access review) on a 50/50 job: base-price wording (Dot round 3).
+  { const pc = (await page.textContent('.price-card').catch(() => '')) || '';
+    for (const w of ['Estimated total (before access check)', 'Due today (base price)', '(before access check)', 'Access isn’t confirmed yet.']) if (!pc.includes(w)) errors.push('access review 50/50: price card missing "' + w + '"');
+    if (/paid in full|final/i.test(pc)) errors.push('access review 50/50: price card must not say paid in full / final'); }
+  await expect(/Jordan Lee · [^<]*· Collector/, 'review: Same as me contact should use the booker’s own role (Collector)');
+  if (await page.evaluate(() => payload().dropoff.contactRole)) errors.push('Same as me must not send a contact role from the browser');
   await checkPricesNoWrap('order 1 review');
   await shot(page, '04-review-pay');
   await page.click('#nextBtn'); await page.waitForSelector('.check'); await page.waitForTimeout(700);
@@ -281,6 +287,11 @@ const readOrders = () => JSON.parse(fs.readFileSync(path.join(DATA_ROOT, 'data',
   await expect(/Declared value protection \(1\.5%\) on \$135,000/, 'mandatory protection line missing (pieces at $50K or less)');
   await expect(/split 50\/50/i, 'over-$3k review missing 50/50 split');
   await expect(/Balance due at pickup/i, 'over-$3k review missing balance due at pickup');
+  // Normal branch (no access review) keeps the regular price labels (Dot round 3).
+  { const pc = (await page.textContent('.price-card').catch(() => '')) || ''; const lbl = (await page.textContent('#estLabel')) || '';
+    if (/before access check|base price|Access isn’t confirmed/.test(pc)) errors.push('normal branch: price card must not show access-check labels: ' + pc.slice(0, 200));
+    if (!/Total/.test(pc) || !/Due today/.test(pc)) errors.push('normal branch: price card should keep "Total" and "Due today"');
+    if (/access to confirm/.test(lbl)) errors.push('normal branch: dock must not say access to confirm: ' + lbl); }
   await page.click('[data-pay-method] button[data-v="ach"]'); await page.waitForTimeout(200);
   await expect(/ACH processing/, 'ACH copy should mention “ACH processing”');
   await shot(page, '06-review-split-ach');
@@ -290,6 +301,7 @@ const readOrders = () => JSON.parse(fs.readFileSync(path.join(DATA_ROOT, 'data',
   await shot(page, '07-confirmation-ach');
   const id2 = (await page.textContent('.done b')).trim();
   const o2 = readOrders().find((o) => o.id === id2);
+  if (!o2 || o2.pickup.contactRole !== 'Interior designer' || o2.dropoff.contactRole !== 'Interior designer') errors.push('Same as me stops should be saved with the booker’s "I am a…" role (Interior designer): ' + (o2 && [o2.pickup.contactRole, o2.dropoff.contactRole]));
   if (!o2 || o2.status !== 'confirmed') errors.push('ACH order should be confirmed on submit');
   if (!o2 || o2.payment.status !== 'ach_processing') errors.push('ACH payment status should be ach_processing, got ' + (o2 && o2.payment.status));
   if (!o2 || !o2.declaredValueProtection) errors.push('mandatory protection not recorded on order 2');
@@ -572,10 +584,14 @@ const readOrders = () => JSON.parse(fs.readFileSync(path.join(DATA_ROOT, 'data',
     await next(page); await pickDay(page); await next(page); await page.waitForTimeout(500);
     await expect(/1 flight of stairs down · Not sure about tight turns on the stairs · 1 photo of the stairs/, 'review: pickup stairs in plain words');
     // Fit = Not sure at pickup: the access-to-be-confirmed line sits next to the price, and nothing calls the price final.
-    await expect(/Access to be confirmed\. If stairs or a tricky carry add a fee, we’ll confirm it with you before charging anything\./, 'review: access-review price line missing');
+    await expect(/Access isn’t confirmed yet\. If it needs an added fee, we’ll go over it with you and get your OK before charging it\./, 'review: access-review price line missing');
+    { const pc = (await page.textContent('.price-card').catch(() => '')) || '';
+      if (!pc.includes('Estimated total (before access check)')) errors.push('review: access review total must read "Estimated total (before access check)"');
+      if (!/Due today \(base price\)/.test(pc)) errors.push('review: access review must read "Due today (base price)"');
+      if (/paid in full/i.test(pc) || /(^|[^d ])Total\$/.test(pc)) errors.push('review: access review must not say paid in full or a bare Total: ' + pc.slice(0, 300)); }
     if (!(await page.locator('.price-card [data-access-tbc]').count())) errors.push('review: access-review line must be inside the price card');
     { const pc = (await page.textContent('.price-card').catch(() => '')) || ''; if (/final/i.test(pc)) errors.push('review: price card must not call the price final when access is to be confirmed'); }
-    { const lbl = (await page.textContent('#estLabel')) || ''; if (!/access to confirm|Due today/i.test(lbl)) errors.push('dock label with access review: ' + lbl); }
+    { const lbl = (await page.textContent('#estLabel')) || ''; if (lbl.trim() !== 'Estimate · access to confirm') errors.push('dock label with access review must stay "Estimate · access to confirm": ' + lbl); }
     await expect(/Ground level, straight in \(no stairs\) · Double doors · Tight fit · 1 photo of the tight spot and the way in/, 'review: delivery access in plain words');
     await expect(/Ground level, no elevator/, 'review must never print Ground level, no elevator', true);
     await expect(/Stairs — Piece 1/, 'small painting (no weight, under 72") should have no stairs fee', true);
@@ -969,6 +985,43 @@ const readOrders = () => JSON.parse(fs.readFileSync(path.join(DATA_ROOT, 'data',
     if (!b.elevNone.includes('Any stairs on the way?')) errors.push('browser boundary: elevator stairs unanswered must be required: ' + b.elevNone.join(', '));
     if (!b.elevStairs.includes('How many flights?') || !b.elevStairs.includes('Up or down?')) errors.push('browser boundary: elevator + Stairs must ask flights and direction: ' + b.elevStairs.join(', '));
     if (b.basementSummary !== 'Elevator, floor Basement · No stairs on the way') errors.push('browser boundary: Basement summary: ' + b.basementSummary);
+    // ---- Dot round 3: Same as me hides the role; narrow screens keep fields above the dock ----
+    await startFresh(page);
+    await page.setViewportSize({ width: 430, height: 800 });
+    await page.click('[data-service="pickup_delivery"]'); await page.waitForTimeout(200);
+    await page.evaluate(() => { step = STEPS.indexOf('Where'); render(); }); await page.waitForTimeout(300);
+    const roleVis = () => page.locator('[data-path="dropoff.contactRole"]').isVisible().catch(() => false);
+    if (!(await roleVis())) errors.push('round 3: role field should show when the contact is someone else');
+    await page.click('[data-same="dropoff"]'); await page.waitForTimeout(250);
+    if (await roleVis()) errors.push('round 3: role field must be hidden for Same as me');
+    if (await page.evaluate(() => missingFields().some((g) => /contact role/i.test(g.label) && /Delivery/.test(g.label)))) errors.push('round 3: Same as me must not ask for a delivery contact role');
+    await page.click('[data-same="dropoff"]'); await page.waitForTimeout(250);
+    if (!(await roleVis())) errors.push('round 3: role field must come back when Same as me is turned off');
+    await page.click('[data-same="dropoff"]'); await page.waitForTimeout(250);
+    await page.type('[data-path="dropoff.contactName"]', 'x'); await page.waitForTimeout(250);
+    if (!(await roleVis())) errors.push('round 3: editing the contact name (no longer Same as me) must show the role field');
+    // Every field focused under the dock scrolls above it; the last field clears the dock at the bottom of the page.
+    const hidden = await page.evaluate(async () => {
+      const wait = () => new Promise((r) => setTimeout(r, 60));
+      const dockTop = () => document.getElementById('dock').getBoundingClientRect().top;
+      const els = [...document.querySelectorAll('.app input:not([type=hidden]):not([type=file]), .app select, .app textarea')].filter((e) => e.offsetParent);
+      const bad = []; let tested = 0, skipped = 0;
+      for (const e of els) {
+        const r0 = e.getBoundingClientRect();
+        window.scrollBy(0, r0.bottom - (dockTop() + 20)); await wait(); // put the field's bottom edge under the dock
+        if (e.getBoundingClientRect().bottom <= dockTop()) { skipped++; continue; } // page cannot scroll that far
+        tested++;
+        document.activeElement && document.activeElement.blur(); e.focus({ preventScroll: true }); await wait(); await wait();
+        if (e.getBoundingClientRect().bottom > dockTop()) bad.push(e.id || e.dataset.path);
+      }
+      window.scrollTo(0, document.documentElement.scrollHeight); await wait();
+      const last = els[els.length - 1];
+      return { bad, n: els.length, tested, skipped, lastClear: last.getBoundingClientRect().bottom <= dockTop(), dockH: getComputedStyle(document.documentElement).getPropertyValue('--dock-h') };
+    });
+    if (hidden.n < 5 || hidden.tested < 5) errors.push('round 3: dock test exercised too few fields: ' + JSON.stringify({ n: hidden.n, tested: hidden.tested }));
+    if (hidden.bad.length) errors.push('round 3 (430px): focused fields stayed under the dock: ' + hidden.bad.join(', '));
+    if (!hidden.lastClear) errors.push('round 3 (430px): the last field is hidden under the dock at the bottom of the page');
+    await page.setViewportSize({ width: 1280, height: 900 });
     // No crating, multiplier or internal zone codes anywhere in the app bundle shown to customers.
     const js = await (await fetch(BASE + '/app.js')).text();
     for (const bad of [/crating not sure/, /Custom crating/, /\+ crating quote/, /Quoted range \(1\.5×/, /Irvine hub/, /Monday is always an LA day/, /one tap/, /No approval step/, /Used for insurance/, /15-minute heads-up/, /\(650\) 460-4296/]) if (bad.test(js)) errors.push('app.js still contains ' + bad);

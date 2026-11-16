@@ -85,8 +85,18 @@ Narrowest opening | Narrowest opening 30 in
 Fit photos | 1 photo of the tight spot and the way in / 2 photos of the tight spot and the way in
 Review fallback, never reached in practice because Q1 is required | Not answered yet
 
---- Price line (access, fit or elevator stairs = Not sure at any stop; checkout stays allowed; shown next to the price on the review, payment link and confirmation email; dock label "Estimate · access to confirm") ---
-Line | Access to be confirmed. If stairs or a tricky carry add a fee, we’ll confirm it with you before charging anything.
+--- Price wording when access is "Not sure" at any stop (access, fit or elevator stairs; checkout stays allowed and the customer pays the base price now). Normal orders keep "Total" and "Due today · paid in full at booking". ---
+Note (review, payment page, Done page, confirmation email) | Access isn’t confirmed yet. If it needs an added fee, we’ll go over it with you and get your OK before charging it.
+Total label (review, payment page, Done page, email) | Estimated total (before access check)
+Due today (review, paid in full) | Due today (base price)
+Due today (review, 50/50 orders) | Due today (base price) · Balance due at delivery (before access check)
+Email payment line | Paid today (base price) $X  (or "Due today (base price) $X" while awaiting payment; 50/50: "Paid today (50% of the base price)", "Balance due … (before access check)")
+Bottom bar, every step incl. payment | Estimate · access to confirm
+
+--- On-site contact role ---
+Contact is "Same as me" | No role field. The booker’s own "I am a…" answer is used as that contact’s role (server sets it; nothing is defaulted).
+Contact is someone else | Pickup contact role / Delivery contact role / Install contact role (required)
+Server rejection, Same as me with no "I am a…" | your “I am a…” answer (used as the delivery contact role)
 
 --- Item photo (What step; also enforced on the server) ---
 Over 500 lb (501 lb or more) | Photo required for items over 500 lb.

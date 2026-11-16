@@ -88,6 +88,8 @@ const persist = () => { if (STEPS[step] === 'Done') return; sessionStorage.setIt
 const payload = () => {
   const o = JSON.parse(JSON.stringify(S));
   const sv = (CFG && CFG.services[o.service]) || {};
+  // "Same as me": no role is sent; the server uses the booker's own "I am a…" (never a silent default).
+  ['pickup', 'dropoff'].forEach((k) => { if (o[k] && o[k].sameAsMe) { o[k].contactRole = ''; o[k].contactRoleOther = ''; } });
   const clearInstall = (a) => { a.centerHeight = ''; a.wallType = ''; a.hardware = ''; a.highInstall = false; a.installLocation = ''; a.wallPhotos = []; };
   clearInstall(o.pickup);
   if (sv.install && o.items.some(isHung)) { if (!o.dropoff.wallType) o.dropoff.wallType = 'Not sure'; if (!o.dropoff.hardware) o.dropoff.hardware = 'Not sure'; }
@@ -516,17 +518,17 @@ const payPlan = (q) => {
   }
   if (q.paymentPlan === 'deposit') {
     return `<div class="plan"><div class="plan-head">Orders of ${fmt(CFG.payment.depositThreshold)}+ are split 50/50</div>
-      <div class="sum-row"><span>Due today</span><span class="amt"><b>${fmt(q.dueNow)}</b></span></div>
-      <div class="sum-row"><span>Balance due ${esc(q.balanceWhen)}</span><span class="amt"><b>${fmt(q.balanceDue)}</b></span></div></div>`;
+      <div class="sum-row"><span>${accessTbc(q) ? CADAccess.TBC_DUE : 'Due today'}</span><span class="amt"><b>${fmt(q.dueNow)}</b></span></div>
+      <div class="sum-row"><span>Balance due ${esc(q.balanceWhen)}${accessTbc(q) ? ' (before access check)' : ''}</span><span class="amt"><b>${fmt(q.balanceDue)}</b></span></div></div>`;
   }
-  return `<div class="plan"><div class="sum-row"><span>Due today · paid in full at booking</span><span class="amt"><b>${fmt(q.dueNow)}</b></span></div></div>`;
+  return `<div class="plan"><div class="sum-row"><span>${accessTbc(q) ? CADAccess.TBC_DUE : 'Due today · paid in full at booking'}</span><span class="amt"><b>${fmt(q.dueNow)}</b></span></div></div>`;
 };
 // Access flagged Not sure (mode, fit or elevator stairs): the pricing API adds CADAccess.PRICE_NOTE; show it next to the price.
 const accessTbc = (q) => !!(q && (q.notes || []).includes(CADAccess.PRICE_NOTE));
 const priceCard = (q, withProtection) => `<div class="card price-card">
   ${q ? q.lines.map((l) => `<div class="sum-row"><span>${esc(l.label)}</span><span class="amt">${l.included ? 'Included' : fmt(l.amount)}</span></div>`).join('') : '<div class="sum-row"><span>Calculating…</span><span class="amt"></span></div>'}
   ${withProtection ? '<p class="mini" style="margin:6px 0 0">Declared value protection is 1.5% of each piece’s declared value (pieces up to $50,000), added to your price. Pieces over $50,000 carry high-value handling instead.</p>' : ''}
-  ${q ? `${accessTbc(q) ? `<p class="mini access-tbc" data-access-tbc><b>${esc(CADAccess.PRICE_NOTE)}</b></p>` : ''}${isQuote(q) && !q.tripPremium ? '' : `<div class="total"><span>${isQuote(q) ? 'Regular rate' : 'Total'}</span><span class="amt">${fmt(q.regularTotal || q.total)}</span></div>`}${payPlan(q)}` : ''}
+  ${q ? `${accessTbc(q) ? `<p class="mini access-tbc" data-access-tbc><b>${esc(CADAccess.PRICE_NOTE)}</b></p>` : ''}${isQuote(q) && !q.tripPremium ? '' : `<div class="total"><span>${isQuote(q) ? 'Regular rate' : accessTbc(q) ? CADAccess.TBC_TOTAL : 'Total'}</span><span class="amt">${fmt(q.regularTotal || q.total)}</span></div>`}${payPlan(q)}` : ''}
 </div>`;
 
 // ---------- payment block (shared by new orders and payment links) ----------
@@ -761,8 +763,8 @@ const views = {
         ${input(`${key}.business`, 'Business or gallery (optional)', { ph: 'e.g. gallery, showroom, hotel' })}
         <div class="sub-head"><span>On-site <b>${key === 'pickup' ? 'pickup' : S.service === 'install_only' ? 'install' : shipService() ? 'destination' : 'delivery'}</b> contact</span><button type="button" class="pill-btn ${a.sameAsMe ? 'on' : ''}" data-same="${key}">${a.sameAsMe ? '✓ Same as me' : 'Same as me'}</button></div>
         <div class="row keep">${input(`${key}.contactName`, 'Name', { ph: 'Name', req: !optional })}${input(`${key}.contactPhone`, 'Mobile', { type: 'tel', ph: '(310) 555-0100', req: !optional, attrs: 'autocomplete="tel"' })}</div>
-        ${select(`${key}.contactRole`, roleLabel(key), CONTACT_ROLES, { req: !optional, placeholder: 'Please choose one', rerender: true })}
-        ${a.contactRole === 'Other' ? input(`${key}.contactRoleOther`, 'Describe their role', { req: true, ph: 'e.g. House sitter' }) : ''}
+        <div data-rolewrap="${key}" ${a.sameAsMe ? 'hidden' : ''}>${select(`${key}.contactRole`, roleLabel(key), CONTACT_ROLES, { req: !optional, placeholder: 'Please choose one', rerender: true })}
+        ${a.contactRole === 'Other' ? input(`${key}.contactRoleOther`, 'Describe their role', { req: true, ph: 'e.g. House sitter' }) : ''}</div>
         <div class="sub-head"><span>Access</span></div>
         ${accessBlock(key, a)}
         ${key === 'dropoff' && intlDest(a) && shipService() ? `<div class="sub-head"><span>Customs / import contact</span></div>
@@ -856,7 +858,7 @@ const views = {
     const addr = (a) => (a.street ? `${esc(a.street)}, ${esc(a.city)}` : '—');
     const sp = special();
     const date = avail && [...avail.days, ...avail.rush].find((d) => d.date === S.schedule.date);
-    const siteRows = (label, a) => (a && a.street ? `<div class="sum-row"><span>${label}</span><span>${addr(a)}<br><span class="muted">${esc(a.contactName)} · ${esc(formatPhone(a.contactPhone))}${a.contactRole ? ` · ${esc(a.contactRole === 'Other' ? (a.contactRoleOther || 'Other') : a.contactRole)}` : ''}</span></span></div>` : '');
+    const siteRows = (label, a) => (a && a.street ? `<div class="sum-row"><span>${label}</span><span>${addr(a)}<br><span class="muted">${esc(a.contactName)} · ${esc(formatPhone(a.contactPhone))}${a.sameAsMe ? (S.contact.clientType ? ` · ${esc(S.contact.clientType)}` : '') : a.contactRole ? ` · ${esc(a.contactRole === 'Other' ? (a.contactRoleOther || 'Other') : a.contactRole)}` : ''}</span></span></div>` : '');
     return `<h1>${sp ? 'Review your request' : 'Review & pay'}</h1><p class="sub">${sp ? 'CAD sets the final price before anything is charged.' : 'Your job is booked as soon as payment goes through. We’ll email your confirmation right away.'}</p>
       ${promiseCard((date && date.routeLabel) || (avail && avail.region ? avail.region + ' route' : 'Route day'), 'margin-top:0')}
       <div class="card">
@@ -957,7 +959,8 @@ const views = {
       ${shipDone ? `<div class="sum-row"><span>Timing</span><span>${esc(timingText(o.shipping || {}))}</span></div><div class="sum-row"><span>Destination</span><span>${destText(o.dropoff)}</span></div>` : `<div class="sum-row"><span>Route</span><span>${esc(o.schedule.region)}</span></div>`}
       <div class="sum-row"><span>Payment</span><span>${ach ? `<b>ACH processing</b> · ${fmt(p.amount)}` : `Paid ${fmt(p.amount)}`} · ${how}${p.method && p.method.startsWith('mock') ? ' (test)' : ''}${p.saved ? ' · saved' : ''}</span></div>
       ${o.quote.paymentPlan === 'deposit' ? `<div class="sum-row"><span>Balance due ${esc(o.quote.balanceWhen)}</span><span class="amt"><b>${fmt(o.quote.balanceDue)}</b></span></div>` : ''}
-      <div class="total"><span>Order total</span><span class="amt">${fmt(o.quote.total)}</span></div></div>
+      <div class="total"><span>${accessTbc(o.quote) ? CADAccess.TBC_TOTAL : 'Order total'}</span><span class="amt">${fmt(o.quote.total)}</span></div>
+      ${accessTbc(o.quote) ? `<p class="mini access-tbc" data-access-tbc><b>${esc(CADAccess.PRICE_NOTE)}</b></p>` : ''}</div>
       ${ach ? '<p class="mini">Your job is confirmed. The bank transfer shows as processing until it clears.</p>' : ''}
       <button type="button" class="btn ghost full" id="newOrder">Start a new booking</button>`;
   },
@@ -1034,7 +1037,8 @@ function missingFields() {
       if (!String(a.city || '').trim()) add(`#f-${key}.city`, `City — ${title}`, `Please enter the ${title.toLowerCase()} city.`);
       if (!String(a.contactName || '').trim()) add(`#f-${key}.contactName`, `On-site name — ${title}`, 'Please enter the on-site contact’s name.');
       if (!String(a.contactPhone || '').trim()) add(`#f-${key}.contactPhone`, `On-site mobile — ${title}`, 'Please enter the on-site contact’s mobile number.');
-      if (!String(a.contactRole || '').trim()) add(`#f-${key}.contactRole`, roleLabel(key), 'Please choose the contact’s role.');
+      if (a.sameAsMe) { /* role = the booker's own "I am a…" (required above); no role field */ }
+      else if (!String(a.contactRole || '').trim()) add(`#f-${key}.contactRole`, roleLabel(key), 'Please choose the contact’s role.');
       else if (a.contactRole === 'Other' && !String(a.contactRoleOther || '').trim()) add(`#f-${key}.contactRoleOther`, 'Describe their role', 'Please describe the contact’s role.');
     };
     if (svc().needsPickup) siteMiss('pickup', 'Pickup', true);
@@ -1184,7 +1188,7 @@ function paintEstimate() {
   if (!q) return;
   if (isQuote(q) && !q.tripPremium) { el.textContent = 'Quote'; lbl.textContent = 'Priced by CAD'; }
   else if (isQuote(q) && q.quoteRange) { el.textContent = `${fmt(q.quoteRange.low)}–${fmt(q.quoteRange.high)}`; lbl.textContent = 'Estimated range'; }
-  else if (name === 'Pay') { el.textContent = fmt(q.dueNow); lbl.textContent = q.paymentPlan === 'deposit' ? 'Due today (50%)' : 'Due today'; }
+  else if (name === 'Pay') { el.textContent = fmt(q.dueNow); lbl.textContent = accessTbc(q) ? 'Estimate · access to confirm' : q.paymentPlan === 'deposit' ? 'Due today (50%)' : 'Due today'; }
   else { el.textContent = fmt(q.total); lbl.textContent = name === 'What' ? 'Estimate · before access' : accessTbc(q) ? 'Estimate · access to confirm' : 'Estimate'; }
   el.classList.toggle('long', el.textContent.length > 9 && el.textContent.length <= 13); el.classList.toggle('xlong', el.textContent.length > 13);
   paintButton();
@@ -1262,6 +1266,22 @@ function measureDock() {
 }
 if (window.ResizeObserver) new ResizeObserver(measureDock).observe($('#dock'));
 window.addEventListener('resize', measureDock);
+
+// Keep the focused field above the fixed estimate bar (and above the on-screen keyboard on phones).
+function keepAboveDock(el) {
+  if (!el || !el.getBoundingClientRect || el === document.body) return;
+  const d = $('#dock');
+  if (!d || d.classList.contains('hide')) return;
+  const vv = window.visualViewport;
+  const viewBottom = vv ? vv.offsetTop + vv.height : window.innerHeight;
+  const limit = Math.min(d.getBoundingClientRect().top, viewBottom) - 12;
+  const box = el.type === 'checkbox' || el.type === 'radio' ? (el.closest('label') || el) : (el.closest('.field') || el);
+  const r = box.getBoundingClientRect();
+  if (r.bottom > limit) window.scrollBy({ top: Math.min(r.bottom - limit, Math.max(0, r.top - 12)), behavior: 'auto' });
+  else if (r.top < 12) window.scrollBy({ top: r.top - 12, behavior: 'auto' });
+}
+document.addEventListener('focusin', (e) => { if (!e.target.matches || !e.target.matches('input:not([type=file]), select, textarea') || e.target.closest('#dock')) return; keepAboveDock(e.target); requestAnimationFrame(() => keepAboveDock(document.activeElement)); });
+if (window.visualViewport) window.visualViewport.addEventListener('resize', () => { measureDock(); keepAboveDock(document.activeElement); });
 
 let memberTimer, memberCheckSeq = 0;
 function paintMemberStatus() {
@@ -1347,7 +1367,7 @@ app.addEventListener('input', (e) => {
     else if (S.memberCode) setTimeout(checkMemberCode, 0);
   }
   const m = p.match(/^(pickup|dropoff)\.contact(Name|Phone)$/);
-  if (m && S[m[1]].sameAsMe) { S[m[1]].sameAsMe = false; persist(); const b = app.querySelector(`[data-same="${m[1]}"]`); if (b) { b.classList.remove('on'); b.textContent = 'Same as me'; } }
+  if (m && S[m[1]].sameAsMe) { S[m[1]].sameAsMe = false; persist(); const b = app.querySelector(`[data-same="${m[1]}"]`); if (b) { b.classList.remove('on'); b.textContent = 'Same as me'; } const rw = app.querySelector(`[data-rolewrap="${m[1]}"]`); if (rw) rw.hidden = false; paintButton(); }
   const hint = p.match(/^items\.(\d+)\.(weight|value)$/);
   if (hint) updateItemHints(+hint[1]);
   updateNext(); refreshQuote();
