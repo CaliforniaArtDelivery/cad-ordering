@@ -42,7 +42,8 @@ module.exports = {
       { maxLbs: 499, nonMember: 800,  member: 600 },
       { maxLbs: 700, nonMember: 1000, member: 750 },
     ],
-    sculptureOver700: { nonMember: 1000, member: 750, note: 'Over 700 lb is not on the published card; starting rate shown, CAD confirms.' },
+    // Over 700 lb: flat rate, booked and paid like any other piece (Chad, Nov 16 2026: heavy pieces are never sent to quote review).
+    sculptureOver700: { nonMember: 1000, member: 750 },
     // Oversize add-ons from the rate-card footnotes
     largePainting: { overInches: 72, deliveryFee: 100, installFee: 200 }, // per painting 72" or larger
     largeWallDecor: { overInches: 48, deliveryFee: 100, installFee: 200 }, // per wall-décor piece 48" or larger
@@ -89,15 +90,14 @@ module.exports = {
       stairwell: 150,
       other: 0,
     },
-    // Optional declared value protection, offered at intake (Aerena is auto-included operationally)
-    valuation: { optional: true, rate: 0.015, label: 'Declared value protection (1.5%)' },
+    // Declared value protection (Chad, Nov 16 2026): REQUIRED on every in-California piece valued $50,000 or less,
+    // 1.5% of the declared value. Not optional. Pieces over $50,000 get high-value handling instead (no protection).
+    valuation: { optional: false, rate: 0.015, maxValue: 50000, label: 'Declared value protection (required, 1.5%' },
     // Member plan
     membership: { monthly: 200, discount: 0.25, label: 'CAD membership (25% off)' },
     // Furniture card footnote only: furniture-only orders of $1,000 or more get an additional 10% off the total.
     // Paintings, sculpture, and mixed jobs never get this discount (paintings already get cheaper with quantity).
     volumeDiscount: { threshold: 1000, rate: 0.10, furnitureOnly: true },
-    // Stairs / exceptionally heavy or long pieces: "an additional delivery or install fee may apply" — not a fixed published rate.
-    stairsNote: 'A stairs or special-handling fee may apply and will be confirmed by CAD.',
     // Stairs & technical-carry access fees (per piece, per stop). The per-flight rate is the
     // higher of the weight rate and the size rate. Technical carry adds one extra unit at that
     // same rate, on top of any stairs at that stop. Half flight = half the per-flight rate.
@@ -120,7 +120,7 @@ module.exports = {
     // Rush / dedicated trips are not auto-priced. CAD (Samantha) quotes 1.5×–2× the regular rate.
     // "Other fragile or valuable item": priced by weight from the sculpture-by-weight card (closest published
     // handling-by-weight rate); CAD may adjust after reviewing photos.
-    otherItemNote: 'Other fragile or valuable items are priced by weight from our sculpture rates. CAD may adjust the final quote after reviewing photos.',
+    otherItemNote: 'Other fragile or valuable items are priced by weight from our sculpture rates.',
     quoteMultiplierMin: 1.5,
     quoteMultiplierMax: 2.0,
     furniture: {

@@ -17,9 +17,9 @@ Commits (local, not pushed): `95cd8a6` phase 1 · `6fd85e3` access fixes · `3d7
 | P0-1 | Street names override ZIP for routing | Fixed in phase 1 | ZIP first, then the city field only; regression tests for every bad address |
 | P0-2 | Server trusts the client’s date and fields | Fixed in phase 1 | Blackout, past, non-route day, delivery date, W×H×D, contact role, photos, stairwell fit checked server-side |
 | P0-3 | Public admin key | Fixed in phase 1 | No default; ADMIN_KEY from env (render.yaml sync:false); refuses unset/short/cad-admin; key file /workspace/secrets/cad_admin_key.txt |
-| P0-4 | “Included” protection is a paid line | Fixed in phase 2 (app.js) (copy) · Needs Chad’s decision | Copy now says “1.5% … added to your price”. Mandatory vs optional and the “from $200” prices are Chad’s call |
+| P0-4 | “Included” protection is a paid line | Fixed (Chad, Nov 16 2026: required) | Required 1.5% line on pieces up to $50,000, worded as required on the estimate, review, bar, email and admin. The service cards say the starting prices are before protection |
 | P0-5 | “No approval step” | Fixed in phase 1 + Fixed in phase 2 (app.js) | “Your job is booked as soon as payment goes through…”; config notice is the rate-card line |
-| P0-6 | Instant pay on jobs notes say CAD confirms (over 700 lb, ≥72" sculpture) | Needs Chad’s decision | Make them quote requests, or drop the “may apply” sentence |
+| P0-6 | Instant pay on jobs notes say CAD confirms (over 700 lb, ≥72" sculpture) | Fixed (Chad, Nov 16 2026: book and pay now) | “May apply / CAD confirms” notes removed; photo and fit rules kept |
 | P0-7 | Wrong quote-received email | Fixed in phase 1 | Template per reason, no fake range, no “(she may consult Chad)” |
 | P0-8 | “Someone else” payer does nothing | Fixed in phase 1 (emails) · Needs Chad’s decision | Payer now gets the quote notice / receipt copy. Whether the buyer still pays or a payment link goes to the payer is Chad’s call |
 | P0-9 | Banned “crating” | Fixed in phase 1 + Fixed in phase 2 (app.js) | Server, lib, email and app.js (review line, dead branches, placeholder) |
@@ -50,9 +50,9 @@ Commits (local, not pushed): `95cd8a6` phase 1 · `6fd85e3` access fixes · `3d7
 | P1-14 | Cancellation promise | Fixed in phase 2 (app.js) (partly) · Needs Chad’s decision | “we’ll take care of it” removed; policy link needs the policy |
 | P1-15 | “Fully insured” | Needs Chad’s decision | Confirm wording with the shipping partner |
 | P1-16 | “Final price is confirmed by CAD” | Fixed in phase 1 |  |
-| P1-17 | “Other” item pricing vs instant pay | Needs Chad’s decision |  |
-| P1-18 | Estimate changes between steps | Fixed in phase 2 (app.js) · Needs Chad’s decision | Step 1 dock says “Estimate · before access”. Sales tax treatment is Chad’s |
-| P1-19 | Value cliff at $50,000 | Needs Chad’s decision |  |
+| P1-17 | “Other” item pricing vs instant pay | Fixed (Chad, Nov 16 2026) | “CAD may adjust the final quote after reviewing photos” removed; priced by weight and paid now |
+| P1-18 | Estimate changes between steps | Fixed in phase 2 (app.js) · Tax decided | Step 1 dock says “Estimate · before access”. Chad, Nov 16 2026: no sales tax line anywhere |
+| P1-19 | Value cliff at $50,000 | Kept as is (Chad, Nov 16 2026), noted | $50,000 → $750 protection; $50,001 → no protection, +100% handling on that piece. Consistent in pricing, server, app and tests |
 | P1-20 | “Referring partner” payer goes nowhere | Needs Chad’s decision | Same decision as P0-8 |
 | P1-21 | Silent upload failures | Fixed in phase 2 (app.js) | Toast: “That photo didn’t upload…” |
 | P1-22 | Dock price truncates | Fixed in phase 2 (app.js) | No ellipsis; long prices step down in size |
@@ -515,6 +515,23 @@ Tests: e2e (review wording in both branches, dock label, Same as me role hidden/
 - **(a) Typed text not sticking.** Cause: every in-step re-render (any tap on an access answer, chip or toggle, plus photo uploads and delivery dates finishing in the background) rebuilt the form. The focused field got focus back, but the caret jumped to the start. On iOS, where tapping a button leaves the text field focused, the next letters went in front of what was typed (“Gate 4411” became “4411Gate”). Number and email fields behaved the same way. Background re-renders also replaced the field while the customer was typing, which closes the phone keyboard. Changing an access answer also cleared Floor, Total number of flights and Narrowest opening, and they stayed empty after switching back. Fixed: render() restores the caret, selection and textarea scroll (number and email inputs get the caret at the end); upload and availability re-renders wait until the customer leaves the field; typed access fields come back when their answer is switched back. New e2e at 430px types into every free-text field on What, Where and When with re-renders and access taps mid-word, and checks the value on screen, the saved value and focus.
 - **(b) Pay button.** Not sure branch reads “Pay base price $X” (50/50: “Pay 50% of base price $X”), with the comma format; normal orders unchanged.
 - **(c) Dot’s checks.** e2e: pickup Same as me → someone else (Rita, Homeowner) and delivery someone else → Same as me, then the booker changes “I am a…” to Gallery; the saved order and email carry Rita/Homeowner and Dana/Gallery with no trace of the earlier contact. Mobile keyboard simulated by shrinking visualViewport to 360px; the focused field stays above it (page gets keyboard-height bottom room so fields at the end can scroll up). Not sure confirmation email checked for the base-price wording.
+
+## Chad’s pricing decisions (Nov 16, 2026)
+
+1. **Declared value protection stays a required 1.5% line, worded honestly.** Every in-California piece valued $50,000 or less carries it; it is never optional and the copy never implies it is insurance. Strings:
+   - Price line (estimate, review, Done, admin): “Declared value protection (required, 1.5% of $135,000)”
+   - Review note: “Declared value protection is a required charge on every piece valued up to $50,000: 1.5% of its declared value, included in the price above. Pieces over $50,000 aren’t eligible; they carry a high-value handling charge instead.”
+   - Bar (under the price): “Incl. required 1.5% protection”
+   - Value hint: “Required declared value protection: 1.5% of this value ($420 per piece), included in your price.” Empty value: “Its current value. Pieces up to $50,000 carry a required declared value protection charge of 1.5% of it.”
+   - Service cards: “Starting prices are before the required declared value protection: 1.5% of each piece’s declared value, on pieces up to $50,000.”
+   - Confirmation email: “Declared value protection (required) $2,025.00: 1.5% of $135,000.00 declared value (pieces up to $50,000), included in the total”
+   - Admin order detail: price lines plus “Declared value protection (required): $X, 1.5% of $Y declared (pieces up to $50,000). Not optional; included in the total.”
+   - `config.pricing.valuation` is now `optional: false, maxValue: 50000`. Quotes carry `quote.protection = { declared, rate, amount, maxValue }`.
+   - **$50,000 cliff (noted, unchanged):** $50,000 or less → 1.5% protection (max $750 per piece). Over $50,000 (even $50,001) → no protection, high-value handling +100% of that piece’s normal price (tiers up to +600% over $1M). For a cheap-to-move piece, $50,001 can cost less than $50,000 (e.g. a 120 lb sculpture: $1,150 at $50,000 vs $800 at $50,001). The pricing, server (`declaredValueProtection`), app hints and tests all use the same “over $50,000” test.
+2. **Over 500 lb and 72"+ pieces book and pay now.** Pricing never routed these to quote review. The leftover “an additional delivery fee may apply. CAD confirms it.” (72"+ sculpture or other item), “Over 700 lb … starting rate shown, CAD confirms.” and “CAD may adjust the final quote after reviewing photos.” (other items) are removed, as is the unused `stairsNote`. Kept: photo for 501 lb+ and unknown weight, fit questions for large or heavy pieces, the 72"+ oversize fees and the $1,000 over-700 lb rate. Unknown weight still goes to CAD for a price, because there is no weight to price from.
+3. **No sales tax.** No tax line or tax wording anywhere; tests check the quote output and the customer and admin sources.
+
+Tests: `scripts/pricing-test.js` (protection label, amount, $50,000 / $50,001 boundary, mixed jobs, install only, shipping; heavy and 72"+ pieces payable with no review notes; no tax), audit-regression §11 (600 lb / 80", 750 lb, 72" and stairs + fit orders book, pay and confirm; photo and fit still required; email protection line; no tax), e2e (review, bar, value hint, email wording; no protection note on a quote over $50,000; banned strings in the app bundle).
 
 ## Probe artifacts
 - /tmp/aud/probe.js, probe2.js, probe3.js, probe4.js, with output in /tmp/aud/quotes.txt.

@@ -104,9 +104,14 @@ async function detail(id) {
     <tbody>${cols.map(([l, c], i) => `<tr><td>${l}</td><td>${esc(c)}</td>${rows.map((r) => `<td>${esc(r[i])}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`
     : '<p class="muted">No schedule rows yet. Rows are written only after the customer pays and the order is confirmed.</p>';
   const ship = o.shippingLines ? `<div class="approve"><h3>Shipping details</h3>${o.shippingLines.map(([k, v]) => `<p style="margin:0 0 6px"><b>${esc(k)}</b> ${esc(v)}</p>`).join('')}</div>` : '';
+  // Price lines as the customer saw them, plus the required declared value protection charge (Chad, Nov 16 2026).
+  const q = o.quote || {}, pr = q.protection;
+  const fmtc = (n) => '$' + Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: Number(n) % 1 ? 2 : 0, maximumFractionDigits: 2 });
+  const priceBox = (q.lines || []).length && !q.shipping ? `<div class="approve"><h3>Price</h3>${q.lines.map((l) => `<p style="margin:0 0 6px">${esc(l.label)} <b>${l.included ? 'Included' : fmtc(l.amount)}</b></p>`).join('')}
+    <p style="margin:8px 0 0">${pr && pr.amount > 0 ? `<b>Declared value protection (required):</b> ${fmtc(pr.amount)}, 1.5% of ${fmtc(pr.declared)} declared (pieces up to $50,000). Not optional; included in the total.` : '<b>Declared value protection:</b> none (no piece valued up to $50,000).'}</p></div>` : '';
   const itemsBox = o.itemLines ? `<div class="approve"><h3>Pieces</h3>${o.itemLines.map((l) => `<p style="margin:0 0 6px">${esc(l)}</p>`).join('')}</div>` : '';
   document.getElementById('detail').innerHTML = `
-    ${itemsBox}${ship}${approveBox(o)}
+    ${itemsBox}${priceBox}${ship}${approveBox(o)}
     <div class="bar2"><b>Emails</b>
       <button class="btn light sm" data-email="confirmation">Re-send confirmation</button>
       <button class="btn light sm" data-email="reminder">Send reminder</button>

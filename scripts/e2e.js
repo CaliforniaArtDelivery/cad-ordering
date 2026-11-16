@@ -182,6 +182,7 @@ const readOrders = () => JSON.parse(fs.readFileSync(path.join(DATA_ROOT, 'data',
   await expect(/Painting \/ fine art/, 'Painting / fine art chip must be gone', true);
   if (await page.$('[data-seg="items.1.framed"]')) errors.push('sculpture must not ask Framed?');
   await expect(/insurance/i, 'must never say insurance', true);
+  await expect(/Required declared value protection: 1\.5% of this value \(\$420 per piece\), included in your price\./, 'value hint should state the required 1.5% protection charge ($28,000 → $420)');
   await page.waitForTimeout(400);
   await shot(page, '01-what');
   await next(page);
@@ -284,7 +285,14 @@ const readOrders = () => JSON.parse(fs.readFileSync(path.join(DATA_ROOT, 'data',
   if (!(await page.locator('[data-deldate]').count())) errors.push('cross-region job should still let the customer pick a delivery date');
   await next(page); await page.waitForTimeout(500);
   await expect(/data-path="declaredValueProtection"/, 'in-CA jobs must not offer an optional protection toggle', true);
-  await expect(/Declared value protection \(1\.5%\) on \$135,000/, 'mandatory protection line missing (pieces at $50K or less)');
+  await expect(/Declared value protection \(required, 1\.5% of \$135,000\)/, 'required protection line missing (pieces at $50K or less)');
+  // Chad, Nov 16 2026: protection is a required 1.5% charge, worded honestly on the review and in the bar.
+  { const note = ((await page.textContent('[data-protection-note]').catch(() => '')) || '').trim();
+    if (note !== 'Declared value protection is a required charge on every piece valued up to $50,000: 1.5% of its declared value, included in the price above. Pieces over $50,000 aren’t eligible; they carry a high-value handling charge instead.') errors.push('review: protection note wording: ' + note);
+    const dn = await page.$eval('#estNote', (e) => (e.hidden ? '' : e.textContent.trim())).catch(() => '');
+    if (dn !== 'Incl. required 1.5% protection') errors.push('bar: should say "Incl. required 1.5% protection", got ' + dn);
+    const pc = (await page.textContent('.price-card').catch(() => '')) || '';
+    if (/optional|insured|\btax/i.test(pc)) errors.push('review price card must not say optional / insured / tax'); }
   await expect(/split 50\/50/i, 'over-$3k review missing 50/50 split');
   await expect(/Balance due at pickup/i, 'over-$3k review missing balance due at pickup');
   // Normal branch (no access review) keeps the regular price labels (Dot round 3).
@@ -301,6 +309,10 @@ const readOrders = () => JSON.parse(fs.readFileSync(path.join(DATA_ROOT, 'data',
   await expect(/is confirmed/i, 'ACH job must confirm immediately');
   await shot(page, '07-confirmation-ach');
   const id2 = (await page.textContent('.done b')).trim();
+  { const ob = path.join(DATA_ROOT, 'outbox'); const f = fs.readdirSync(ob).find((x) => x.startsWith(id2 + '-') && x.includes('confirmation'));
+    const m = f ? fs.readFileSync(path.join(ob, f), 'utf8').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ') : '';
+    if (!/Declared value protection \(required\) \$2,025\.00: 1\.5% of \$135,000\.00 declared value \(pieces up to \$50,000\), included in the total/.test(m)) errors.push('confirmation email: required protection line missing or reworded: ' + (m.match(/Declared value protection[^<]{0,140}/) || [''])[0]);
+    if (/\btax|insured|optional/i.test(m)) errors.push('confirmation email must not mention tax, insured or optional'); }
   const o2 = readOrders().find((o) => o.id === id2);
   if (!o2 || o2.pickup.contactRole !== 'Interior designer' || o2.dropoff.contactRole !== 'Interior designer') errors.push('Same as me stops should be saved with the booker’s "I am a…" role (Interior designer): ' + (o2 && [o2.pickup.contactRole, o2.dropoff.contactRole]));
   if (!o2 || o2.status !== 'confirmed') errors.push('ACH order should be confirmed on submit');
@@ -329,7 +341,8 @@ const readOrders = () => JSON.parse(fs.readFileSync(path.join(DATA_ROOT, 'data',
   await next(page); await page.waitForTimeout(500);
   await expect(/High-value handling \+200%/, 'review should show the per-item high-value line');
   await expect(/own fine art insurance/, 'review should tell high-value clients to use their own fine art insurance');
-  await expect(/Declared value protection \(1\.5%\) on/, 'no protection line on a piece over $50K', true);
+  await expect(/Declared value protection \(required/, 'no protection line on a piece over $50K', true);
+  if (await page.$eval('#estNote', (e) => !e.hidden).catch(() => false)) errors.push('bar must not mention protection when no piece carries it (quote over $50K)');
   await expect(/Estimated range/i, 'rush review missing estimated range');
   await expect(/1\.5×|Quoted range/, 'rush review must not show the multiplier (audit P1-6)', true);
   await expect(/no payment due yet/i, 'rush review missing no-payment copy');
@@ -1148,7 +1161,7 @@ const readOrders = () => JSON.parse(fs.readFileSync(path.join(DATA_ROOT, 'data',
     await page.setViewportSize({ width: 1280, height: 900 });
     // No crating, multiplier or internal zone codes anywhere in the app bundle shown to customers.
     const js = await (await fetch(BASE + '/app.js')).text();
-    for (const bad of [/crating not sure/, /Custom crating/, /\+ crating quote/, /Quoted range \(1\.5×/, /Irvine hub/, /Monday is always an LA day/, /one tap/, /No approval step/, /Used for insurance/, /15-minute heads-up/, /\(650\) 460-4296/]) if (bad.test(js)) errors.push('app.js still contains ' + bad);
+    for (const bad of [/crating not sure/, /Custom crating/, /\+ crating quote/, /Quoted range \(1\.5×/, /Irvine hub/, /Monday is always an LA day/, /one tap/, /No approval step/, /Used for insurance/, /15-minute heads-up/, /\btax(es)?\b/i, /protection[^.'`]*optional/i, /an additional delivery fee may apply/, /starting rate shown/, /\(650\) 460-4296/]) if (bad.test(js)) errors.push('app.js still contains ' + bad);
     const css = await (await fetch(BASE + '/styles.css')).text();
     if (/\.est-total\{[^}]*text-overflow:ellipsis/.test(css) || /\.seg button\{[^}]*text-overflow:ellipsis/.test(css)) errors.push('prices and seg buttons must not truncate with an ellipsis (P1-22/23)');
   }

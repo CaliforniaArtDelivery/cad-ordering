@@ -197,6 +197,48 @@ const paint71 = q('install_only', [{ qty: 1, type: 'painting', framed: 'no', w: 
 check(paint60.total === 75, '60×40 painting install should stay $75', paint60);
 check(paint71.total === 75, '71×40 painting install should stay $75 (no 72" fee yet)', paint71);
 
+// ---- Chad, Nov 16 2026, decision 1: declared value protection is a REQUIRED 1.5% line, worded honestly ----
+const config = require('../config');
+check(config.pricing.valuation.optional === false && config.pricing.valuation.rate === 0.015 && config.pricing.valuation.maxValue === 50000, 'protection config must be required, 1.5%, up to $50,000', config.pricing.valuation);
+const sc = (value, extra = {}) => q('pickup_delivery', [{ qty: 1, type: 'sculpture', weight: 120, value, description: 's', ...extra }]);
+const at50 = sc(50000), over50 = sc(50001);
+const pl = line(at50, /Declared value protection/);
+check(pl && pl.label === 'Declared value protection (required, 1.5% of $50,000)' && pl.amount === 750, '$50,000 piece: required protection line, $750', at50.lines);
+check(at50.protection && at50.protection.amount === 750 && at50.protection.declared === 50000, '$50,000 piece: quote.protection should carry $750 on $50,000', at50.protection);
+check(!line(at50, /High-value/), '$50,000 piece: no high-value markup', at50.lines);
+check(!line(over50, /Declared value protection/) && !over50.protection && line(over50, /High-value handling \+100%/), '$50,001 piece: no protection, high-value +100% instead', over50.lines);
+const mixedDv = q('pickup_delivery', [{ qty: 2, type: 'sculpture', weight: 120, value: 10000, description: 'a' }, { qty: 1, type: 'sculpture', weight: 120, value: 60000, description: 'b' }]);
+check(line(mixedDv, /Declared value protection/) && line(mixedDv, /Declared value protection/).amount === 300 && /1\.5% of \$20,000\)$/.test(line(mixedDv, /Declared value protection/).label), 'mixedDv job: protection only on pieces up to $50,000 (2 × $10,000 → $300 on $20,000)', mixedDv.lines);
+const instP = q('install_only', [{ qty: 1, type: 'painting', framed: 'no', w: 30, h: 30, value: 2000, description: 'p' }]);
+check(line(instP, /Declared value protection \(required, 1\.5% of \$2,000\)/) && line(instP, /Declared value protection/).amount === 30, 'install only also carries the required protection line', instP.lines);
+for (const r of [at50, over50, mixedDv, instP]) for (const t of [...r.lines.map((l) => l.label), ...(r.notes || [])]) check(!/optional|fully insured|insured\b/i.test(t), 'protection wording must not say optional or insured: ' + t);
+const shipP = q('crating_shipping', [{ qty: 1, type: 'painting', value: 20000, description: 'x' }]);
+check(!line(shipP, /Declared value protection/) && !shipP.protection, 'shipping quotes carry no protection line', shipP.lines);
+
+// ---- Decision 2: over 500 lb and 72"+ pieces book and pay now (no quote review, no "CAD confirms" copy) ----
+const noGate = (name, r) => {
+  check(r.paymentPlan !== 'quote' && r.total > 0 && r.dueNow > 0, `${name}: should be bookable and payable now`, { plan: r.paymentPlan, total: r.total });
+  for (const n of r.notes || []) check(!/confirm|may apply|review|adjust|starting rate|quote/i.test(n), `${name}: note implies a later price review: ${n}`);
+};
+noGate('501 lb sculpture', q('pickup_delivery', [{ qty: 1, type: 'sculpture', weight: 501, w: 30, h: 40, d: 30, value: 5000, description: 's' }]));
+const s750 = q('pickup_delivery', [{ qty: 1, type: 'sculpture', weight: 750, w: 30, h: 40, d: 30, value: 5000, description: 's' }]);
+noGate('750 lb sculpture', s750);
+check(line(s750, /Sculpture/) && line(s750, /Sculpture/).amount === 1000, '750 lb sculpture keeps the $1,000 over-700 rate', s750.lines);
+noGate('80" sculpture', q('pickup_delivery', [{ qty: 1, type: 'sculpture', weight: 200, w: 20, h: 80, d: 20, value: 5000, description: 's' }]));
+const p72 = q('delivery_install', [{ qty: 1, type: 'painting', framed: 'no', w: 72, h: 40, value: 5000, description: 'p' }]);
+noGate('72" painting', p72);
+check(line(p72, /Oversize painting \(72"\+\) delivery/) && line(p72, /Oversize painting \(72"\+\) install/), '72" painting keeps the oversize lines', p72.lines);
+noGate('600 lb, 90" other item', q('pickup_delivery', [{ qty: 1, type: 'other', weight: 600, w: 90, h: 30, d: 30, value: 5000, description: 'o' }]));
+noGate('large 96" sofa', q('pickup_delivery', [{ qty: 1, type: 'furniture', furnitureKind: 'Sofa', sizeClass: 'large', w: 96, h: 36, d: 40, value: 3000, description: 'f' }]));
+// Unknown weight is not "heavy": it still can't be priced from the weight card, so it stays a CAD-priced request.
+check(q('pickup_delivery', [{ qty: 1, type: 'sculpture', weightUnsure: true, value: 5000, description: 's' }]).paymentPlan === 'quote', 'unknown sculpture weight stays priced by CAD (no weight to price from)');
+
+// ---- Decision 3: no sales tax anywhere ----
+const fs = require('fs'), path = require('path');
+for (const r of [at50, over50, mixedDv, instP, s750, p72, shipP]) for (const t of [...r.lines.map((l) => l.label), ...(r.notes || []), r.paymentSummary || '', r.quoteNote || '']) check(!/\btax/i.test(t), 'no tax wording in quotes: ' + t);
+for (const f of ['public/app.js', 'public/index.html', 'public/admin.html', 'lib/email.js', 'lib/pricing.js', 'lib/shiptext.js', 'config.js', 'server.js']) check(!/\btax(es)?\b/i.test(fs.readFileSync(path.join(__dirname, '..', f), 'utf8')), `${f} must not mention tax`);
+
+console.log(JSON.stringify({ errors }, null, 2));
 if (errors.length) {
   console.error('\n' + errors.length + ' pricing test(s) failed.');
   process.exit(1);

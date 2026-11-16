@@ -280,6 +280,30 @@ async function run(BASE, errors, { dataRoot = process.env.STORAGE_DIR || ROOT, a
     await no('Same as me without an "I am a…" role (no silent default)', post('/api/orders', meBase({ contactRole: 'Homeowner' }, {})), /I am a/);
     await no('someone else without a role', order({}, { contactRole: '' }), /delivery contact role/);
     if (same1.j.id) { const m = text(mails(same1.j.id)[0] || ''); if (/Homeowner/.test(m)) errors.push('round 3: Same as me email must not show a default role'); }
+    // ---- 11. Chad, Nov 16 2026: heavy (over 500 lb) and 72"+ pieces book and pay now; required protection; no tax ----
+    const bookPay = async (name, it, dropoff = {}) => {
+      const r = await ok(name, order(it, dropoff));
+      if (!r.j.id) return null;
+      if (r.j.status !== 'awaiting_payment' || r.j.quote.paymentPlan === 'quote') errors.push(`decision 2: ${name} must book for payment now, got ${r.j.status} / ${r.j.quote.paymentPlan}`);
+      for (const n of r.j.quote.notes || []) if (/confirm|may apply|review|adjust|starting rate/i.test(n)) errors.push(`decision 2: ${name} note implies a later price review: ${n}`);
+      const pay = await post(`/api/orders/${r.j.id}/pay`, { method: 'card', card: '4242424242424242' });
+      if (pay.s !== 200) errors.push(`decision 2: ${name} payment should go through (got ${pay.s} ${pay.j.error || ''})`);
+      return r;
+    };
+    const h600 = await bookPay('600 lb, 80" sculpture with a photo', { type: 'sculpture', weight: 600, w: 30, h: 80, d: 30, value: '20000', photos: ['/uploads/x.png'] });
+    await no('600 lb sculpture without a photo', order({ type: 'sculpture', weight: 600, w: 30, h: 40, d: 30, value: '20000' }), /photos/);
+    await bookPay('750 lb sculpture', { type: 'sculpture', weight: 750, w: 30, h: 40, d: 30, value: '20000', photos: ['/uploads/x.png'] });
+    await bookPay('72" painting', { w: 72, h: 40, value: '20000' });
+    await bookPay('80" sculpture up 2 flights (fit questions answered)', { type: 'sculpture', weight: 200, w: 20, h: 80, d: 20, value: '20000', fitsStairwell: true }, { accessMode: 'stairs', stairFlights: '2', stairDir: 'up', stairTurns: 'no', fits: 'yes' });
+    await no('80" sculpture up stairs without the fit answers', order({ type: 'sculpture', weight: 200, w: 20, h: 80, d: 20, value: '20000' }, { accessMode: 'stairs', stairFlights: '2', stairDir: 'up', fits: '' }), /tight turns|fit/);
+    if (h600 && h600.j.id) {
+      const m = text(mails(h600.j.id, 'confirmation')[0] || '');
+      if (!m.includes('Declared value protection (required) $300.00: 1.5% of $20,000.00 declared value (pieces up to $50,000), included in the total')) errors.push('decision 1: confirmation email should carry the required protection line ($300 on $20,000)');
+      if (/\btax/i.test(m) || /insured|optional/i.test(m)) errors.push('decisions 1/3: confirmation email must not mention tax, insured or optional');
+      const qq = h600.j.quote;
+      if (!qq.protection || qq.protection.amount !== 300 || qq.protection.declared !== 20000) errors.push('decision 1: order quote should record protection $300 on $20,000');
+      if ((qq.lines || []).some((l) => /\btax/i.test(l.label))) errors.push('decision 3: no tax line');
+    }
   }
   return errors;
 }

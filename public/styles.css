@@ -154,6 +154,8 @@ input:focus,select:focus,textarea:focus{border-color:var(--navy);background:#fff
 .estimate{min-width:0}
 .est-label{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.1em;white-space:nowrap}
 .est-total{font-size:22px;font-weight:650;letter-spacing:-.02em;white-space:nowrap;font-variant-numeric:tabular-nums}
+.est-note{font-size:11px;line-height:1.3;color:var(--muted);margin-top:2px;max-width:150px}
+.est-note[hidden]{display:none}
 /* Never truncate a price: long values step down instead (a cut-off price is a wrong price). */
 .est-total.long{font-size:18px}
 .est-total.xlong{font-size:15px}
