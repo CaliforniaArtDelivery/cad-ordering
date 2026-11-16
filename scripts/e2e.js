@@ -2,9 +2,20 @@
 // E2E_BROWSER=webkit to run in WebKit (if host deps are installed); default Chromium with iPhone emulation.
 const pw = require('playwright');
 const path = require('path');
+// API fixtures: fill the fields the server now requires (contact role at each stop, W×H×D) unless a test sets them.
+const fillApi = (b) => {
+  const o = JSON.parse(JSON.stringify(b));
+  ['pickup', 'dropoff'].forEach((k) => { if (o[k] && o[k].street && o[k].contactRole === undefined) o[k].contactRole = 'Homeowner'; });
+  (o.items || []).forEach((it) => { if (!['custom', 'furniture'].includes(it.type) && it.w === undefined && it.h === undefined && it.d === undefined) Object.assign(it, { w: 20, h: 20, d: 4 }); });
+  return o;
+};
 const fs = require('fs');
 const BASE = process.env.BASE_URL || 'http://localhost:3000';
 const ROOT = path.join(__dirname, '..');
+// Orders, CSV and outbox live under STORAGE_DIR when the server was started with one (temporary test data).
+const DATA_ROOT = process.env.STORAGE_DIR || ROOT;
+// Admin needs the server's ADMIN_KEY (no default key exists any more).
+const ADMIN_KEY = process.env.ADMIN_KEY || '';
 const SHOTS = path.join(ROOT, 'screenshots', 'v-next');
 fs.mkdirSync(SHOTS, { recursive: true });
 const engine = pw[process.env.E2E_BROWSER || 'chromium'];
@@ -40,21 +51,21 @@ const me = async (page, name, email, phone) => {
 // Access, asked like a phone call: How do we get in? → follow-ups → doorway / fit. fit: 'auto' answers Yes only when it is required.
 const segClick = async (page, path, v) => { await page.click(`[data-seg="${path}"] button[data-v="${v}"]`); await page.waitForTimeout(150); };
 const setAccess = async (page, key, acc = {}) => {
-  const { mode = 'ground', flights, stairs, dir, turns, floor, service, dock, elevSteps, doorway, fit = 'auto' } = acc;
+  const { mode = 'ground', flights, stairs, dir, turns, floor, service, dock, elevStairs, doorway, fit = 'auto' } = acc;
   if (!mode) return;
   await segClick(page, `${key}.accessMode`, mode);
-  if (mode === 'stairs') {
+  if (mode === 'elevator') {
+    if (floor) await fill(page, `${key}.floor`, floor);
+    if (service) await segClick(page, `${key}.serviceElevator`, service);
+    if (elevStairs) await segClick(page, `${key}.elevatorStairs`, elevStairs);
+  }
+  if (mode === 'stairs' || elevStairs === 'stairs') {
     if (flights) await segClick(page, `${key}.stairFlights`, flights);
     if (stairs) await fill(page, `${key}.stairs`, stairs);
     if (dir) await segClick(page, `${key}.stairDir`, dir);
     if (turns) await segClick(page, `${key}.stairTurns`, turns);
   }
-  if (mode === 'elevator') {
-    if (floor) await fill(page, `${key}.floor`, floor);
-    if (service) await segClick(page, `${key}.serviceElevator`, service);
-    if (dock) await segClick(page, `${key}.dock`, dock);
-    if (elevSteps) await segClick(page, `${key}.elevatorSteps`, elevSteps);
-  }
+  if (dock) await segClick(page, `${key}.dock`, dock);
   if (doorway) await segClick(page, `${key}.doorway`, doorway);
   if (fit === 'auto') {
     const required = await page.$eval(`[data-seg="${key}.fits"]`, (el) => !!el.closest('.field').querySelector('.req')).catch(() => false);
@@ -101,7 +112,7 @@ const laTrip = async (page, name, email) => {
   await fillSite(page, 'dropoff', { street: '1200 Summit Ridge Dr', city: 'Beverly Hills', zip: '90210', same: true });
   await next(page); await pickDay(page); await next(page); await page.waitForTimeout(500);
 };
-const readOrders = () => JSON.parse(fs.readFileSync(path.join(ROOT, 'data', 'orders.json'), 'utf8'));
+const readOrders = () => JSON.parse(fs.readFileSync(path.join(DATA_ROOT, 'data', 'orders.json'), 'utf8'));
 
 (async () => {
   const browser = await engine.launch();
@@ -178,7 +189,7 @@ const readOrders = () => JSON.parse(fs.readFileSync(path.join(ROOT, 'data', 'ord
   await fill(page, 'heard.businessName', 'Hamilton Selway Gallery');
   await fillSite(page, 'pickup', { street: '8678 Melrose Ave', city: 'West Hollywood', zip: '90069', business: 'Hamilton Selway Gallery', contactName: 'Andrea B.', contactPhone: '310-555-0101', role: 'Gallery staff', hours: 'Mon–Sat 10am–6pm', notes: 'Use the rear alley off Melrose. Ask for Andrea at the front desk.' });
   // Pickup: gallery on floor 2 with an elevator, a service elevator, a loading dock and a few steps to the elevator.
-  await fillSite(page, 'pickup', { street: '8678 Melrose Ave', city: 'West Hollywood', zip: '90069', business: 'Hamilton Selway Gallery', contactName: 'Andrea B.', contactPhone: '310-555-0101', role: 'Gallery staff', hours: 'Mon–Sat 10am–6pm', notes: 'Use the rear alley off Melrose. Ask for Andrea at the front desk.', access: { mode: 'elevator', floor: '2', service: 'yes', dock: 'yes', elevSteps: 'steps', fit: 'not_sure' } });
+  await fillSite(page, 'pickup', { street: '8678 Melrose Ave', city: 'West Hollywood', zip: '90069', business: 'Hamilton Selway Gallery', contactName: 'Andrea B.', contactPhone: '310-555-0101', role: 'Gallery staff', hours: 'Mon–Sat 10am–6pm', notes: 'Use the rear alley off Melrose. Ask for Andrea at the front desk.', access: { mode: 'elevator', floor: '2', service: 'yes', dock: 'yes', elevStairs: 'steps', fit: 'not_sure' } });
   // Delivery: 2 flights up, no tight turns, double doors, fits easily. Pieces include a 226 lb sculpture, so turns + fit are required.
   await fillSite(page, 'dropoff', { street: '1200 Summit Ridge Dr', city: 'Beverly Hills', zip: '90210', same: true, hours: 'After 10am. Gate closes at 7pm.', notes: 'Gate code 4411. Hang in living room, 57" on center.', access: { mode: 'stairs', flights: '2', dir: 'up', turns: 'no', doorway: 'double', fit: 'yes' } });
   if ((await page.inputValue('[data-path="dropoff.contactName"]')) !== 'Jordan Lee') errors.push('"Same as me" did not fill the on-site contact');
@@ -216,7 +227,7 @@ const readOrders = () => JSON.parse(fs.readFileSync(path.join(ROOT, 'data', 'ord
   await expect(/Andrea B/, 'review missing pickup on-site contact');
   await expect(/Loading dock/i, 'review missing loading dock');
   await expect(/2 flights of stairs up/i, 'review missing delivery stairs');
-  await expect(/A few steps \(3 or fewer\) to the elevator/i, 'review missing pickup steps (with elevator)');
+  await expect(/A few steps \(3 or fewer\) on the way/i, 'review missing pickup steps (with elevator)');
   await expect(/Elevator to floor 2/, 'review missing pickup elevator floor');
   await expect(/Double doors · Fits easily/, 'review missing delivery doorway + fit');
   await expect(/Ground level, no elevator/, 'review must never print Ground level, no elevator', true);
@@ -432,9 +443,9 @@ const readOrders = () => JSON.parse(fs.readFileSync(path.join(ROOT, 'data', 'ord
   const shipOrder = readOrders()[0];
   if (shipOrder.service !== 'crating_shipping' || shipOrder.status !== 'pending_approval' || shipOrder.schedule.date) errors.push('shipping order should be a pending crating_shipping quote with no route date');
   if (shipOrder.dropoff.country !== 'France' || shipOrder.shipping.serviceLevel !== 'inside' || shipOrder.declaredValueProtection || Number(shipOrder.items[0].value) !== 20000) errors.push('shipping order: country / service level / crating / value wrong, or protection set');
-  const shipMail = fs.readdirSync(path.join(ROOT, 'outbox')).find((x) => x.startsWith(shipOrder.id) && x.includes('quote_received'));
-  const shipHtml = shipMail ? fs.readFileSync(path.join(ROOT, 'outbox', shipMail), 'utf8') : '';
-  if (!/Shipping quote request received/.test(shipHtml) || !/France/.test(shipHtml) || !/Inside delivery/.test(shipHtml)) errors.push('shipping quote email should be labeled shipping and list destination + service level');
+  const shipMail = fs.readdirSync(path.join(DATA_ROOT, 'outbox')).find((x) => x.startsWith(shipOrder.id) && x.includes('quote_received'));
+  const shipHtml = shipMail ? fs.readFileSync(path.join(DATA_ROOT, 'outbox', shipMail), 'utf8') : '';
+  if (!/Shipping request received/.test(shipHtml) || !/France/.test(shipHtml) || !/Inside delivery/.test(shipHtml)) errors.push('shipping quote email should be labeled shipping and list destination + service level');
 
   // ---- Order 10: Pickup + Delivery to Nevada → automatically a Shipping quote; special handling does not require photos ----
   await startFresh(page);
@@ -500,6 +511,28 @@ const readOrders = () => JSON.parse(fs.readFileSync(path.join(ROOT, 'data', 'ord
     if (!(await isBlocked(page))) errors.push('access: Elevator without a floor must block Continue');
     await fill(page, 'pickup.floor', '30');
     if (await isBlocked(page)) errors.push('access: Elevator to floor 30 should allow Continue');
+    // Dot review fixes: labels as questions, stairs on the way to the elevator, Not sure, dock + fit helper everywhere.
+    { const t = await page.evaluate(() => document.querySelector('#app').innerText);
+      for (const l of ['Service elevator available? (optional)', 'Any stairs on the way? (optional)', 'Loading dock available? (optional)', 'Doors (optional)', 'Think doors, halls, turns, stairs and the elevator.']) if (!t.includes(l)) errors.push('access copy missing: ' + l);
+      for (const l of ['Doorway (optional)', 'Any steps on the way to the elevator?']) if (t.includes(l)) errors.push('access copy still shows: ' + l); }
+    await segClick(page, 'pickup.elevatorStairs', 'stairs');
+    if (!(await count('[data-seg="pickup.stairFlights"]')) || !(await count('[data-seg="pickup.stairDir"]')) || !(await count('[data-seg="pickup.stairTurns"]'))) errors.push('access: Elevator + Stairs should reuse flights / up-or-down / tight turns');
+    if (!(await isBlocked(page))) errors.push('access: Elevator + Stairs without flights must block Continue');
+    await segClick(page, 'pickup.stairFlights', '2'); await segClick(page, 'pickup.stairDir', 'up');
+    if (await isBlocked(page)) errors.push('access: Elevator + 2 flights up should allow Continue');
+    { const st = await accState(); if (st.pickup.stairKind !== 'flights' || Number(st.pickup.stairs) !== 2 || !st.pickup.elevator) errors.push('access: Elevator + 2 flights should map to elevator + 2 flights'); }
+    await segClick(page, 'pickup.elevatorStairs', 'no');
+    if (await count('[data-seg="pickup.stairFlights"]')) errors.push('access: flights must hide when there are no stairs on the way');
+    await segClick(page, 'pickup.accessMode', 'not_sure');
+    if (await count('[data-path="pickup.floor"]')) errors.push('access: Floor must hide for Not sure');
+    if (await isBlocked(page)) errors.push('access: Not sure must not block Continue');
+    await expect(/We’ll confirm access with you before the job\./, 'access: Not sure must say We’ll confirm access with you before the job.');
+    { const st = await accState(); if (!st.pickup.accessReview) errors.push('access: Not sure should set accessReview'); }
+    if (!(await count('[data-seg="pickup.dock"]'))) errors.push('access: Loading dock should show for every mode (Not sure)');
+    await segClick(page, 'pickup.fits', 'not_sure');
+    await expect(/Photos help if you have them\./, 'access: Not sure fit line');
+    if (!(await count('[data-path="pickup.narrowestIn"]'))) errors.push('access: Narrowest opening should show for a not-sure fit');
+    await expect(/send them later/, 'access: never say send later on the access fit photos', true);
     await segClick(page, 'pickup.accessMode', 'steps');
     if (await count('[data-path="pickup.floor"]')) errors.push('access: Floor must hide for A few steps');
     { const st = await accState(); if (st.pickup.floor || st.pickup.elevator || st.pickup.stairKind !== 'steps') errors.push('access: switching to A few steps must clear floor/elevator: ' + JSON.stringify({ f: st.pickup.floor, e: st.pickup.elevator, k: st.pickup.stairKind })); }
@@ -526,15 +559,15 @@ const readOrders = () => JSON.parse(fs.readFileSync(path.join(ROOT, 'data', 'ord
     if (st.dropoff.stairKind !== 'none' || st.dropoff.elevator || st.dropoff.floor) errors.push('access: Ground level should map to stairKind none with no elevator / floor');
     await shot(page, '27-where-access');
     await next(page); await pickDay(page); await next(page); await page.waitForTimeout(500);
-    await expect(/1 flight of stairs down · Not sure about tight turns on the stairs · 1 photo\(s\) of the stairs/, 'review: pickup stairs in plain words');
-    await expect(/Ground level, straight in \(no stairs\) · Double doors · Tight fit · 1 photo\(s\) of the doorway/, 'review: delivery access in plain words');
+    await expect(/1 flight of stairs down · Not sure about tight turns on the stairs · 1 photo of the stairs/, 'review: pickup stairs in plain words');
+    await expect(/Ground level, straight in \(no stairs\) · Double doors · Tight fit · 1 photo of the tight spot and the way in/, 'review: delivery access in plain words');
     await expect(/Ground level, no elevator/, 'review must never print Ground level, no elevator', true);
     await expect(/Stairs — Piece 1/, 'small painting (no weight, under 72") should have no stairs fee', true);
   }
 
   // ---- Access rules via API: required answers + photos, and stair fees unchanged vs the old fields ----
   {
-    const postA = async (body) => fetch(BASE + '/api/orders', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    const postA = async (body) => fetch(BASE + '/api/orders', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(fillApi(body)) });
     const quoteA = async (body) => (await (await fetch(BASE + '/api/quote', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })).json());
     const site = (extra) => ({ street: '2 B St', city: 'Los Angeles', zip: '90210', contactName: 'T', contactPhone: '1', ...extra });
     const base = { service: 'pickup_delivery', contact: { name: 'T', email: 't@x.com', phone: '3105550100' }, pickup: site({ street: '1 A St', zip: '90069', accessMode: 'ground' }), schedule: { date: '2026-12-07', deliveryDate: '2026-12-07', timePref: 'none' } };
@@ -550,7 +583,7 @@ const readOrders = () => JSON.parse(fs.readFileSync(path.join(ROOT, 'data', 'ord
     const e4 = await errOf(await postA({ ...base, items: heavy, dropoff: site({ accessMode: 'stairs', stairFlights: '1', stairDir: 'up', stairTurns: 'yes', fits: 'yes' }) }));
     if (!/photos of the stairs and path/.test(e4)) errors.push('API: tight turns without photos must be rejected: ' + e4);
     const e5 = await errOf(await postA({ ...base, items: heavy, dropoff: site({ accessMode: 'stairs', stairFlights: '1', stairDir: 'up', stairTurns: 'yes', stairPhotos: ['/uploads/s.png'], fits: 'tight' }) }));
-    if (!/photos of the doorway/.test(e5) || /photos of the stairs/.test(e5)) errors.push('API: tight fit without a doorway photo must be rejected (stairs photos present): ' + e5);
+    if (!/photos of the tight spot/.test(e5) || /photos of the stairs/.test(e5)) errors.push('API: tight fit without a doorway photo must be rejected (stairs photos present): ' + e5);
     const e6 = await errOf(await postA({ ...base, items: small, dropoff: site({ accessMode: 'elevator' }) }));
     if (!/delivery elevator floor/.test(e6)) errors.push('API: elevator without a floor must be rejected: ' + e6);
     const e7 = await errOf(await postA({ ...base, items: small, dropoff: site({ accessMode: 'stairs', stairFlights: '4plus', stairDir: 'down' }) }));
@@ -577,7 +610,7 @@ const readOrders = () => JSON.parse(fs.readFileSync(path.join(ROOT, 'data', 'ord
   }
 
   // ---- Photo rules via API ----
-  const post = async (body) => fetch(BASE + '/api/orders', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  const post = async (body) => fetch(BASE + '/api/orders', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(fillApi(body)) });
   const baseOrder = { service: 'pickup_delivery', contact: { name: 'T', email: 't@x.com', phone: '3105550100' }, pickup: { street: '1 A St', city: 'Los Angeles', zip: '90069', contactName: 'T', contactPhone: '1', accessMode: 'ground', fits: 'yes' }, dropoff: { street: '2 B St', city: 'Los Angeles', zip: '90210', contactName: 'T', contactPhone: '1', accessMode: 'ground', fits: 'yes' }, schedule: { date: '2026-12-07', deliveryDate: '2026-12-07', timePref: 'none' } };
   const mid = await post({ ...baseOrder, items: [{ qty: 1, type: 'sculpture', weight: 350, value: 2000, description: 'Granite' }] });
   if (mid.status === 400) errors.push('350 lb piece without photos should be accepted (threshold is over 500 lb)');
@@ -776,7 +809,7 @@ const readOrders = () => JSON.parse(fs.readFileSync(path.join(ROOT, 'data', 'ord
 
   // ---- Admin ----
   const admin = await (await browser.newContext({ viewport: { width: 1280, height: 900 } })).newPage();
-  await admin.goto(`${BASE}/admin?key=cad-admin`); await admin.waitForSelector('tr.o');
+  await admin.goto(`${BASE}/admin?key=${encodeURIComponent(ADMIN_KEY)}`); await admin.waitForSelector('tr.o');
   if (!(await hasText(admin, /ACH processing/))) errors.push('admin should label ACH payment as processing');
   await docShot(admin, '13-admin');
   await admin.click(`tr.o[data-id="${id3}"]`); await admin.waitForSelector('#approveBox'); await admin.waitForTimeout(300);
@@ -802,36 +835,36 @@ const readOrders = () => JSON.parse(fs.readFileSync(path.join(ROOT, 'data', 'ord
   await expect(/You’re booked for/, 'payment link should confirm the job');
 
   // ---- Emails + CSV ----
-  const outbox = path.join(ROOT, 'outbox');
+  const outbox = path.join(DATA_ROOT, 'outbox');
   const files = fs.readdirSync(outbox).filter((f) => f.startsWith(id1));
   for (const kind of ['confirmation', 'reminder', 'eta']) {
     const f = files.find((x) => x.includes(`-${kind}-`)); if (!f) { errors.push('missing email ' + kind); continue; }
     const html = fs.readFileSync(path.join(outbox, f), 'utf8');
-    if (!/Pickup special instructions/i.test(html)) errors.push(kind + ' email missing pickup special instructions');
+    if (!/Pickup details/i.test(html) || !/Special instructions/.test(html)) errors.push(kind + ' email missing pickup details / special instructions');
     if (!/Andrea B/.test(html)) errors.push(kind + ' email missing pickup contact');
     if (!/Gate code 4411/.test(html)) errors.push(kind + ' email missing delivery notes');
   }
   const f2 = fs.readdirSync(outbox).find((x) => x.startsWith(id2) && x.includes('-confirmation-'));
   if (!f2 || !/ACH processing/.test(fs.readFileSync(path.join(outbox, f2), 'utf8'))) errors.push('ACH confirmation email should say ACH processing');
-  const csv = fs.readFileSync(path.join(ROOT, 'data', 'schedule-2026.csv'), 'utf8');
+  const csv = fs.readFileSync(path.join(DATA_ROOT, 'data', 'schedule-2026.csv'), 'utf8');
   if (!/Andrea B/.test(csv)) errors.push('CSV missing PU contact name');
   if (!/Loading dock: yes/.test(csv)) errors.push('CSV PU Notes missing loading dock');
-  if (!/A few steps \(3 or fewer\) to the elevator/.test(csv)) errors.push('CSV PU Notes missing steps-with-elevator');
+  if (!/A few steps \(3 or fewer\) on the way/.test(csv)) errors.push('CSV PU Notes missing steps-with-elevator');
   if (!/2 flights of stairs up · No tight turns on the stairs · Double doors · Fits easily/.test(csv)) errors.push('CSV DE Notes missing stairs + doorway');
-  if (!/Elevator to floor 2 · Service elevator: yes · Loading dock: yes/.test(csv)) errors.push('CSV PU Notes missing elevator floor / service elevator / dock');
+  if (!/Elevator to floor 2 · Service elevator: yes · A few steps \(3 or fewer\) on the way · Loading dock: yes/.test(csv)) errors.push('CSV PU Notes missing elevator floor / service elevator / dock');
   if (!/Gate code 4411/.test(csv)) errors.push('CSV DE Notes missing special instructions');
   if (!/customer chose a later delivery date/.test(csv)) errors.push('CSV missing separate later-delivery row');
   if (!/Plaster wall, hardware: CAD brings it/.test(csv)) errors.push('CSV DE Notes missing wall type and hardware');
   if (!/Standard eye level \(59""? center\)/.test(csv)) errors.push('CSV should record default 59" standard hanging height');
   if (!/Parking\/loading restrictions: Loading zone only/.test(csv)) errors.push('CSV PU Notes missing parking restriction');
-  if (!/Not sure it fits/.test(csv)) errors.push('CSV PU Notes missing fit warning');
+  if (!/Not sure everything fits/.test(csv)) errors.push('CSV PU Notes missing fit warning');
   if (!/ACH processing/.test(csv)) errors.push('CSV payment status should say ACH processing');
   if (!/type: Painting, Framed: Yes · Frame type: Medium/.test(csv)) errors.push('CSV should show item type, Framed and frame type');
   const conf1 = files.find((x) => x.includes('-confirmation-'));
   if (!conf1 || !/Painting · Framed: Yes · Frame type: Medium/.test(fs.readFileSync(path.join(outbox, conf1), 'utf8'))) errors.push('confirmation email should show item type, Framed and frame type');
 
   // ---- Admin: shipping quote labeled, Samantha prices it, customer pays, CSV row ----
-  await admin.goto(`${BASE}/admin?key=cad-admin`); await admin.waitForSelector('tr.o');
+  await admin.goto(`${BASE}/admin?key=${encodeURIComponent(ADMIN_KEY)}`); await admin.waitForSelector('tr.o');
   await admin.click(`tr.o[data-id="${shipOrder.id}"]`); await admin.waitForSelector('#approveBox'); await admin.waitForTimeout(300);
   if (!(await hasText(admin, /Samantha — price this shipping quote/))) errors.push('admin should label shipping quotes');
   if (!(await hasText(admin, /Shipping details/)) || !(await hasText(admin, /France/))) errors.push('admin should show shipping details');
@@ -840,10 +873,12 @@ const readOrders = () => JSON.parse(fs.readFileSync(path.join(ROOT, 'data', 'ord
   await admin.waitForSelector(`tr.o[data-id="${shipOrder.id}"] .pill.awaiting_payment`, { timeout: 5000 }).catch(() => errors.push('shipping approve failed'));
   await page.goto(`${BASE}/?order=${encodeURIComponent(shipOrder.id)}&pay=1`); await page.waitForSelector('#nextBtn'); await page.waitForTimeout(500);
   await page.click('#nextBtn'); await page.waitForSelector('.check'); await page.waitForTimeout(400);
-  const csv2 = fs.readFileSync(path.join(ROOT, 'data', 'schedule-2026.csv'), 'utf8');
+  const csv2 = fs.readFileSync(path.join(DATA_ROOT, 'data', 'schedule-2026.csv'), 'utf8');
   if (!/SHIPPING/.test(csv2)) errors.push('paid shipping job should write a SHIPPING schedule row');
 
   await browser.close();
+  // API-level regression checks from the Nov 16 audit (routing, validation, idempotency, emails, admin key).
+  await require('./audit-regression').run(BASE, errors);
   console.log(JSON.stringify({ engine: process.env.E2E_BROWSER || 'chromium', id1, id2, id3, errors }, null, 2));
   if (errors.length) process.exit(1);
 })().catch((e) => { console.error(e); process.exit(1); });

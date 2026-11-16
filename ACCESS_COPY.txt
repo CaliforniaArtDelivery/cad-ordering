@@ -8,8 +8,19 @@ Option | Ground level, straight in (no stairs)
 Option | A few steps (3 or fewer)
 Option | Stairs
 Option | Elevator
+Option | Not sure
+Line under Q1 (Not sure; does not block checkout; flags the stop "ACCESS REVIEW" for CAD) | We’ll confirm access with you before the job.
 
---- If Stairs ---
+--- If Elevator ---
+Input label (required) | Floor
+Input placeholder | e.g. 30
+Question label | Service elevator available? (optional)
+Options | Yes / No / Not sure
+Question label | Any stairs on the way? (optional)
+Options | No / A few steps / Stairs
+(Stairs → the same flights, up-or-down and tight-turns questions as below; same stairs fee as the Stairs answer)
+
+--- If Stairs (or Elevator with "Any stairs on the way?" = Stairs) ---
 Question label (required) | How many flights?
 Option | Half flight
 Option | 1 flight
@@ -27,52 +38,55 @@ Note under a required question (large/heavy pieces) | We need this for large or 
 Photo requirement line (Yes or Not sure) | Photos of the stairs and path — required, so we can plan the carry.
 Upload button | ＋ Photos of the stairs and path
 
---- If Elevator ---
-Input label (required) | Floor
-Input placeholder | e.g. 30
-Question label | Service elevator? (optional)
+--- Every mode, once Q1 is answered ---
+Question label | Loading dock available? (optional)
 Options | Yes / No / Not sure
-Question label | Loading dock? (optional)
-Options | Yes / No / Not sure
-Question label | Any steps on the way to the elevator? (optional)
-Options | No / A few steps (3 or fewer)
-
---- Doors (shown once Q1 is answered) ---
-Question label | Doorway (optional)
+Question label | Doors (optional)
 Options | Single door / Double doors / Not sure
 Question label (required for large/heavy pieces, otherwise "(optional)") | Will everything fit easily?
 Options | Yes / Tight fit / Not sure
-Hint under fit question (Elevator only) | Think doors, halls and the elevator.
+Hint under fit question (every mode) | Think doors, halls, turns, stairs and the elevator.
 Note under a required fit question (large/heavy pieces) | We need this for large or heavy pieces.
-Photo requirement line (Tight fit) | Photos of the doorway — required for a tight fit.
-Helpful-photo line (Not sure) | Photos of the doorway are helpful if you have them — you can also send them later.
-Upload button (Tight fit: marked Required; Not sure: "(helpful)") | ＋ Photos of the doorway
+Photo requirement line (Tight fit; blocks Continue until a photo is added) | Photos of the tight spot and the way in, so we can plan the carry.
+Upload button (Tight fit: marked Required) | ＋ Photos
+Helpful-photo line (Not sure; optional) | Photos help if you have them.
+Upload button (Not sure) | ＋ Photos (helpful)
+Input label (Tight fit or Not sure) | Narrowest opening (inches) (optional)
+Input placeholder | e.g. 30
 
 --- "Still needed" messages (dock need-line / field errors). Label is followed by " — Pickup" / " — Delivery" / " — Installation" / " — Destination" ---
 How do we get in? | Please tell us how we get in.
 How many flights? | Please choose how many flights of stairs.
-Exact number of flights | Please enter how many flights of stairs (4 or more).
+Exact number of flights | Enter the total number of flights (4 or more).
 Up or down? | Please tell us if the stairs go up or down.
 Tight turns or narrow spots? | Please tell us about tight turns or narrow spots.
 Photos of the stairs and path | Please add a photo of the stairs and path.
 Floor | Please enter the floor.
 Will everything fit easily? | Please tell us if everything will fit easily.
-Photos of the doorway | Please add a photo of the doorway.
+Photos of the tight spot | Please add a photo of the tight spot and the way in.
 
---- Review page "Access" row, confirmation email "Access" line, schedule sheet notes (only what was chosen, joined with " · ") ---
+--- Review page "Access" row, confirmation email "Access" line, schedule sheet notes (only what was chosen, joined with " · "; a skipped optional question prints nothing) ---
 Ground level | Ground level, straight in (no stairs)
 A few steps | A few steps (3 or fewer)
+Not sure | Access not sure: We’ll confirm access with you before the job.   (schedule sheet instead starts with "ACCESS REVIEW: customer not sure, CAD to confirm access before the job"; admin list shows "ACCESS REVIEW")
 Stairs | 2 flights of stairs up   (also "1 flight of stairs down", "Half flight of stairs up", "5 flights of stairs down")
 Stairs, turns | Tight turns or narrow spots on the stairs / No tight turns on the stairs / Not sure about tight turns on the stairs
-Stairs, photos | 2 photo(s) of the stairs
+Stairs, photos | 1 photo of the stairs / 2 photos of the stairs
 Elevator | Elevator to floor 30
 Elevator, service | Service elevator: yes / Service elevator: no / Service elevator: not sure
-Elevator, dock | Loading dock: yes / Loading dock: no / Loading dock: not sure
-Elevator, steps | A few steps (3 or fewer) to the elevator
-Doorway | Single door / Double doors / Doorway: not sure
-Fit | Fits easily / Tight fit / Not sure it fits through doors/elevator
-Doorway photos | 1 photo(s) of the doorway
+Elevator, stairs on the way | No stairs on the way / A few steps (3 or fewer) on the way / 2 flights of stairs up on the way to the elevator (+ the turns and photos lines above)
+Loading dock (any mode) | Loading dock: yes / Loading dock: no / Loading dock: not sure
+Doors | Single door / Double doors / Doors: not sure
+Fit | Fits easily / Tight fit / Not sure everything fits
+Narrowest opening | Narrowest opening 30 in
+Fit photos | 1 photo of the tight spot and the way in / 2 photos of the tight spot and the way in
 Review fallback, never reached in practice because Q1 is required | Not answered yet
 
+--- Estimate note (Not sure at any stop; priced with no stairs fee) ---
+Note | We’ll confirm access with you before the job.
+
+--- Stairwell fit confirmation (pieces over 80") ---
+Shown when a stop has real stairs (Stairs, or Elevator + Stairs). For "A few steps (3 or fewer)" only when the piece is also over 150 lb.
+
 --- Server rejection (API "Missing: …", shown only if the browser checks are bypassed; prefixed with "pickup " / "delivery " / "install ") ---
-access (how do we get in?) | number of flights | number of flights (4 or more) | stairs up or down | tight turns on the stairs | photos of the stairs and path | elevator floor | will everything fit easily | photos of the doorway
+access (how do we get in?) | number of flights | number of flights (4 or more) | stairs up or down | tight turns on the stairs | photos of the stairs and path | elevator floor | will everything fit easily | photos of the tight spot and the way in | stairwell fit confirmation for pieces over 80 inches

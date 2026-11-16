@@ -1,0 +1,214 @@
+// Regression checks for the Nov 16, 2026 pre-flight audit (AUDIT_FINDINGS.md). API + library level, no browser.
+// Standalone: node scripts/audit-regression.js (server on BASE_URL, started with STORAGE_DIR, ADMIN_KEY and TEST_MODE=1).
+// Also run at the end of scripts/e2e.js; every failure goes into the same errors list.
+const fs = require('fs');
+const path = require('path');
+const ROOT = path.join(__dirname, '..');
+const sched = require('../lib/scheduling');
+const config = require('../config');
+
+async function run(BASE, errors, { dataRoot = process.env.STORAGE_DIR || ROOT, adminKey = process.env.ADMIN_KEY || '' } = {}) {
+  const post = async (u, b) => { const r = await fetch(BASE + u, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(b) }); return { s: r.status, j: await r.json().catch(() => ({})) }; };
+  const outbox = path.join(dataRoot, 'outbox');
+  const mails = (id, kind) => fs.readdirSync(outbox).filter((f) => f.startsWith(id + '-') && (!kind || f.includes(`-${kind}`))).map((f) => fs.readFileSync(path.join(outbox, f), 'utf8'));
+  const text = (html) => html.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ');
+
+  // ---- 1. Routing: ZIP first, city field only, never the street (P0-1) ----
+  const zones = [
+    [{ street: '1800 Laguna St', city: 'San Francisco', zip: '94109' }, 'BayWest'],
+    [{ street: '2000 Van Ness Ave', city: 'San Francisco', zip: '94109' }, 'BayWest'],
+    [{ street: '100 Marina Blvd', city: 'San Francisco', zip: '94123' }, 'BayWest'],
+    [{ street: '500 Davis St', city: 'San Francisco', zip: '94111' }, 'BayWest'],
+    [{ street: '1 Fremont St', city: 'San Francisco', zip: '94105' }, 'BayWest'],
+    [{ street: '10 Richmond Ave', city: 'San Jose', zip: '95128' }, 'BayWest'],
+    [{ street: '200 Lincoln Ave', city: 'Palo Alto', zip: '94301' }, 'BayWest'],
+    [{ street: '4000 Lincoln Blvd', city: 'Marina del Rey', zip: '90292' }, 'LA'],
+    [{ street: '123 Orange Grove Blvd', city: 'Pasadena', zip: '91105' }, 'LA'],
+    [{ street: '1 Huntington Dr', city: 'San Marino', zip: '91108' }, 'LA'],
+    [{ street: '50 Sonoma Ave', city: 'Los Angeles', zip: '90024' }, 'LA'],
+    [{ street: '1 Carmel Ave', city: 'Palm Springs', zip: '92262' }, 'Coachella'],
+    [{ street: '100 Main St', city: 'Orangevale', zip: '95662' }, 'Sacramento'],
+    [{ street: '1 Ocean Ave', city: 'Carmel-by-the-Sea', zip: '93921' }, 'Carmel'],
+    [{ street: '', city: 'Marina', zip: '93933' }, 'Carmel'],
+    [{ street: '', city: 'Gilroy', zip: '95020' }, 'Carmel'],
+    [{ street: '', city: 'Napa', zip: '94558' }, 'NapaWine'],
+    [{ street: '', city: 'Oakland', zip: '94611' }, 'EastBay'],
+    [{ street: '', city: 'Healdsburg', zip: '95448' }, 'BayWest'],
+    [{ street: '', city: 'Tahoe City', zip: '96145' }, 'Tahoe'],
+    [{ street: '', city: 'Laguna Beach', zip: '92651' }, 'OC'],
+    [{ street: '', city: 'La Jolla', zip: '92037' }, 'SD'],
+    [{ street: '', city: 'Montecito', zip: '93108' }, 'SB'],
+    // No ZIP: the city field decides, never the street.
+    [{ street: '1 Laguna St', city: 'San Francisco', zip: '' }, 'BayWest'],
+    [{ street: '1 Marina Way', city: 'Marina del Rey', zip: '' }, 'LA'],
+    [{ street: '1 Main St', city: 'Orangevale', zip: '' }, 'Sacramento'],
+  ];
+  zones.forEach(([a, want]) => { const got = sched.zoneFor(a); if (got !== want) errors.push(`routing: ${a.street || '-'}, ${a.city} ${a.zip} → ${got}, expected ${want}`); });
+  const sfDays = sched.availableDays({ street: '1800 Laguna St', city: 'San Francisco', zip: '94109' }, { count: 30 });
+  if (!sfDays.length || sfDays.some((d) => ![3, 5].includes(new Date(d.date + 'T12:00:00Z').getUTCDay()))) errors.push('routing: 1800 Laguna St 94109 should only get Wed/Fri Bay Area days');
+
+  // ---- 2. Holidays (P1-28) and customer route labels (P0-10) ----
+  ['2027-01-18', '2027-02-15', '2027-05-31', '2027-07-05', '2027-09-06', '2027-11-25', '2027-12-24', '2027-12-25'].forEach((d) => {
+    if (!config.scheduling.blackoutDates.includes(d)) errors.push(`holidays: ${d} should be blacked out`);
+  });
+  const allDays = ['90069', '94109', '92618', '93921', '96145', '92262', '92037', '93711']
+    .flatMap((zip) => sched.availableDays({ zip, city: '' }, { count: 200 }));
+  if (allDays.some((d) => config.scheduling.blackoutDates.includes(d.date))) errors.push('holidays: a blackout date is offered as a route day');
+  const badLabel = allDays.find((d) => /→|·|heading|simple stop|hub|night in|if quick/i.test(`${d.shortLabel} ${d.routeLabel}`));
+  if (badLabel) errors.push(`route labels: internal wording shown to customers: "${badLabel.shortLabel}" / "${badLabel.routeLabel}"`);
+
+  // ---- 3. Server-side validation mirrors the form (P0-2) ----
+  const addr = (o) => ({ street: '1 Main St', city: 'Los Angeles', state: 'CA', zip: '90069', country: 'United States', contactName: 'Pat Pickup', contactPhone: '3105550101', contactRole: 'Assistant', accessMode: 'ground', fits: 'yes', ...o });
+  const item = (o) => ({ qty: 1, type: 'painting', description: 'Oil', w: 30, h: 40, d: 2, framed: 'no', value: '5000', photos: [], ...o });
+  const laDays = sched.availableDays(addr(), { count: 10 });
+  const date = laDays[0].date;
+  const base = (o) => ({
+    service: 'pickup_delivery', items: [item()], pickup: addr(), dropoff: addr({ contactName: 'Rita Recipient', contactPhone: '4155550102', contactRole: 'Homeowner' }),
+    contact: { name: 'Bea Buyer', email: 'buyer@example.com', phone: '3105550100' }, heard: { source: 'google' },
+    schedule: { date, deliveryDate: date }, payer: 'me', ...o,
+  });
+  const nonRoute = (() => { for (let i = 3; i < 30; i++) { const d = new Date(Date.now() + i * 864e5).toISOString().slice(0, 10); if (!laDays.some((x) => x.date === d) && !sched.availableDays(addr(), { count: 40 }).some((x) => x.date === d)) return d; } return null; })();
+  const bad = [
+    ['blackout date', base({ schedule: { date: '2027-12-25', deliveryDate: '2027-12-25' } })],
+    ['past date', base({ schedule: { date: '2020-01-01', deliveryDate: '2020-01-01' } })],
+    ['non-route day for the address', base({ schedule: { date: nonRoute, deliveryDate: nonRoute } })],
+    ['delivery before pickup', base({ schedule: { date: laDays[1].date, deliveryDate: laDays[0].date } })],
+    ['missing dimensions', base({ items: [item({ w: '', h: '', d: '' })] })],
+    ['missing contact role', base({ pickup: addr({ contactRole: '' }) })],
+    ['"Other" role without text', base({ pickup: addr({ contactRole: 'Other', contactRoleOther: '' }) })],
+    ['sculpture without weight', base({ items: [item({ type: 'sculpture', framed: '', weight: '' })] })],
+    ['over 500 lb without photo', base({ items: [item({ type: 'sculpture', framed: '', weight: '501' })] })],
+  ];
+  for (const [name, b] of bad) { const r = await post('/api/orders', b); if (r.s !== 400) errors.push(`validation: ${name} should be refused (got ${r.s} ${r.j.status || ''})`); }
+  const at500 = await post('/api/orders', base({ items: [item({ type: 'sculpture', framed: '', weight: '500', description: 'Exactly 500 lb' })] }));
+  if (at500.s !== 200) errors.push(`validation: exactly 500 lb needs no photo (got ${at500.s} ${at500.j.error || ''})`);
+
+  // ---- 4. Idempotency: double tap / refresh after paying (P0-16) ----
+  const once = base({ items: [item({ description: 'Idempotency check ' + Date.now() })] });
+  const [a1, a2] = await Promise.all([post('/api/orders', once), post('/api/orders', once)]);
+  if (!a1.j.id || a1.j.id !== a2.j.id) errors.push(`idempotency: two identical submits made two orders (${a1.j.id}, ${a2.j.id})`);
+  const p1 = await post(`/api/orders/${a1.j.id}/pay`, { method: 'card', card: '4242424242424242' });
+  const again = await post('/api/orders', once);
+  const p2 = await post(`/api/orders/${again.j.id}/pay`, { method: 'card', card: '4242424242424242' });
+  if (again.j.id !== a1.j.id || again.j.status !== 'confirmed') errors.push('idempotency: resubmitting after paying should return the confirmed order');
+  if (!p1.j.order || !p2.j.order || p1.j.order.payment.ref !== p2.j.order.payment.ref) errors.push('idempotency: paying twice should not create a second payment');
+  if (mails(a1.j.id, 'confirmation').length !== 1) errors.push('idempotency: exactly one confirmation email expected');
+
+  // ---- 5. Emails: wording, commas, payer copies, install address (P0-7, P0-8, P0-15, P1-10) ----
+  const banned = /\(she may consult Chad\)|rush or dedicated trip quote|1\.5× to 2×|handler|Drop-off|crat(e|ed|ing)|\$\d{4,}\.\d\d/i;
+  const weightQ = await post('/api/orders', base({ items: [item({ type: 'sculpture', framed: '', weight: '', weightUnsure: true, description: 'Bronze, weight unknown' })], payer: 'other', payerOther: { name: 'Paul Payer', email: 'payer@example.com', phone: '2125550103' } }));
+  if (weightQ.j.status !== 'pending_approval') errors.push('weight-unknown sculpture should be a quote request');
+  else {
+    const m = text(mails(weightQ.j.id, 'quote_received')[0] || '');
+    if (!m) errors.push('quote_received email missing');
+    if (banned.test(m)) errors.push(`quote email has banned wording: ${(m.match(banned) || [])[0]}`);
+    if (/\$75\.00–\$75\.00|\$0\.00–\$0\.00/.test(m)) errors.push('quote email shows a fake same-number range');
+    if (!/weight we’ll confirm/.test(m)) errors.push('quote email should say why it needs a price (weight to confirm)');
+    if (!mails(weightQ.j.id, 'payer_quote').length) errors.push('payer should get a notice when listed as "Someone else"');
+  }
+  const big = await post('/api/orders', { ...base({ service: 'install_only', items: [item({ qty: 20, value: '10000', description: 'Install receipt check' })], payer: 'other', payerOther: { name: 'Paul Payer', email: 'payer@example.com', phone: '2125550103' } }), pickup: undefined });
+  if (big.s !== 200) errors.push(`install-only order refused: ${big.j.error}`);
+  else {
+    await post(`/api/orders/${big.j.id}/pay`, { method: 'card', card: '4242424242424242' });
+    const m = text(mails(big.j.id, 'confirmation')[0] || '');
+    if (!/Install address/.test(m) || /Drop-off/.test(m)) errors.push('install-only email should say "Install address", never "Drop-off"');
+    if (!/\$4,050\.00/.test(m) || !/\$2,025\.00/.test(m)) errors.push('email prices need commas ($4,050.00 / $2,025.00)');
+    if (/at pickup/.test(m)) errors.push('install-only email should never mention "at pickup"');
+    if (banned.test(m)) errors.push(`confirmation email has banned wording: ${(m.match(banned) || [])[0]}`);
+    if (!mails(big.j.id, 'payer_receipt').length) errors.push('payer should get a receipt copy when listed as "Someone else"');
+  }
+  const shipQ = await post('/api/orders', base({ service: 'crating_shipping', dropoff: addr({ city: 'Portland', state: 'OR', zip: '97201', locationType: 'residential' }), items: [item({ weight: '20' })], shipping: { serviceLevel: 'inside', shipBy: '', flexible: true }, schedule: {} }));
+  if (shipQ.s !== 200) errors.push(`shipping request refused: ${shipQ.j.error}`);
+  else { const m = text(mails(shipQ.j.id, 'quote_received')[0] || ''); if (/crat(e|ed|ing)|Why a quote|customer chose/i.test(m)) errors.push('shipping email should not mention crating or internal notes'); }
+
+  // ---- 6. Admin key (P0-3) ----
+  for (const k of ['', 'cad-admin']) { const r = await fetch(`${BASE}/api/admin/orders?key=${k}`); if (r.status === 200) errors.push(`admin: key "${k || '(none)'}" must not open admin`); }
+  if (adminKey) { const r = await fetch(`${BASE}/api/admin/orders?key=${encodeURIComponent(adminKey)}`); if (r.status !== 200) errors.push('admin: the configured ADMIN_KEY should open admin'); }
+
+  // ---- 7. Access fixes (Dot review, Nov 16 2026) ----
+  const A = require('../public/access');
+  const schedSheet = require('../lib/schedule');
+  if (!A.MODES.some(([k, l]) => k === 'not_sure' && l === 'Not sure') || A.MODES.length !== 5) errors.push('access: "Not sure" should be the 5th first answer');
+  ['Ground level, straight in (no stairs)', 'A few steps (3 or fewer)', 'Stairs', 'Elevator'].forEach((l, i) => { if (A.MODES[i][1] !== l) errors.push(`access: Chad's option wording changed: ${A.MODES[i][1]}`); });
+  const heavyIt = [item({ type: 'sculpture', framed: '', weight: '226', w: 16, h: 52, d: 15, photos: ['/uploads/x.png'] })];
+  const qFee = async (dropoff, pickup = {}) => {
+    const r = await post('/api/quote', { service: 'pickup_delivery', items: heavyIt, pickup: { zip: '90069', ...pickup }, dropoff: { zip: '90210', ...dropoff } });
+    const lines = (r.j.lines || []).filter((l) => /^Stairs/.test(l.label));
+    return { fee: lines.reduce((t, l) => t + l.amount, 0), lines, j: r.j };
+  };
+  // Elevator buildings with real stairs on the way: same follow-ups and the same fee as Stairs.
+  const elevStairs = { accessMode: 'elevator', floor: '9', elevatorStairs: 'stairs', stairFlights: '2', stairDir: 'up', stairTurns: 'no', fits: 'yes' };
+  const plain2 = { accessMode: 'stairs', stairFlights: '2', stairDir: 'up', stairTurns: 'no', fits: 'yes' };
+  const fe = await qFee(elevStairs); const fs2 = await qFee(plain2);
+  if (fe.fee !== 300 || fe.fee !== fs2.fee) errors.push(`access fee: elevator + 2 flights should be $300 like plain stairs (got $${fe.fee} vs $${fs2.fee})`);
+  const both = await qFee(elevStairs, { accessMode: 'stairs', stairFlights: 'half', stairDir: 'down', stairTurns: 'no', fits: 'yes' });
+  if (both.fee !== 375 || both.lines.length !== 2) errors.push(`access fee: pickup half flight + delivery elevator with 2 flights should sum to $375 in 2 lines (got $${both.fee}, ${both.lines.length})`);
+  const fsteps = await qFee({ accessMode: 'elevator', floor: '9', elevatorStairs: 'steps', fits: 'yes' });
+  const fno = await qFee({ accessMode: 'elevator', floor: '9', elevatorStairs: 'no', fits: 'yes' });
+  if (fsteps.fee || fno.fee) errors.push('access fee: elevator with no stairs or a few steps has no stairs fee');
+  const legacy = A.normalize({ accessMode: 'elevator', floor: '3', elevatorSteps: 'steps' });
+  if (legacy.elevatorStairs !== 'steps' || legacy.stairKind !== 'steps') errors.push('access: old "steps to the elevator" answers should still map to A few steps');
+  // Elevator + Stairs asks the same follow-ups (and photos for tight turns).
+  const g1 = A.gaps(A.normalize({ accessMode: 'elevator', floor: '4', elevatorStairs: 'stairs' }), heavyIt);
+  ['stairFlights', 'stairDir', 'stairTurns'].forEach((k) => { if (!g1.includes(k)) errors.push(`access: elevator + stairs should require ${k}`); });
+  const g2 = A.gaps(A.normalize({ accessMode: 'elevator', floor: '4', elevatorStairs: 'stairs', stairFlights: '1', stairDir: 'up', stairTurns: 'yes', fits: 'yes' }), heavyIt);
+  if (!g2.includes('stairPhotos')) errors.push('access: elevator + stairs with tight turns should require stair photos');
+  // Not sure: priced like no stairs, but always flagged for review, with the customer note.
+  const fns = await qFee({ accessMode: 'not_sure', fits: 'yes' });
+  if (fns.fee) errors.push('access: Not sure should not add a stairs fee');
+  if (!/We’ll confirm access with you before the job\./.test(JSON.stringify(fns.j))) errors.push('access: Not sure quote must say "We’ll confirm access with you before the job."');
+  const ns = A.normalize({ accessMode: 'not_sure' });
+  if (!ns.accessReview || ns.stairKind !== 'none') errors.push('access: Not sure should set accessReview');
+  if (A.summary(ns).some((x) => /Ground level/.test(x))) errors.push('access: Not sure must never read as Ground level');
+  if (!A.summary(ns).join(' ').includes('We’ll confirm access with you before the job.')) errors.push('access: Not sure review line missing the confirm note');
+  if (A.gaps(ns, [item()]).length) errors.push('access: Not sure must not block checkout for a small piece');
+  const nsOrder = await post('/api/orders', base({ items: [item({ description: 'Access not sure ' + Date.now() })], dropoff: addr({ contactName: 'Rita Recipient', contactPhone: '4155550102', contactRole: 'Homeowner', accessMode: 'not_sure', fits: '' }) }));
+  if (nsOrder.s !== 200) errors.push(`access: Not sure order refused: ${nsOrder.j.error}`);
+  else {
+    if (!nsOrder.j.order || nsOrder.j.order.accessReview !== true) errors.push('access: Not sure order should carry accessReview: true');
+    const row = schedSheet.toRow ? schedSheet.toRow(nsOrder.j.order) : null;
+    const notes = schedSheet.formatAccessNotes ? schedSheet.formatAccessNotes(nsOrder.j.order.dropoff) : JSON.stringify(row || '');
+    if (!/ACCESS REVIEW/.test(notes)) errors.push('access: schedule sheet notes should flag ACCESS REVIEW');
+    if (adminKey) {
+      const adm = await (await fetch(`${BASE}/api/admin/orders?key=${encodeURIComponent(adminKey)}`)).json();
+      const found = (adm.orders || adm).find ? (adm.orders || adm).find((o) => o.id === nsOrder.j.id) : null;
+      if (!found || !found.accessReview) errors.push('access: admin view should see accessReview on the order');
+    }
+    const admHtml = fs.readFileSync(path.join(ROOT, 'public', 'admin.html'), 'utf8');
+    if (!/ACCESS REVIEW/.test(admHtml)) errors.push('access: admin list should show an ACCESS REVIEW tag');
+  }
+  // Loading dock for every mode; label + summary wording; skipped answers never asserted; plurals.
+  const dk = A.normalize({ accessMode: 'ground', dock: 'yes' });
+  if (dk.dock !== 'yes' || !dk.loadingDock || !A.summary(dk).includes('Loading dock: yes')) errors.push('access: Loading dock should be kept for ground level too');
+  const skipped = A.summary(A.normalize({ accessMode: 'elevator', floor: '12' }));
+  if (skipped.join(' · ') !== 'Elevator to floor 12') errors.push('access: skipped answers must not appear: ' + skipped.join(' · '));
+  const one = A.summary(A.normalize({ accessMode: 'stairs', stairFlights: '1', stairDir: 'up', stairTurns: 'yes', stairPhotos: ['a'], fits: 'tight', doorPhotos: ['a', 'b'], narrowestIn: '28' })).join(' · ');
+  if (!/1 photo of the stairs/.test(one) || !/2 photos of the tight spot/.test(one) || /photo\(s\)/.test(one)) errors.push('access: plurals wrong: ' + one);
+  if (!/Narrowest opening 28 in/.test(one)) errors.push('access: narrowest opening missing from summary');
+  if (A.normalize({ accessMode: 'ground', fits: 'yes', narrowestIn: '28' }).narrowestIn !== '') errors.push('access: narrowest opening only applies to a tight or not-sure fit');
+  // Server error wording.
+  const e4 = await post('/api/orders', base({ dropoff: addr({ contactRole: 'Homeowner', accessMode: 'stairs', stairFlights: '4plus', stairDir: 'up' }) }));
+  if (!/number of flights \(4 or more\)/.test(e4.j.error || '')) errors.push('access: 4+ flights without a total should be refused');
+  // Stairwell fit: "A few steps" only asks for a large piece that is also heavy.
+  const pr = require('../lib/pricing');
+  const tall = { w: 90, h: 40, d: 3, weight: 40 };
+  const tallHeavy = { w: 90, h: 40, d: 3, weight: 300 };
+  const ord = (dropoff) => ({ service: 'delivery', dropoff });
+  if (pr.needsStairwellFit(tall, ord(A.normalize({ accessMode: 'steps' })))) errors.push('stairwell fit: a light 90" piece with a few steps should not ask');
+  if (!pr.needsStairwellFit(tallHeavy, ord(A.normalize({ accessMode: 'steps' })))) errors.push('stairwell fit: a heavy 90" piece with a few steps should ask');
+  if (!pr.needsStairwellFit(tall, ord(A.normalize({ accessMode: 'stairs', stairFlights: '1', stairDir: 'up' })))) errors.push('stairwell fit: real stairs should ask for a 90" piece');
+  if (!pr.needsStairwellFit(tall, ord(A.normalize({ accessMode: 'elevator', floor: '3', elevatorStairs: 'stairs', stairFlights: '1', stairDir: 'up' })))) errors.push('stairwell fit: elevator + stairs should ask for a 90" piece');
+  // ACCESS_COPY.txt matches the new copy.
+  const copy = fs.readFileSync(path.join(ROOT, 'ACCESS_COPY.txt'), 'utf8');
+  ['Not sure', 'Any stairs on the way?', 'Service elevator available?', 'Loading dock available?', 'Doors (optional)', 'Think doors, halls, turns, stairs and the elevator.', 'Photos of the tight spot and the way in, so we can plan the carry.', 'Photos help if you have them.', 'Narrowest opening (inches)', 'Enter the total number of flights (4 or more).', 'We’ll confirm access with you before the job.']
+    .forEach((t) => { if (!copy.includes(t)) errors.push('ACCESS_COPY.txt missing: ' + t); });
+  ['send them later', 'Doorway (optional)', 'steps on the way to the elevator', 'photo(s)'].forEach((t) => { if (copy.includes(t)) errors.push('ACCESS_COPY.txt still has: ' + t); });
+  return errors;
+}
+
+module.exports = { run };
+if (require.main === module) {
+  const errors = [];
+  run(process.env.BASE_URL || 'http://localhost:3000', errors).then(() => { console.log(JSON.stringify({ errors }, null, 2)); if (errors.length) process.exit(1); })
+    .catch((e) => { console.error(e); process.exit(1); });
+}

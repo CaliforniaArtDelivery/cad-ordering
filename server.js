@@ -4,7 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const config = require('./config');
-const { quote, isOutOfState, applyApprovedPrice, SERVICES, OFFERED_SERVICES, displayFrom, FURNITURE_KINDS, DECOR_KINDS } = require('./lib/pricing');
+const { quote, isOutOfState, applyApprovedPrice, SERVICES, OFFERED_SERVICES, displayFrom, FURNITURE_KINDS, DECOR_KINDS, needsStairwellFit } = require('./lib/pricing');
 const sched = require('./lib/scheduling');
 const schedule = require('./lib/schedule');
 const email = require('./lib/email');
@@ -125,7 +125,7 @@ function validate(o) {
   const ACCESS_ERR = {
     accessMode: 'access (how do we get in?)', stairFlights: 'number of flights', stairs: 'number of flights (4 or more)', stairDir: 'stairs up or down',
     stairTurns: 'tight turns on the stairs', stairPhotos: 'photos of the stairs and path', floor: 'elevator floor',
-    fits: 'will everything fit easily', doorPhotos: 'photos of the doorway',
+    fits: 'will everything fit easily', doorPhotos: 'photos of the tight spot and the way in',
   };
   const accessStops = [];
   if (SERVICES[o.service]?.needsPickup) accessStops.push(['pickup', o.pickup]);
@@ -167,6 +167,7 @@ function validate(o) {
     const needsDims = (it) => !['custom', 'furniture'].includes(it.type || 'painting');
     if (items.some((it) => needsDims(it) && !['w', 'h', 'd'].every((k) => numVal(it[k]) > 0))) errs.push('size in inches (W × H × D) for every piece');
     if (items.some((it) => ['sculpture', 'other'].includes(it.type) && !(it.weightUnsure || numVal(it.weight) > 0))) errs.push('weight (or “Not sure”) for sculpture and other pieces');
+    if (items.some((it) => needsStairwellFit(it, o) && !it.fitsStairwell)) errs.push('stairwell fit confirmation for pieces over 80 inches');
   }
   // On-site contact role at every stop, worded for the person on site (it may or may not be the booker).
   const stops = [];
@@ -241,6 +242,8 @@ app.post('/api/orders', (req, res) => {
     ...(outOfState ? { requestedService: b.service, outOfState: true } : {}),
     ...(shipping ? { shipping: b.shipping || {} } : {}),
     crating: false, rush: !!b.rush, dedicated: !!b.dedicated,
+    // Access “Not sure” at any stop: CAD confirms access with the customer before the job (not priced as ground level silently).
+    accessReview: ['pickup', 'dropoff'].some((k) => b[k] && b[k].street && ACCESS.needsReview(b[k])),
     member: !!resolveMember(b),
     memberCode: (resolveMember(b) || {}).code || '',
     memberCompany: (resolveMember(b) || {}).company || '',

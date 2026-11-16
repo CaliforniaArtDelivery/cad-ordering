@@ -60,8 +60,8 @@ function draw() {
   ].map(([b, s]) => `<div class="stat"><b>${b}</b><span>${s}</span></div>`).join('');
   document.getElementById('rows').innerHTML = os.map((o) => `<tr class="o" data-id="${o.id}">
     <td><b>${esc(o.id)}</b><br><span class="muted">${new Date(o.createdAt).toLocaleString('en-US',{timeZone:'America/Los_Angeles',month:'short',day:'numeric',hour:'numeric',minute:'2-digit'})} PT</span></td>
-    <td>${o.service === 'crating_shipping' ? '<b>SHIPPING</b>' : esc(o.schedule.date)}<br><span class="muted">${esc(o.schedule.region)}${o.outOfState ? ' · OUT OF STATE' : ''}${o.rush ? ' · RUSH' : ''}${o.dedicated ? ' · DEDICATED' : ''}</span></td>
-    <td>${esc(o.serviceLabel)}<br><span class="muted">${o.items.reduce((s, i) => s + Number(i.qty || 1), 0)} piece(s)</span></td>
+    <td>${o.service === 'crating_shipping' ? '<b>SHIPPING</b>' : esc(o.schedule.date)}<br><span class="muted">${esc(o.schedule.region)}${o.outOfState ? ' · OUT OF STATE' : ''}${o.rush ? ' · RUSH' : ''}${o.dedicated ? ' · DEDICATED' : ''}${o.accessReview ? ' · <b>ACCESS REVIEW</b>' : ''}</span></td>
+    <td>${esc(o.serviceLabel)}<br><span class="muted">${((n) => n + (n === 1 ? ' piece' : ' pieces'))(o.items.reduce((s, i) => s + Number(i.qty || 1), 0))}</span></td>
     <td>${esc(o.contact.name)}<br><span class="muted">${esc(o.contact.clientType)}${o.partner?.name ? ' · via ' + esc(o.partner.name) : ''}</span></td>
     <td>${esc(o.dropoff.city || o.pickup.city)}${o.dropoff.country && !/^(us|usa|united states)/i.test(o.dropoff.country) ? ', ' + esc(o.dropoff.country) : o.dropoff.state && !/^ca$/i.test(o.dropoff.state) ? ', ' + esc(o.dropoff.state) : ''}</td><td>${estimateCell(o)}</td>
     <td>${o.payment ? esc(o.payment.method) + (o.payment.status === 'paid' ? ' · paid' : o.payment.status === 'ach_processing' ? ' · ACH processing' : ' · ' + o.payment.status) : (o.status === 'awaiting_payment' ? 'awaiting pay' : '—')}</td>
@@ -85,7 +85,7 @@ function approveBox(o) {
   </div>`;
   return `<div class="approve" id="approveBox">
     <h3>Samantha — approve and set a price</h3>
-    <p class="muted" style="margin:0 0 12px">Samantha sets the final price on rush, dedicated-trip and custom-crating quotes (she may consult Chad). Regular rate ${fmt(q.regularTotal || q.total)}. ${q.tripPremium === false ? 'Crating only: transport at the regular rate. Add the crating partner’s price.' : `Suggested range ${q.quoteRange ? fmt(q.quoteRange.low) + '–' + fmt(q.quoteRange.high) : '—'} (1.5× to 2×), based on how far out of the way and how large the job is.${o.crating ? ' Add the crating partner’s price.' : ''}`} Approving writes a payment-link email to the outbox (not sent). The customer is not charged until they pay.</p>
+    <p class="muted" style="margin:0 0 12px">Samantha sets the final price on rush, dedicated-trip and custom quotes (she may consult Chad). Regular rate ${fmt(q.regularTotal || q.total)}. ${q.tripPremium === false ? 'Crating only: transport at the regular rate. Add the crating partner’s price.' : `Suggested range ${q.quoteRange ? fmt(q.quoteRange.low) + '–' + fmt(q.quoteRange.high) : '—'} (1.5× to 2×), based on how far out of the way and how large the job is.${o.crating ? ' Add the crating partner’s price.' : ''}`} Approving writes a payment-link email to the outbox (not sent). The customer is not charged until they pay.</p>
     <div class="row">
       <div class="field" style="margin:0"><label class="f">Final price ($)</label><input type="number" id="approvePrice" min="1" step="1" value="${mid}"></div>
       <div class="field" style="margin:0"><label class="f">Note (optional)</label><input type="text" id="approveNote" placeholder="Why this price, logistics notes…"></div>

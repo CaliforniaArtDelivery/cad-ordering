@@ -10,7 +10,7 @@ const emptyAddr = () => ({
   street: '', city: '', state: 'CA', zip: '', country: 'United States', locationType: '', business: '',
   contactName: '', contactPhone: '', contactRole: '', contactRoleOther: '', sameAsMe: false, hours: '',
   accessMode: '', stairFlights: '', stairDir: '', stairTurns: '', stairPhotos: [],
-  serviceElevator: '', dock: '', elevatorSteps: '', doorway: '', doorPhotos: [],
+  serviceElevator: '', dock: '', elevatorStairs: '', doorway: '', doorPhotos: [], narrowestIn: '', accessReview: false,
   floor: '', loadingDock: false, elevator: false, stairs: 0, steps: false, stairKind: '',
   fits: '', parkingRestricted: false, parkingNote: '', technicalCarry: false, sitePhotos: [],
   centerHeight: '', wallType: '', hardware: '', highInstall: false, installLocation: '', wallPhotos: [],
@@ -28,7 +28,7 @@ const migrateAddr = (a = {}) => {
     street: a.street || '', city: a.city || '', state: a.state || 'CA', zip: a.zip || '', country: a.country || 'United States', locationType: a.locationType || '', business: a.business || '',
     contactName: a.contactName || '', contactPhone: a.contactPhone || '', contactRole: a.contactRole || '', contactRoleOther: a.contactRoleOther || '', sameAsMe: !!a.sameAsMe, hours: a.hours || '',
     accessMode: a.accessMode || '', stairFlights: a.stairFlights ?? '', stairDir: a.stairDir || '', stairTurns: a.stairTurns || '', stairPhotos: a.stairPhotos || [],
-    serviceElevator: a.serviceElevator || '', dock: a.dock || '', elevatorSteps: a.elevatorSteps || '', doorway: a.doorway || '', doorPhotos: a.doorPhotos || [],
+    serviceElevator: a.serviceElevator || '', dock: a.dock || '', elevatorStairs: a.elevatorStairs || (a.elevatorSteps === 'steps' ? 'steps' : ''), doorway: a.doorway || '', doorPhotos: a.doorPhotos || [], narrowestIn: a.narrowestIn ?? '', accessReview: !!a.accessReview,
     floor: a.floor || '', loadingDock: !!(a.loadingDock || a.parking === 'Loading dock'), elevator: !!a.elevator,
     stairs: a.stairs === '' ? '' : (Number(a.stairs) || 0), steps: !!a.steps, stairKind: a.accessMode ? (a.stairKind || '') : '',
     fits: a.fits || '', parkingRestricted: !!a.parkingRestricted, parkingNote: a.parkingNote || '',
@@ -422,13 +422,21 @@ const stairsText = (a) => {
 };
 const stairsArePresent = (a) => stairKindOf(a) !== 'none';
 const anyStairsPresent = () => (!!svc().needsPickup && stairsArePresent(S.pickup)) || stairsArePresent(S.dropoff);
-const pieceNeedsStairwellFit = (it) => Math.max(num(it.w), num(it.h), num(it.d)) > 80 && anyStairsPresent();
+// Stairwell fit (pieces over 80"): real stairs at a stop always ask; "A few steps (3 or fewer)" only asks when the
+// piece is also heavy (over CADAccess.HEAVY_LB). Same rule as needsStairwellFit in lib/pricing.js.
+const accessStops = () => [...(svc().needsPickup ? [S.pickup] : []), S.dropoff];
+const pieceNeedsStairwellFit = (it) => {
+  if (!(Math.max(num(it.w), num(it.h), num(it.d)) > 80)) return false;
+  const kinds = accessStops().map(stairKindOf);
+  if (kinds.some((k) => k !== 'none' && k !== 'steps')) return true;
+  return kinds.includes('steps') && num(it.weight) > CADAccess.HEAVY_LB;
+};
 const hangSummary = (it, i) => {
   const name = pieceName(i);
   if (it.hangHeight === 'higher') {
     const where = it.hangWhere === 'other' && it.hangWhereOther ? it.hangWhereOther : (it.hangWhere ? hangWhereLabel(it.hangWhere) : '');
     const bottom = it.hangBottomFt ? ` · ${it.hangBottomFt} ft to the bottom` : '';
-    const photos = it.hangPhotos && it.hangPhotos.length ? ` · ${it.hangPhotos.length} photo(s)` : '';
+    const photos = it.hangPhotos && it.hangPhotos.length ? ` · ${CADAccess.plural(it.hangPhotos.length, 'photo')}` : '';
     return `${name}: Higher than eye level${where ? ' — ' + where : ''}${bottom}${photos}`;
   }
   return `${name}: Standard eye level (${it.centerHeight || 59}" center)`;
@@ -470,24 +478,26 @@ const accessBlock = (key, a) => {
   const firmNote = '<p class="mini">We need this for large or heavy pieces.</p>';
   const opt = (label) => `${label} (optional)`;
   let h = `<div class="field" data-access="${key}"><label class="f">How do we get in?${req}</label>${seg(`${key}.accessMode`, A.MODES, 'stack')}</div>`;
-  if (mode === 'stairs') {
+  if (mode === 'not_sure') h += `<p class="mini" style="margin:0 0 8px">${A.REVIEW_NOTE}</p>`;
+  if (mode === 'elevator') {
+    h += input(`${key}.floor`, 'Floor', { ph: 'e.g. 30', attrs: 'inputmode="numeric"', req: true });
+    h += `<div class="field"><label class="f">${opt('Service elevator available?')}</label>${seg(`${key}.serviceElevator`, A.YNS, 'wrap')}</div>`;
+    h += `<div class="field"><label class="f">${opt('Any stairs on the way?')}</label>${seg(`${key}.elevatorStairs`, A.ELEV_STAIRS, 'wrap')}</div>`;
+  }
+  if (A.usesStairs(a)) {
     h += `<div class="field"><label class="f">How many flights?${req}</label>${seg(`${key}.stairFlights`, A.FLIGHTS, 'wrap')}
       ${String(a.stairFlights) === '4plus' ? input(`${key}.stairs`, 'Exact number of flights', { type: 'number', ph: 'e.g. 5', attrs: 'inputmode="numeric" min="4" step="1"', req: true }) : ''}</div>`;
     h += `<div class="field"><label class="f">Up or down?${req}</label>${seg(`${key}.stairDir`, A.DIRS, 'wrap')}</div>`;
     h += `<div class="field"><label class="f">${big ? 'Any tight turns or narrow spots?' + req : opt('Any tight turns or narrow spots?')}</label>${seg(`${key}.stairTurns`, A.YNS, 'wrap')}${big ? firmNote : ''}</div>`;
     if (A.stairPhotosNeeded(a)) h += `<p class="mini req-line">Photos of the stairs and path — required, so we can plan the carry.</p>${photoRow(key, 'stairPhotos', 'Photos of the stairs and path', true)}`;
   }
-  if (mode === 'elevator') {
-    h += input(`${key}.floor`, 'Floor', { ph: 'e.g. 30', attrs: 'inputmode="numeric"', req: true });
-    h += `<div class="field"><label class="f">${opt('Service elevator?')}</label>${seg(`${key}.serviceElevator`, A.YNS, 'wrap')}</div>`;
-    h += `<div class="field"><label class="f">${opt('Loading dock?')}</label>${seg(`${key}.dock`, A.YNS, 'wrap')}</div>`;
-    h += `<div class="field"><label class="f">${opt('Any steps on the way to the elevator?')}</label>${seg(`${key}.elevatorSteps`, A.ELEV_STEPS, 'wrap')}</div>`;
-  }
   if (mode) {
-    h += `<div class="field"><label class="f">${opt('Doorway')}</label>${seg(`${key}.doorway`, A.DOORWAYS, 'wrap')}</div>`;
-    h += `<div class="field"><label class="f">${big ? 'Will everything fit easily?' + req : opt('Will everything fit easily?')}</label>${seg(`${key}.fits`, A.FITS, 'wrap')}${mode === 'elevator' ? '<p class="mini">Think doors, halls and the elevator.</p>' : ''}${big ? firmNote : ''}</div>`;
-    if (A.doorPhotosNeeded(a)) h += `<p class="mini req-line">Photos of the doorway — required for a tight fit.</p>${photoRow(key, 'doorPhotos', 'Photos of the doorway', true)}`;
-    else if (a.fits === 'not_sure') h += `<p class="mini" style="margin:0 0 8px">Photos of the doorway are helpful if you have them — you can also send them later.</p>${photoRow(key, 'doorPhotos', 'Photos of the doorway', false)}`;
+    h += `<div class="field"><label class="f">${opt('Loading dock available?')}</label>${seg(`${key}.dock`, A.YNS, 'wrap')}</div>`;
+    h += `<div class="field"><label class="f">${opt('Doors')}</label>${seg(`${key}.doorway`, A.DOORWAYS, 'wrap')}</div>`;
+    h += `<div class="field"><label class="f">${big ? 'Will everything fit easily?' + req : opt('Will everything fit easily?')}</label>${seg(`${key}.fits`, A.FITS, 'wrap')}<p class="mini">Think doors, halls, turns, stairs and the elevator.</p>${big ? firmNote : ''}</div>`;
+    if (A.doorPhotosNeeded(a)) h += `<p class="mini req-line">Photos of the tight spot and the way in, so we can plan the carry.</p>${photoRow(key, 'doorPhotos', 'Photos', true)}`;
+    else if (a.fits === 'not_sure') h += `<p class="mini" style="margin:0 0 8px">Photos help if you have them.</p>${photoRow(key, 'doorPhotos', 'Photos', false)}`;
+    if (A.fitUnsure(a)) h += input(`${key}.narrowestIn`, opt('Narrowest opening (inches)'), { type: 'number', ph: 'e.g. 30', attrs: 'inputmode="numeric" min="1" step="1"' });
   }
   h += `${toggle(`${key}.technicalCarry`, 'Tight spaces, backyard or technical carry', 'Garden paths, gravel or flagstone, narrow side gates, or around the house.', true)}
         ${a.technicalCarry ? `<p class="mini" style="margin:0 0 8px">Photos of the route are helpful if you have them — you can also send them later.</p><div class="photos" style="margin:0 0 12px">${(a.sitePhotos || []).map((ph2) => `<img src="${esc(ph2)}" alt="">`).join('')}<label class="upload">＋ Photos of the route (stairs, stairwell, narrow halls or path)<span> (helpful)</span><input type="file" accept="image/*" multiple data-siteupload="${key}"></label></div>` : ''}
@@ -1047,13 +1057,13 @@ function missingFields() {
       const ACCESS_GAP = {
         accessMode: [`[data-seg="${key}.accessMode"]`, 'How do we get in?', 'Please tell us how we get in.'],
         stairFlights: [`[data-seg="${key}.stairFlights"]`, 'How many flights?', 'Please choose how many flights of stairs.'],
-        stairs: [`#f-${key}.stairs`, 'Exact number of flights', 'Please enter how many flights of stairs (4 or more).'],
+        stairs: [`#f-${key}.stairs`, 'Exact number of flights', 'Enter the total number of flights (4 or more).'],
         stairDir: [`[data-seg="${key}.stairDir"]`, 'Up or down?', 'Please tell us if the stairs go up or down.'],
         stairTurns: [`[data-seg="${key}.stairTurns"]`, 'Tight turns or narrow spots?', 'Please tell us about tight turns or narrow spots.'],
         stairPhotos: [`[data-accessupload="${key}.stairPhotos"]`, 'Photos of the stairs and path', 'Please add a photo of the stairs and path.'],
         floor: [`#f-${key}.floor`, 'Floor', 'Please enter the floor.'],
         fits: [`[data-seg="${key}.fits"]`, 'Will everything fit easily?', 'Please tell us if everything will fit easily.'],
-        doorPhotos: [`[data-accessupload="${key}.doorPhotos"]`, 'Photos of the doorway', 'Please add a photo of the doorway.'],
+        doorPhotos: [`[data-accessupload="${key}.doorPhotos"]`, 'Photos of the tight spot', 'Please add a photo of the tight spot and the way in.'],
       };
       CADAccess.gaps(a, S.items).forEach((g) => { const [sel, label, msg] = ACCESS_GAP[g]; add(sel, `${label} — ${where}`, msg); });
     });
@@ -1406,7 +1416,7 @@ app.addEventListener('click', async (e) => {
   if (t.dataset.wallet) return pay(CFG.stripe ? 'stripe' : t.dataset.wallet);
   const sg = t.closest('[data-seg]'); const hp = sg && sg.dataset.seg.match(/^items\.(\d+)\.hangPick$/);
   if (hp) { const it = S.items[+hp[1]]; const v = t.dataset.v; if (v === 'standard') { it.hangHeight = 'standard'; it.hangWhere = ''; } else { it.hangHeight = 'higher'; it.hangWhere = v; } set(sg.dataset.seg, v); render(); return; }
-  const acc = sg && sg.dataset.seg.match(/^(pickup|dropoff)\.(accessMode|stairFlights|stairDir|stairTurns|serviceElevator|dock|elevatorSteps|doorway|fits)$/);
+  const acc = sg && sg.dataset.seg.match(/^(pickup|dropoff)\.(accessMode|stairFlights|stairDir|stairTurns|serviceElevator|dock|elevatorStairs|doorway|fits)$/);
   if (acc) { set(sg.dataset.seg, t.dataset.v); CADAccess.normalize(S[acc[1]]); persist(); render(); return; }
   if (sg) { const v = t.dataset.v; set(sg.dataset.seg, isNaN(v) ? v : Number(v)); render(); return; }
   const paySeg = t.closest('[data-pay-method]'); if (paySeg) { payMethod = t.dataset.v; render(); return; }
