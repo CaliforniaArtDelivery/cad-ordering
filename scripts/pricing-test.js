@@ -183,9 +183,7 @@ check(line(split, /over 48"/) && line(split, /over 48"/).amount === 40, 'split j
 check(line(split, /over 60"/) && line(split, /over 60"/).amount === 115, 'split job should have the over-60" install line at $115', split.lines);
 check(split.total === 305, '60×40 + 61×40 install-only should stay $305', split);
 
-// Markup base (the +% part) checked with the 1.5% minimum switched off, then the minimum on top.
-const configHv = require('../config');
-configHv.pricing.valuation.highValueFloor = false;
+// High-value handling is the +% markup on the piece's normal price only (no 1.5% floor).
 const hv = q('install_only', [{ qty: 1, type: 'mirror', w: 60, h: 40, value: 100001, description: 'm' }]);
 const hl = line(hv, /High-value handling \+200%/);
 check(hl && hl.amount === 230, 'high-value +200% on install-only should be based on $115, so $230', hv.lines);
@@ -194,9 +192,6 @@ const hvPd = q('pickup_delivery', [{ qty: 1, type: 'mirror', w: 60, h: 40, value
 const hlPd = line(hvPd, /High-value handling \+200%/);
 check(hlPd && hlPd.amount === 600, 'high-value +200% on 60×40 pickup+delivery should be based on $300, so $600', hvPd.lines);
 check(hvPd.total === 900, 'high-value 60×40 pickup+delivery should be $900', hvPd);
-configHv.pricing.valuation.highValueFloor = true;
-const hvMin = q('install_only', [{ qty: 1, type: 'mirror', w: 60, h: 40, value: 100001, description: 'm' }]);
-check(line(hvMin, /minimum 1\.5%/) && line(hvMin, /High-value/).amount === 1500.02 && hvMin.total === 1615.02, 'with the 1.5% minimum: $100,001 mirror install pays $1,500.02 (beats +200% = $230), total $1,615.02', hvMin.lines);
 
 const paint60 = q('install_only', [{ qty: 1, type: 'painting', framed: 'no', w: 60, h: 40, description: 'p' }]);
 const paint71 = q('install_only', [{ qty: 1, type: 'painting', framed: 'no', w: 71, h: 40, description: 'p' }]);
@@ -213,7 +208,7 @@ const pl = line(at50, DVP);
 check(pl && pl.label === 'Required declared value protection: 1.5% of $50,000' && pl.amount === 750, '$50,000 piece: required protection line, $750', at50.lines);
 check(at50.protection && at50.protection.amount === 750 && at50.protection.eligibleValue === 50000, '$50,000 piece: quote.protection should carry $750 on $50,000 eligible', at50.protection);
 check(!line(at50, /High-value/), '$50,000 piece: no high-value markup', at50.lines);
-check(!line(over50, /declared value protection/i) && !over50.protection && line(over50, /High-value handling \(minimum 1\.5% of declared value\)/) && over50.total === 1150.02, '$50,001 piece: no protection, high-value handling at the 1.5% minimum ($750.02), total $1,150.02', over50.lines);
+check(!line(over50, /declared value protection/i) && !over50.protection && line(over50, /High-value handling \+100%/) && line(over50, /High-value/).amount === 400 && over50.total === 800, '$50,001 piece: no protection, high-value handling doubles the $400 move to $800', over50.lines);
 // Dot, Nov 16 2026: protection uses only ELIGIBLE pieces (each <= $50,000, times quantity), never the total declared value.
 const mixedDv = q('pickup_delivery', [
   { qty: 2, type: 'sculpture', weight: 120, value: 10000, description: 'a' },
@@ -224,8 +219,8 @@ const mixedDv = q('pickup_delivery', [
 const mdl = line(mixedDv, DVP);
 check(mdl && mdl.label === 'Required declared value protection: 1.5% of $71,000' && mdl.amount === 1065, 'mixed: 2×$10,000 + $50,000 + 4×$250 = $71,000 eligible → $1,065 (the 3×$60,000 never counts)', mixedDv.lines);
 check(mixedDv.protection && mixedDv.protection.eligibleValue === 71000 && mixedDv.protection.amount === 1065, 'mixed: quote.protection.eligibleValue = $71,000', mixedDv.protection);
-const mhv = line(mixedDv, /High-value handling \(minimum 1\.5% of declared value\) · b \(\$60,000\) × 3/);
-check(mhv && mhv.amount === 2700 && (mixedDv.highValueItems || []).length === 1 && mixedDv.highValueItems[0].index === 1 && mixedDv.highValueItems[0].perPiece === 900, 'mixed: only the $60,000 pieces get high-value handling ($900 each, 1.5% minimum, × 3)', { l: mixedDv.lines, h: mixedDv.highValueItems });
+const mhv = line(mixedDv, /High-value handling \+100% · b \(\$60,000\) × 3/);
+check(mhv && mhv.amount === 1200 && (mixedDv.highValueItems || []).length === 1 && mixedDv.highValueItems[0].index === 1 && mixedDv.highValueItems[0].perPiece === 400, 'mixed: only the $60,000 pieces get high-value handling ($400 each, +100% of the $400 move, × 3)', { l: mixedDv.lines, h: mixedDv.highValueItems });
 const onlyHv = q('pickup_delivery', [{ qty: 2, type: 'sculpture', weight: 120, value: 75000, description: 'x' }]);
 check(!line(onlyHv, /declared value protection/i) && !onlyHv.protection, 'only ineligible pieces: no protection line at all', onlyHv.lines);
 const cents = q('pickup_delivery', [{ qty: 3, type: 'sculpture', weight: 120, value: 12345.67, description: 'x' }]);
@@ -254,8 +249,8 @@ noGate('large 96" sofa', q('pickup_delivery', [{ qty: 1, type: 'furniture', furn
 // Unknown weight is not "heavy": it still can't be priced from the weight card, so it stays a CAD-priced request.
 check(q('pickup_delivery', [{ qty: 1, type: 'sculpture', weightUnsure: true, value: 5000, description: 's' }]).paymentPlan === 'quote', 'unknown sculpture weight stays priced by CAD (no weight to price from)');
 
-// ---- Chad approved Nov 16 2026: over $50,000 pays the greater of high-value handling or 1.5% of declared value ----
-check(config.pricing.valuation.highValueFloor === true, 'high-value 1.5% minimum is the rule (Chad approved Nov 16 2026)');
+// ---- Chad, Nov 16 2026: over $50,000, no declared value protection; high-value handling only ----
+check(!('highValueFloor' in config.pricing.valuation), 'the 1.5% high-value minimum is no longer the rule (Chad, Nov 16 2026)');
 const kinds = [
   ['painting, pickup + delivery', 'pickup_delivery', { type: 'painting', framed: 'no', w: 30, h: 40, d: 2 }],
   ['painting, delivery + install', 'delivery_install', { type: 'painting', framed: 'no', w: 30, h: 40, d: 2 }],
@@ -266,23 +261,28 @@ const kinds = [
   ['medium sofa', 'pickup_delivery', { type: 'furniture', furnitureKind: 'Sofa', sizeClass: 'medium' }],
   ['other fragile item', 'pickup_delivery', { type: 'other', weight: 80, w: 20, h: 20, d: 20 }],
 ];
+const OVER50_NOTE = 'Over $50,000: declared value protection not offered; high-value handling applies.';
 for (const [name, svc, it] of kinds) for (const qty of [1, 3]) {
   const t = (value) => q(svc, [{ qty, description: 'x', ...it, value }]);
   const [a, b, c] = [49999, 50000, 50001].map(t);
-  check(a.total <= b.total && b.total <= c.total, `${name} × ${qty}: price must never drop crossing $50,000`, [a.total, b.total, c.total]);
-  const hvl = line(c, /High-value handling/);
-  check(hvl && hvl.amount >= Math.round(50001 * 0.015 * qty * 100) / 100 - 0.01, `${name} × ${qty}: $50,001 charge is at least 1.5% of declared value`, c.lines);
-  check(!line(c, /declared value protection/i), `${name} × ${qty}: $50,001 still gets no protection line`, c.lines);
+  check(line(a, DVP) && line(a, DVP).amount === Math.round(49999 * 0.015 * qty * 100 + 1e-6) / 100, `${name} × ${qty}: $49,999 includes the 1.5% protection charge`, a.lines);
   check(line(b, DVP) && line(b, DVP).amount === 750 * qty, `${name} × ${qty}: $50,000 keeps $750 per piece protection`, b.lines);
+  check(!line(a, /High-value/) && !line(b, /High-value/), `${name} × ${qty}: $49,999 and $50,000 have no high-value handling`, [a.lines, b.lines]);
+  check(!line(c, /declared value protection/i) && !c.protection, `${name} × ${qty}: $50,001 gets no protection line`, c.lines);
+  const hvl = line(c, /High-value handling \+100%/);
+  check(hvl && hvl.amount > 0, `${name} × ${qty}: $50,001 pays high-value handling +100%, with no protection`, c.lines);
+  check((c.notes || []).includes(OVER50_NOTE), `${name} × ${qty}: $50,001 quote carries the over-$50,000 note`, c.notes);
 }
 const flo = q('pickup_delivery', [{ qty: 1, type: 'sculpture', weight: 120, value: 50001, description: 's' }]);
-check(line(flo, /^High-value handling \(minimum 1\.5% of declared value\) · s \(\$50,001\)$/) && line(flo, /High-value/).amount === 750.02 && flo.highValueItems[0].minimumApplied, 'the 1.5% minimum is labelled and recorded', flo.lines);
+check(line(flo, /^High-value handling \+100% · s \(\$50,001\)$/) && line(flo, /High-value/).amount === 400 && flo.total === 800, '$50,001 120 lb sculpture: $400 move, no protection, doubled handling is $800', flo.lines);
+const floQty = q('pickup_delivery', [{ qty: 2, type: 'sculpture', weight: 120, value: 50001, description: 's' }]);
+check(!line(floQty, /declared value protection/i) && line(floQty, /High-value handling \+100%/).amount === 800 && floQty.total === 1600, 'qty 2 × $50,001 120 lb sculpture: doubled handling, $1,600', floQty.lines);
 const big = q('pickup_delivery', [{ qty: 1, type: 'sculpture', weight: 900, value: 1000001, description: 's' }]);
-check(line(big, /High-value/).amount === Math.max(1000 * 6, 15000.02) && /1\.5% of declared value/.test(line(big, /High-value/).label), '$1M+ piece pays the greater (1.5% = $15,000.02 beats +600% of $1,000)', big.lines);
+check(line(big, /High-value handling \+600%/) && line(big, /High-value/).amount === 6000 && big.total === 7000, '$1M+ 900 lb sculpture: +600% of the $1,000 move = $6,000, total $7,000 (no 1.5% floor)', big.lines);
 const big2 = q('pickup_delivery', [{ qty: 1, type: 'sculpture', weight: 900, value: 60000, description: 's' }]);
-check(line(big2, /High-value handling \+100%/) && line(big2, /High-value/).amount === 1000, 'when +100% ($1,000) beats 1.5% ($900) the markup stays', big2.lines);
+check(line(big2, /High-value handling \+100%/) && line(big2, /High-value/).amount === 1000 && big2.total === 2000, '$60,000 900 lb sculpture: +100% of $1,000, total $2,000', big2.lines);
 
-check(line(sc(300001), /High-value/).amount === 4500.02, '1.5% of $300,001 rounds half-up to $4,500.02 (no float drift)', sc(300001).lines);
+check(line(sc(300001), /High-value handling \+300%/) && line(sc(300001), /High-value/).amount === 1200 && sc(300001).total === 1600, '$300,001 120 lb sculpture: +300% of the $400 move = $1,200, total $1,600', sc(300001).lines);
 
 // ---- Decision 3: no sales tax anywhere ----
 const fs = require('fs'), path = require('path');

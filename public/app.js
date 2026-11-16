@@ -623,7 +623,7 @@ const photosOk = (it) => !itemPhotoReason(it) || (it.photos || []).length > 0;
 const sitePhotosOk = () => true;
 const hangPhotosOk = (it) => it.hangHeight !== 'higher' || it.hangWhere !== 'stairwell' || (it.hangPhotos || []).length > 0;
 const valueHint = (it) => (shipService() ? 'Its current value. Our shipping partner uses it for coverage.'
-  : num(it.value) > 50000 ? `This piece isn’t eligible for declared value protection. A high-value handling charge applies instead, at least 1.5% of its declared value${hvChargeText(it)}.`
+  : num(it.value) > 50000 ? `This piece isn’t eligible for declared value protection. A high-value handling charge applies instead${hvChargeText(it)}.`
   : num(it.value) > 0 ? `Required declared value protection: 1.5% of this piece’s declared value (${fmt(Math.round(num(it.value) * 1.5) / 100)} per piece).`
   : PROTECTION_HINT);
 // The piece's high-value handling charge, once the live quote has priced it.
@@ -637,7 +637,7 @@ const hvChargeText = (it) => {
 const PROTECTION_HINT = 'Its current value. Pieces valued up to $50,000 carry required declared value protection: 1.5% of their declared value.';
 const protectionNote = (q) => [
   q && q.protection && q.protection.amount > 0 ? 'Required declared value protection is 1.5% of the declared value of each eligible piece (valued up to $50,000), included in the price above.' : '',
-  q && (q.highValueItems || []).length ? 'Pieces valued over $50,000 aren’t eligible; they carry a high-value handling charge instead, never less than 1.5% of the piece’s declared value.' : '',
+  q && (q.highValueItems || []).length ? 'Over $50,000: declared value protection not offered; high-value handling applies.' : '',
 ].filter(Boolean).join(' ');
 const PROTECTION_DOCK = 'Includes required declared value protection';
 const weightRequired = (it) => shipService() || it.type === 'sculpture' || it.type === 'other';

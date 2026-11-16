@@ -329,7 +329,7 @@ const readOrders = () => JSON.parse(fs.readFileSync(path.join(DATA_ROOT, 'data',
   await fill(page, 'items.0.value', 120000); await page.press('[data-path="items.0.value"]', 'Tab'); await page.waitForTimeout(300);
   await page.waitForFunction(() => /per piece/.test((document.querySelector('[data-valhint="0"]') || {}).textContent || ''), null, { timeout: 5000 }).catch(() => {});
   { const h = ((await page.textContent('[data-valhint="0"]').catch(() => '')) || '').trim();
-    if (h !== 'This piece isn’t eligible for declared value protection. A high-value handling charge applies instead, at least 1.5% of its declared value ($1,800 per piece).') errors.push('value hint over $50K (with the charge): ' + h); }
+    if (h !== 'This piece isn’t eligible for declared value protection. A high-value handling charge applies instead ($400 per piece).') errors.push('value hint over $50K (with the charge): ' + h); }
   await next(page);
   await me(page, 'Priya Shah', 'priya@example.com', '310-555-0177');
   await fillSite(page, 'pickup', { street: '8678 Melrose Ave', city: 'West Hollywood', zip: '90069', same: true });
@@ -341,9 +341,9 @@ const readOrders = () => JSON.parse(fs.readFileSync(path.join(DATA_ROOT, 'data',
   await page.waitForSelector('[data-deldate]'); await page.click('[data-deldate]'); await page.waitForTimeout(300);
   await shot(page, '08-when-rush');
   await next(page); await page.waitForTimeout(500);
-  await expect(/High-value handling \(minimum 1\.5% of declared value\) · Photograph, rushed for an opening \(\$120,000\)/, 'review should show the per-item high-value line at the 1.5% minimum');
+  await expect(/High-value handling \+200% · Photograph, rushed for an opening \(\$120,000\)/, 'review should show the per-item high-value handling +200% line');
   { const note = ((await page.textContent('[data-protection-note]').catch(() => '')) || '').trim();
-    if (note !== 'Pieces valued over $50,000 aren’t eligible; they carry a high-value handling charge instead, never less than 1.5% of the piece’s declared value.') errors.push('review note over $50K: ' + note); }
+    if (note !== 'Over $50,000: declared value protection not offered; high-value handling applies.') errors.push('review note over $50K: ' + note); }
   await expect(/Required declared value protection: 1\.5% of/, 'no protection line on a piece over $50K', true);
   await expect(/insurance/i, 'over-$50K review must not mention insurance', true);
   if (await page.$eval('#estNote', (e) => !e.hidden).catch(() => false)) errors.push('bar must not mention protection when no piece carries it (quote over $50K)');
@@ -689,19 +689,16 @@ const readOrders = () => JSON.parse(fs.readFileSync(path.join(DATA_ROOT, 'data',
   // ---- Declared value / high-value boundaries via API (120 lb sculpture = $400 normal price) ----
   const qAPI = async (body) => (await (await fetch(BASE + '/api/quote', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })).json());
   const hv = async (value) => qAPI({ service: 'pickup_delivery', items: [{ qty: 1, type: 'sculpture', weight: 120, value, description: 'S' }], pickup: { zip: '90069' }, dropoff: { zip: '90210' } });
-  // Chad, Nov 16 2026: over $50,000 pays the greater of the +% markup or 1.5% of declared value (so the price never drops).
-  let prevTotal = 0;
-  for (const [v, pct, total] of [[49999, 0, 1149.99], [50000, 0, 1150], [50001, 100, 1150.02], [100001, 200, 1900.02], [300001, 300, 4900.02], [500001, 400, 7900.02], [750001, 500, 11650.02], [1000001, 600, 15400.02]]) {
+  // Chad, Nov 16 2026: over $50,000, no declared value protection; high-value handling only (a lower total is intended).
+  for (const [v, pct, total] of [[49999, 0, 1149.99], [50000, 0, 1150], [50001, 100, 800], [100001, 200, 1200], [300001, 300, 1600], [500001, 400, 2000], [750001, 500, 2400], [1000001, 600, 2800]]) {
     const r = await hv(v);
     const hl = r.lines.find((l) => /High-value handling/.test(l.label));
     const dvp = r.lines.find((l) => /declared value protection/i.test(l.label));
-    const hvAmt = Math.max(400 * pct / 100, Math.round(v * 1.5) / 100);
+    const hvAmt = 400 * pct / 100;
     if (pct === 0 && (hl || !dvp || dvp.amount !== Math.round(v * 1.5) / 100)) errors.push(`$${v}: should get required 1.5% protection, no markup: ` + JSON.stringify(r.lines));
-    if (pct && (dvp || !hl || hl.amount !== hvAmt || !/minimum 1\.5% of declared value/.test(hl.label))) errors.push(`$${v}: should be high-value handling $${hvAmt} (1.5% minimum) and no protection: ` + JSON.stringify(r.lines));
+    if (pct && (dvp || !hl || hl.amount !== hvAmt || !new RegExp('High-value handling \\+' + pct + '%').test(hl.label))) errors.push(`$${v}: should be high-value handling +${pct}% = $${hvAmt} and no protection: ` + JSON.stringify(r.lines));
     if (r.total !== total) errors.push(`$${v}: total should be $${total}, got ${r.total}`);
-    if (r.total < prevTotal) errors.push(`$${v}: price dropped from $${prevTotal} to $${r.total}`);
-    prevTotal = r.total;
-    if (pct && !r.notes.includes('Pieces valued over $50,000 aren’t eligible for declared value protection. They carry a high-value handling charge instead, never less than 1.5% of the piece’s declared value.')) errors.push(`$${v}: missing high-value note`);
+    if (pct && !r.notes.includes('Over $50,000: declared value protection not offered; high-value handling applies.')) errors.push(`$${v}: missing high-value note`);
     if ((r.notes || []).some((n) => /insur/i.test(n))) errors.push(`$${v}: notes must not mention insurance`);
   }
   const shipHV = await qAPI({ service: 'crating_shipping', items: [{ qty: 1, type: 'painting', value: 900000, description: 'x' }] });
