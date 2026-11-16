@@ -113,10 +113,10 @@ function validate(o) {
     if (!/\S+@\S+\.\S+/.test(o.payerOther?.email || '')) errs.push('payer email');
     if (String(o.payerOther?.phone || '').replace(/\D/g, '').length < 7) errs.push('payer phone');
   }
-  // Photo rules: required for items over 500 lb and 'other' items (special handling does not require photos). Technical carries and high installs are below.
+  // Photo rules: required for items over 500 lb and 'other' items and special-handling pieces. Technical carries and high installs are below.
   const numVal = (s) => { const n = Number(String(s ?? '').replace(/,/g, '')); return Number.isFinite(n) ? n : 0; };
-  const needsPhoto = (it) => numVal(it.weight) > 500 || it.type === 'other';
-  if ((o.items || []).some((it) => needsPhoto(it) && !(it.photos || []).length)) errs.push('photos (items over 500 lb or unusual pieces)');
+  const needsPhoto = (it) => numVal(it.weight) > 500 || it.type === 'other' || !!it.fragile;
+  if ((o.items || []).some((it) => needsPhoto(it) && !(it.photos || []).length)) errs.push('photos (items over 500 lb or unusual pieces or special handling)');
   if (SERVICES[o.service]?.install) {
     (o.items || []).forEach((it) => {
       if (isHungItem(it) && it.hangHeight === 'higher' && it.hangWhere === 'stairwell' && !((it.hangPhotos || []).length)) errs.push('photos of the stairwell');
@@ -126,7 +126,7 @@ function validate(o) {
   if (ship) {
     // Samantha prices shipping without follow-up, so collect what she needs.
     if (!String(o.dropoff?.country || 'United States').trim()) errs.push('destination country');
-    if ((o.items || []).some((it) => (!(it.weightUnsure || numVal(it.weight) > 0) || !(Number(it.w) > 0 || Number(it.h) > 0)))) errs.push('piece dimensions and weight');
+    if ((o.items || []).some((it) => (!(it.weightUnsure || numVal(it.weight) > 0) || !(['custom', 'furniture'].includes(it.type) || ['w', 'h', 'd'].every((k) => Number(it[k]) > 0))))) errs.push('piece dimensions and weight');
     if ((o.items || []).some((it) => !(numVal(it.value) > 0))) errs.push('declared value for every piece (for the shipping insurance)');
     if (!o.shipping?.serviceLevel) errs.push('destination service level');
     if (!o.shipping?.shipBy && !o.shipping?.flexible) errs.push('ship date or flexibility');

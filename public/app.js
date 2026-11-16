@@ -279,10 +279,10 @@ const ICONS = {
 };
 
 const DESC = {
-  pickup_delivery: 'White-glove pickup and delivery for fine art, sculpture, luxury furniture, décor and antiques, placed exactly where you want it.',
+  pickup_delivery: 'White-glove pickup and delivery of fine art, sculpture, luxury furniture, décor, antiques and other valuable or fragile pieces, placed exactly where you want them.',
   delivery_install: 'Everything above, plus expert installation of paintings, mirrors and wall décor.',
   install_only: 'Already on site. We hang paintings, mirrors and wall décor.',
-  crating_shipping: 'Out-of-state shipping by air or ground. Within California we always provide white-glove delivery.',
+  crating_shipping: 'Out-of-state shipping by air or ground. If pickup and delivery are both in California, choose Pickup + Delivery above.',
 };
 const ITEM_TYPES = [['painting', 'Painting'], ['photograph', 'Photograph'], ['mirror', 'Mirror'], ['wallart', 'Other wall art'], ['sculpture', 'Sculpture'], ['furniture', 'Furniture'], ['decor', 'Décor'], ['other', 'Other fragile or valuable item'], ['custom', 'Other request']];
 const INSTALL_TYPES = ['painting', 'photograph', 'mirror', 'wallart', 'decor', 'custom'];
@@ -567,7 +567,8 @@ async function loadDelivery() {
 // ---------- photo rules (Chad): optional unless the job needs eyes on it first ----------
 const HEAVY_LB = 500;
 const itemPhotoReason = (it) => (num(it.weight) > HEAVY_LB ? 'Photo required for items over 500 lb.'
-  : it.type === 'other' ? 'Photos required: out-of-the-ordinary items.' : '');
+  : it.type === 'other' ? 'Photos required: out-of-the-ordinary items.'
+  : it.fragile ? 'Photo required for special handling.' : '');
 const photosOk = (it) => !itemPhotoReason(it) || (it.photos || []).length > 0;
 const sitePhotosOk = () => true;
 const hangPhotosOk = (it) => it.hangHeight !== 'higher' || it.hangWhere !== 'stairwell' || (it.hangPhotos || []).length > 0;
@@ -631,9 +632,9 @@ const shipExtras = (item, i) => {
     ${input(`${p}.value`, 'Declared value ($)', { ph: 'e.g. 12,000', attrs: 'inputmode="numeric"', req: true })}
     ${framingBlock(item, i)}
     ${handlingBlock(item, i)}
-    <div class="field" style="margin-top:10px"><label class="f">Crating</label>${seg(`${p}.crateStatus`, [['needs', 'Needs crating'], ['crated', 'Already crated'], ['not_sure', 'Not sure']])}</div>`;
+    <div class="field" style="margin-top:10px"><label class="f">Packing</label>${seg(`${p}.crateStatus`, [['needs', 'Needs packing'], ['crated', 'Already packed'], ['not_sure', 'Not sure']])}</div>`;
 };
-const shipReady = () => S.items.every((it) => weightOk(it) && num(it.value) > 0 && (Number(it.w) > 0 || Number(it.h) > 0))
+const shipReady = () => S.items.every((it) => weightOk(it) && num(it.value) > 0 && dimsOk(it))
   && !!S.shipping.serviceLevel && !!(S.shipping.shipBy || S.shipping.flexible);
 const LEVELS = [['curbside', 'Curbside', 'Delivered to the curb or loading dock.'], ['inside', 'Inside delivery', 'Carried in and placed in the room of your choice.'], ['unpack', 'Inside + unpack & install', 'We unpack, place or hang, and check every piece.'], ['unpack_debris', 'Unpack, install + debris removal', 'Full white-glove: crate and packing removed.']];
 const levelText = (v) => (LEVELS.find((l) => l[0] === v) || [, '—'])[1];
@@ -648,7 +649,7 @@ const views = {
     const it = (item, i) => {
       const type = item.type || 'painting';
       const p = `items.${i}`;
-      const dims = `<label class="f">Size in inches (W × H × D)</label>
+      const dims = `<label class="f">Size in inches (W × H × D)${req}</label>
         <div class="row3">${input(`${p}.w`, '', { type: 'number', ph: 'W', attrs: 'inputmode="decimal" aria-label="Width"' })}${input(`${p}.h`, '', { type: 'number', ph: 'H', attrs: 'inputmode="decimal" aria-label="Height"' })}${input(`${p}.d`, '', { type: 'number', ph: 'D', attrs: 'inputmode="decimal" aria-label="Depth"' })}</div>
         <p class="mini" style="margin:-4px 0 10px">Approximate inches are fine.</p>`;
       const value = input(`${p}.value`, 'Declared value per piece ($)', { ph: 'e.g. 12,000', attrs: 'inputmode="numeric"', req: true })
@@ -690,7 +691,7 @@ const views = {
           <label class="upload">＋ Photos<span data-photolbl="${i}">${itemPhotoReason(item) ? req : ' (optional)'}</span><input type="file" accept="image/*" multiple data-upload="${i}"></label></div>
       </div>`;
     };
-    return `<h1>${S.service === 'install_only' ? 'What are we installing?' : 'What are we moving?'}</h1><p class="sub">Fine art, luxury furniture and décor are our specialty, and we handle anything fragile or valuable. Approximate sizes are fine.</p>
+    return `<h1>${S.service === 'install_only' ? 'What are we installing?' : 'How can we help?'}</h1><p class="sub">Fine art, luxury furniture and décor are our specialty, and we handle anything fragile or valuable. Approximate sizes are fine.</p>
       <div class="choices">${Object.entries(CFG.services).map(([k, v]) => `<button type="button" class="choice ${S.service === k ? 'on' : ''}" data-service="${k}">
         <span class="ico">${ICONS[k]}</span><span class="txt"><b>${v.label}</b><span class="d">${DESC[k]}</span></span><span class="from">${base[k] == null ? 'Custom quote' : 'from ' + fmt(base[k])}</span></button>`).join('')}</div>
       ${S.service ? `<h2 id="pieces">The pieces</h2>${S.items.map(it).join('')}
@@ -950,6 +951,8 @@ const hasContact = (a) => String(a.contactName || '').trim() && String(a.contact
 const siteReady = (a, required) => (required ? filled(a) && hasContact(a) : !filled(a) || hasContact(a));
 const contactReady = () => S.contact.name.trim() && /\S+@\S+\.\S+/.test(S.contact.email) && String(S.contact.phone || '').replace(/\D/g, '').length >= 7;
 
+const needsDims = (it) => !['custom', 'furniture'].includes(it.type || 'painting') || shipService();
+const dimsOk = (it) => ['w', 'h', 'd'].every((k) => Number(it[k]) > 0);
 function missingFields() {
   const out = [];
   const add = (sel, label, msg) => { if (sel && label) out.push({ sel, label, msg }); };
@@ -958,13 +961,13 @@ function missingFields() {
     if (!(num(it.qty) > 0)) add(`#f-items.${i}.qty`, `Qty — ${p}`, 'Please enter how many of this piece.');
     if (!String(it.description || '').trim()) add(`#f-items.${i}.description`, `Description — ${p}`, 'Please add a short description of this piece.');
     if (shipService() || (STEPS[step] === 'When' && isShip())) {
-      if (!(Number(it.w) > 0 || Number(it.h) > 0)) add(`#f-items.${i}.w`, `Size — ${p}`, 'Please enter the width or height in inches.');
       if (!weightOk(it)) add(`[data-weight="${i}"]`, `Weight — ${p}`, 'Please enter the weight, or tap Not sure.');
       if (!(num(it.value) > 0)) add(`#f-items.${i}.value`, `Declared value — ${p}`, 'Please enter the value of this piece.');
     } else {
       if (it.type !== 'custom' && !(num(it.value) > 0)) add(`#f-items.${i}.value`, `Declared value — ${p}`, 'Please enter the value of this piece.');
       if (!weightOk(it)) add(`[data-weight="${i}"]`, `Weight — ${p}`, 'Please enter the weight, or tap Not sure.');
     }
+    if (needsDims(it)) { const miss = ['w', 'h', 'd'].find((k) => !(Number(it[k]) > 0)); if (miss) add(`#f-items.${i}.${miss}`, `Size — ${p}`, 'Please enter the width, height and depth in inches.'); }
     if (FRAMING_TYPES.includes(it.type || 'painting')) {
       if (it.framed !== 'yes' && it.framed !== 'no') add(`[data-framing="${i}"]`, `Framed? — ${p}`, 'Please tell us if this piece is framed.');
       else if (needsGlass(it) && !['yes', 'no'].includes(it.glazing)) add(`[data-glass="${i}"]`, `Glass — ${p}`, 'Please tell us if this piece has a glass front.');

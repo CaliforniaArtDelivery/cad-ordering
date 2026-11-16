@@ -218,7 +218,7 @@ const readOrders = () => JSON.parse(fs.readFileSync(path.join(ROOT, 'data', 'ord
   await page.click('#newOrder'); await page.waitForSelector('[data-service]');
   await page.click('[data-service="pickup_delivery"]'); await page.waitForTimeout(300);
   await page.click('[data-itemtype="0"] button[data-v="sculpture"]'); await page.waitForTimeout(150);
-  await fill(page, 'items.0.qty', 3); await fill(page, 'items.0.description', 'Bronze sculpture + marble pedestal'); await fill(page, 'items.0.h', 80); await fill(page, 'items.0.weight', 226); await fill(page, 'items.0.value', 45000);
+  await fill(page, 'items.0.qty', 3); await fill(page, 'items.0.description', 'Bronze sculpture + marble pedestal'); await fill(page, 'items.0.w', 24); await fill(page, 'items.0.h', 80); await fill(page, 'items.0.d', 24); await fill(page, 'items.0.weight', 226); await fill(page, 'items.0.value', 45000);
   await next(page);
   await me(page, 'Cyd G.', 'cyd@example.com', '805-555-0144');
   await page.selectOption('[data-path="contact.clientType"]', 'Interior designer');
@@ -252,7 +252,7 @@ const readOrders = () => JSON.parse(fs.readFileSync(path.join(ROOT, 'data', 'ord
   await page.click('[data-service="pickup_delivery"]'); await page.waitForTimeout(300);
   await page.click('[data-itemtype="0"] button[data-v="wallart"]'); await page.waitForTimeout(200);
   await expect(/Mixed media, wall sculpture, etc\./, 'Other wall art helper text missing');
-  await fill(page, 'items.0.description', 'Photograph, rushed for an opening'); await fill(page, 'items.0.w', 30); await fill(page, 'items.0.h', 40); await frame(page, 0, 'yes', 'no');
+  await fill(page, 'items.0.description', 'Photograph, rushed for an opening'); await fill(page, 'items.0.w', 30); await fill(page, 'items.0.h', 40); await fill(page, 'items.0.d', 2); await frame(page, 0, 'yes', 'no');
   if (!(await isBlocked(page))) errors.push('declared value should be required for in-CA pieces');
   await fill(page, 'items.0.value', 120000); await page.press('[data-path="items.0.value"]', 'Tab'); await page.waitForTimeout(300);
   await expect(/high-value handling applies/, 'item over $50K should explain high-value handling');
@@ -299,7 +299,7 @@ const readOrders = () => JSON.parse(fs.readFileSync(path.join(ROOT, 'data', 'ord
   // ---- Order 5: paintings over $1,000 → no furniture discount; member 25% off check ----
   await startFresh(page);
   await page.click('[data-service="delivery_install"]'); await page.waitForTimeout(300);
-  await fill(page, 'items.0.qty', 8); await fill(page, 'items.0.description', 'A group of works on canvas'); await fill(page, 'items.0.value', 1000); await frame(page, 0, 'no');
+  await fill(page, 'items.0.qty', 8); await fill(page, 'items.0.description', 'A group of works on canvas'); await fill(page, 'items.0.w', 24); await fill(page, 'items.0.h', 30); await fill(page, 'items.0.d', 2); await fill(page, 'items.0.value', 1000); await frame(page, 0, 'no');
   await next(page); await laTrip(page, 'Morgan Chen', 'morgan@example.com');
   await expect(/additional 10% off/i, 'paintings review shows 10% off line', true);
   await expect(/\$1,195/, 'paintings review should total $1,075 + $120 protection = $1,195');
@@ -332,7 +332,7 @@ const readOrders = () => JSON.parse(fs.readFileSync(path.join(ROOT, 'data', 'ord
   await page.click('[data-service="install_only"]'); await page.waitForTimeout(300);
   if (await page.locator('[data-itemtype="0"] button[data-v="furniture"]').count()) errors.push('install-only should not offer furniture');
   await expect(/Need custom crating/, 'install-only should not offer crating', true);
-  await fill(page, 'items.0.description', 'Large abstract on canvas'); await fill(page, 'items.0.w', 40); await fill(page, 'items.0.h', 50); await frame(page, 0, 'no'); await fill(page, 'items.0.value', 8000);
+  await fill(page, 'items.0.description', 'Large abstract on canvas'); await fill(page, 'items.0.w', 40); await fill(page, 'items.0.h', 50); await fill(page, 'items.0.d', 2); await frame(page, 0, 'no'); await fill(page, 'items.0.value', 8000);
   await next(page);
   if (await page.locator('[data-path="pickup.street"]').count()) errors.push('install-only must not ask a pickup address');
   await me(page, 'Sam Ortiz', 'sam@example.com', '310-555-0123');
@@ -349,7 +349,7 @@ const readOrders = () => JSON.parse(fs.readFileSync(path.join(ROOT, 'data', 'ord
   // ---- Order 8: custom crating → quote request, no instant pay ----
   await startFresh(page);
   await page.click('[data-service="pickup_delivery"]'); await page.waitForTimeout(300);
-  await fill(page, 'items.0.description', 'Fragile mixed-media piece'); await fill(page, 'items.0.value', 3000); await frame(page, 0, 'yes', 'yes');
+  await fill(page, 'items.0.description', 'Fragile mixed-media piece'); await fill(page, 'items.0.w', 20); await fill(page, 'items.0.h', 24); await fill(page, 'items.0.d', 6); await fill(page, 'items.0.value', 3000); await frame(page, 0, 'yes', 'yes');
   await page.click('label.toggle:has([data-path="crating"])'); await page.waitForTimeout(300);
   await next(page); await laTrip(page, 'Lee Park', 'lee@example.com');
   await expect(/data-wallet/, 'crating job must not show payment buttons', true);
@@ -421,14 +421,14 @@ const readOrders = () => JSON.parse(fs.readFileSync(path.join(ROOT, 'data', 'ord
   await page.click('[data-service="pickup_delivery"]'); await page.waitForTimeout(300);
   await page.click('[data-itemtype="0"] button[data-v="decor"]'); await page.waitForTimeout(200);
   if (await page.$('[data-seg="items.0.framed"]')) errors.push('décor must not ask Framed?');
-  await fill(page, 'items.0.description', 'Blown-glass vessel'); await fill(page, 'items.0.value', 2500);
+  await fill(page, 'items.0.description', 'Blown-glass vessel'); await fill(page, 'items.0.w', 12); await fill(page, 'items.0.h', 18); await fill(page, 'items.0.d', 12); await fill(page, 'items.0.value', 2500);
   if (!(await page.$('[data-path="items.0.weight"]')) && !(await page.$('[data-weight="0"]'))) errors.push('décor should offer an optional weight field');
   await toggleOn('items.0.fragile'); await page.waitForTimeout(300);
   await expect(/Special handling needed/, 'should rename the toggle to Special handling needed');
   await expect(/Standard paintings, framed art and solid bronze sculpture don't need this/, 'should show the short special-handling guidance');
-  await expect(/Add a photo if you have one, or send it later/, 'special handling photos should be optional with a send-later note');
-  await expect(/Photos required: uniquely fragile pieces/, 'special handling must not require photos', true);
-  if (await nextDisabled()) errors.push('special handling without photos must not block Continue');
+  await expect(/Photo required for special handling/, 'special handling must require a photo');
+  if (!(await nextDisabled())) errors.push('special handling without photos must block Continue');
+  await page.setInputFiles('[data-upload="0"]', require('path').join(__dirname, 'sample-artwork.png')); await page.waitForTimeout(1500);
   await next(page);
   await me(page, 'Sam Reyes', 'sam@example.com', '310-555-0177');
   await fillSite(page, 'pickup', { street: '8678 Melrose Ave', city: 'West Hollywood', zip: '90069', contactName: 'Sam Reyes', contactPhone: '310-555-0177' });
@@ -458,7 +458,7 @@ const readOrders = () => JSON.parse(fs.readFileSync(path.join(ROOT, 'data', 'ord
   const other = await post({ ...baseOrder, items: [{ qty: 1, type: 'other', weight: 40, value: 1000, description: 'Antique clock' }] });
   if (other.status !== 400) errors.push('Other-type piece without photos should be rejected');
   const handling = await post({ ...baseOrder, items: [{ qty: 1, type: 'decor', furnitureKind: 'Wall Decor', sizeClass: 'medium', fragile: true, value: 1000, description: 'Glass bowl' }] });
-  if (handling.status === 400) errors.push('special handling without photos should be accepted');
+  if (handling.status !== 400) errors.push('special handling without photos should be rejected');
   const qOOS = await (await fetch(BASE + '/api/quote', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...baseOrder, dropoff: { ...baseOrder.dropoff, zip: '85004', city: 'Phoenix' }, items: [{ qty: 1, type: 'painting', framed: 'no', description: 'p' }] }) })).json();
   if (qOOS.paymentPlan !== 'quote' || !qOOS.outOfState) errors.push('Arizona ZIP should make the quote an out-of-state shipping quote');
 
@@ -636,7 +636,7 @@ const readOrders = () => JSON.parse(fs.readFileSync(path.join(ROOT, 'data', 'ord
   if (await page.$('[data-seg="items.0.framed"]')) errors.push('routed Mirror must not ask Framed?');
   await expect(/Glass is assumed for mirrors/, 'routed Mirror should say glass is assumed');
   await fill(page, 'items.0.description', 'Venetian mirror');
-  await fill(page, 'items.0.w', 60); await fill(page, 'items.0.h', 40); await fill(page, 'items.0.value', 4000);
+  await fill(page, 'items.0.w', 60); await fill(page, 'items.0.h', 40); await fill(page, 'items.0.d', 3); await fill(page, 'items.0.value', 4000);
   await next(page);
   await me(page, 'Rita Cole', 'rita@example.com', '310-555-0199');
   await fillSite(page, 'dropoff', { street: '1200 Summit Ridge Dr', city: 'Beverly Hills', zip: '90210', same: true, installLocation: 'standard' });
