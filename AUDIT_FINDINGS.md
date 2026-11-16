@@ -510,6 +510,12 @@ Commits (local, not pushed): `95cd8a6` phase 1 · `6fd85e3` access fixes · `3d7
 
 Tests: e2e (review wording in both branches, dock label, Same as me role hidden/shown, payload, 430px focus) and audit-regression §9–10 (email wording in both branches, server role from “I am a…”, client role ignored, blank “I am a…” refused).
 
+## Live walkthrough of e09ac2d (round 4, Nov 16, 2026)
+
+- **(a) Typed text not sticking.** Cause: every in-step re-render (any tap on an access answer, chip or toggle, plus photo uploads and delivery dates finishing in the background) rebuilt the form. The focused field got focus back, but the caret jumped to the start. On iOS, where tapping a button leaves the text field focused, the next letters went in front of what was typed (“Gate 4411” became “4411Gate”). Number and email fields behaved the same way. Background re-renders also replaced the field while the customer was typing, which closes the phone keyboard. Changing an access answer also cleared Floor, Total number of flights and Narrowest opening, and they stayed empty after switching back. Fixed: render() restores the caret, selection and textarea scroll (number and email inputs get the caret at the end); upload and availability re-renders wait until the customer leaves the field; typed access fields come back when their answer is switched back. New e2e at 430px types into every free-text field on What, Where and When with re-renders and access taps mid-word, and checks the value on screen, the saved value and focus.
+- **(b) Pay button.** Not sure branch reads “Pay base price $X” (50/50: “Pay 50% of base price $X”), with the comma format; normal orders unchanged.
+- **(c) Dot’s checks.** e2e: pickup Same as me → someone else (Rita, Homeowner) and delivery someone else → Same as me, then the booker changes “I am a…” to Gallery; the saved order and email carry Rita/Homeowner and Dana/Gallery with no trace of the earlier contact. Mobile keyboard simulated by shrinking visualViewport to 360px; the focused field stays above it (page gets keyboard-height bottom room so fields at the end can scroll up). Not sure confirmation email checked for the base-price wording.
+
 ## Probe artifacts
 - /tmp/aud/probe.js, probe2.js, probe3.js, probe4.js, with output in /tmp/aud/quotes.txt.
 - Test orders and emails are in /tmp/auditstore (not in the repo).

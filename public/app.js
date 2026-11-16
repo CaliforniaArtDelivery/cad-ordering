@@ -610,7 +610,7 @@ async function loadDelivery() {
   if (!ok) return;
   delAvail = j;
   if (S.schedule.deliveryDate && !j.days.some((d) => d.date === S.schedule.deliveryDate)) { S.schedule.deliveryDate = ''; persist(); }
-  if (STEPS[step] === 'When') render();
+  if (STEPS[step] === 'When') renderWhenIdle();
 }
 
 // ---------- photo rules (Chad): optional unless the job needs eyes on it first ----------
@@ -1209,7 +1209,9 @@ function paintButton() {
   const name = STEPS[step], btn = $('#nextBtn');
   const q = existing ? existing.quote : quoteData;
   if (name === 'Pay') {
-    if (existing || !special()) btn.textContent = CFG.stripe ? `Pay ${q ? fmt(q.dueNow) : ''} on Stripe` : `Pay ${q ? fmt(q.dueNow) : ''}`;
+    // Access "Not sure": the customer pays the base price now (Dot round 4).
+    const payWhat = q && accessTbc(q) ? (q.paymentPlan === 'deposit' ? '50% of base price ' : 'base price ') : '';
+    if (existing || !special()) btn.textContent = CFG.stripe ? `Pay ${payWhat}${q ? fmt(q.dueNow) : ''} on Stripe` : `Pay ${payWhat}${q ? fmt(q.dueNow) : ''}`;
     else btn.textContent = isShip() ? 'Request quote' : S.rush ? 'Request a rush quote' : 'Request a quote';
   } else btn.textContent = 'Continue';
   const wait = !canContinue();
@@ -1232,9 +1234,21 @@ function render() {
   // Keep the user's scroll position on in-step re-renders (toggles, chips). Only a new step starts at the top.
   const y = window.scrollY;
   const html = views[name]();
-  const focusId = !stepChanged && document.activeElement && app.contains(document.activeElement) ? document.activeElement.id : '';
+  const ae = document.activeElement;
+  const focusId = !stepChanged && ae && app.contains(ae) ? ae.id : '';
+  // Keep the caret / selection and textarea scroll, so typing after a re-render continues where it was (Dot, Nov 16).
+  let sel = null;
+  if (focusId) { try { sel = { s: ae.selectionStart, e: ae.selectionEnd, d: ae.selectionDirection, top: ae.scrollTop }; } catch (_) { sel = null; } }
   app.innerHTML = `<div class="view${stepChanged ? ' enter' : ''}">${html}</div>`;
-  if (focusId) { const f = document.getElementById(focusId); if (f) f.focus({ preventScroll: true }); }
+  if (focusId) {
+    const f = document.getElementById(focusId);
+    if (f) {
+      f.focus({ preventScroll: true });
+      if (sel && sel.s != null) { try { f.setSelectionRange(Math.min(sel.s, f.value.length), Math.min(sel.e, f.value.length), sel.d || 'none'); f.scrollTop = sel.top; } catch (_) { sel = null; } }
+      // Number and email inputs have no caret API: put the caret at the end (where typing was) instead of the start.
+      if ((!sel || sel.s == null) && 'value' in f && f.tagName === 'INPUT' && !/^(checkbox|radio|file)$/.test(f.type)) { const v = f.value; f.value = ''; f.value = v; }
+    }
+  }
   if (name === 'Pay' && !existing && !isShip()) wrapPriceCard();
   const idx = Math.min(step, 3);
   document.querySelectorAll('#progress i').forEach((el, i) => el.classList.toggle('on', name === 'Done' || i <= idx));
@@ -1248,6 +1262,37 @@ function render() {
   if (stepChanged) window.scrollTo(0, 0);
   else if (Math.abs(window.scrollY - y) > 1) window.scrollTo(0, y);
   measureDock();
+}
+// Changing an access answer hides some typed fields (Floor, Total number of flights, Narrowest opening) and the shared
+// access rules clear them. Remember what was typed so switching back brings it back instead of losing it.
+const keptAccess = { pickup: {}, dropoff: {} };
+function setAccessAnswer(key, path, v) {
+  const a = S[key], kept = keptAccess[key];
+  if (String(a.floor || '').trim()) kept.floor = a.floor;
+  if (String(a.narrowestIn ?? '').trim()) kept.narrowestIn = a.narrowestIn;
+  if (String(a.stairFlights) === '4plus' && String(a.stairs ?? '').trim() && Number(a.stairs) !== 0) kept.stairs = a.stairs;
+  set(path, v);
+  CADAccess.normalize(a);
+  if (a.accessMode === 'elevator' && !String(a.floor || '').trim() && kept.floor) a.floor = kept.floor;
+  if (CADAccess.fitUnsure(a) && !String(a.narrowestIn ?? '').trim() && kept.narrowestIn) a.narrowestIn = kept.narrowestIn;
+  if (String(a.stairFlights) === '4plus' && CADAccess.usesStairs(a) && !(Number(a.stairs) >= 4) && kept.stairs != null) a.stairs = kept.stairs;
+  CADAccess.normalize(a);
+  persist();
+}
+// Background work (photo uploads, delivery dates) must not rebuild the form under a field the customer is typing in:
+// that closes the phone keyboard and can drop keystrokes. Wait until they leave the field.
+const typingIn = () => { const a = document.activeElement; return !!(a && app.contains(a) && a.matches('input:not([type=checkbox]):not([type=radio]):not([type=file]), textarea')); };
+let renderPending = false;
+function renderWhenIdle() {
+  if (!typingIn()) { render(); return; }
+  if (renderPending) return;
+  renderPending = true;
+  app.addEventListener('focusout', function later() {
+    setTimeout(() => {
+      if (typingIn()) return; // moved straight into another text field: keep waiting
+      app.removeEventListener('focusout', later); renderPending = false; render();
+    }, 0);
+  });
 }
 function wrapPriceCard() {
   // Give the price card a stable hook so the live quote can repaint just that card (no full re-render, no scroll jump).
@@ -1277,11 +1322,20 @@ function keepAboveDock(el) {
   const limit = Math.min(d.getBoundingClientRect().top, viewBottom) - 12;
   const box = el.type === 'checkbox' || el.type === 'radio' ? (el.closest('label') || el) : (el.closest('.field') || el);
   const r = box.getBoundingClientRect();
-  if (r.bottom > limit) window.scrollBy({ top: Math.min(r.bottom - limit, Math.max(0, r.top - 12)), behavior: 'auto' });
-  else if (r.top < 12) window.scrollBy({ top: r.top - 12, behavior: 'auto' });
+  const top = (vv ? vv.offsetTop : 0) + 12;
+  if (r.bottom > limit) window.scrollBy({ top: Math.min(r.bottom - limit, Math.max(0, r.top - top)), behavior: 'auto' });
+  else if (r.top < top) window.scrollBy({ top: r.top - top, behavior: 'auto' });
 }
 document.addEventListener('focusin', (e) => { if (!e.target.matches || !e.target.matches('input:not([type=file]), select, textarea') || e.target.closest('#dock')) return; keepAboveDock(e.target); requestAnimationFrame(() => keepAboveDock(document.activeElement)); });
-if (window.visualViewport) window.visualViewport.addEventListener('resize', () => { measureDock(); keepAboveDock(document.activeElement); });
+// The phone keyboard shrinks the visual viewport: keep the field being typed in above the keyboard and the dock.
+function onViewportResize() {
+  const vv = window.visualViewport;
+  // Room for the keyboard, so a field near the end of the page can still scroll above it.
+  const kb = vv ? Math.max(0, Math.round(window.innerHeight - vv.height - vv.offsetTop)) : 0;
+  document.documentElement.style.setProperty('--kb-h', kb + 'px');
+  measureDock(); keepAboveDock(document.activeElement);
+}
+if (window.visualViewport) { window.visualViewport.addEventListener('resize', onViewportResize); window.visualViewport.addEventListener('scroll', onViewportResize); }
 
 let memberTimer, memberCheckSeq = 0;
 function paintMemberStatus() {
@@ -1451,7 +1505,7 @@ app.addEventListener('click', async (e) => {
   const sg = t.closest('[data-seg]'); const hp = sg && sg.dataset.seg.match(/^items\.(\d+)\.hangPick$/);
   if (hp) { const it = S.items[+hp[1]]; const v = t.dataset.v; if (v === 'standard') { it.hangHeight = 'standard'; it.hangWhere = ''; } else { it.hangHeight = 'higher'; it.hangWhere = v; } set(sg.dataset.seg, v); render(); return; }
   const acc = sg && sg.dataset.seg.match(/^(pickup|dropoff)\.(accessMode|stairFlights|stairDir|stairTurns|serviceElevator|dock|elevatorStairs|doorway|fits)$/);
-  if (acc) { set(sg.dataset.seg, t.dataset.v); CADAccess.normalize(S[acc[1]]); persist(); render(); return; }
+  if (acc) { setAccessAnswer(acc[1], sg.dataset.seg, t.dataset.v); render(); return; }
   if (sg) { const v = t.dataset.v; set(sg.dataset.seg, isNaN(v) ? v : Number(v)); render(); return; }
   const paySeg = t.closest('[data-pay-method]'); if (paySeg) { payMethod = t.dataset.v; render(); return; }
   const chips = t.closest('[data-chips]'); if (chips) { set(chips.dataset.chips, t.dataset.v); render(); return; }
@@ -1490,19 +1544,19 @@ async function uploadHangPhotos(i, files) {
   let r;
   r = await uploadFiles(fd); if (!r) return;
   if (!S.items[i]) return;
-  S.items[i].hangPhotos = [...(S.items[i].hangPhotos || []), ...(r.files || [])]; persist(); render();
+  S.items[i].hangPhotos = [...(S.items[i].hangPhotos || []), ...(r.files || [])]; persist(); renderWhenIdle();
 }
 async function uploadWallPhotos(key, files) {
   const fd = new FormData(); [...files].forEach((f) => fd.append('photos', f));
   let r;
   r = await uploadFiles(fd); if (!r) return;
-  S[key].wallPhotos = [...(S[key].wallPhotos || []), ...r.files]; persist(); render();
+  S[key].wallPhotos = [...(S[key].wallPhotos || []), ...r.files]; persist(); renderWhenIdle();
 }
 async function uploadSitePhotos(key, files) {
   const fd = new FormData(); [...files].forEach((f) => fd.append('photos', f));
   let r;
   r = await uploadFiles(fd); if (!r) return;
-  S[key].sitePhotos = [...(S[key].sitePhotos || []), ...r.files]; persist(); render();
+  S[key].sitePhotos = [...(S[key].sitePhotos || []), ...r.files]; persist(); renderWhenIdle();
 }
 async function uploadAccessPhotos(target, files) {
   const [key, field] = target.split('.');
@@ -1510,13 +1564,13 @@ async function uploadAccessPhotos(target, files) {
   const fd = new FormData(); [...files].forEach((f) => fd.append('photos', f));
   let r;
   r = await uploadFiles(fd); if (!r) return;
-  S[key][field] = [...(S[key][field] || []), ...(r.files || [])]; persist(); render();
+  S[key][field] = [...(S[key][field] || []), ...(r.files || [])]; persist(); renderWhenIdle();
 }
 async function uploadPhotos(i, files) {
   const fd = new FormData(); [...files].forEach((f) => fd.append('photos', f));
   let r;
   r = await uploadFiles(fd); if (!r) return;
-  S.items[i].photos = [...(S.items[i].photos || []), ...r.files]; persist(); render();
+  S.items[i].photos = [...(S.items[i].photos || []), ...r.files]; persist(); renderWhenIdle();
 }
 
 const showErr = (msg) => { const el = $('#err'); if (el) el.textContent = msg; };

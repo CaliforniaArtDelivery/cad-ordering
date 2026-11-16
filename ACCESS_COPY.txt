@@ -92,6 +92,7 @@ Due today (review, paid in full) | Due today (base price)
 Due today (review, 50/50 orders) | Due today (base price) · Balance due at delivery (before access check)
 Email payment line | Paid today (base price) $X  (or "Due today (base price) $X" while awaiting payment; 50/50: "Paid today (50% of the base price)", "Balance due … (before access check)")
 Bottom bar, every step incl. payment | Estimate · access to confirm
+Pay button | Pay base price $X (comma format, e.g. Pay base price $12,345.50); 50/50 orders: Pay 50% of base price $X
 
 --- On-site contact role ---
 Contact is "Same as me" | No role field. The booker’s own "I am a…" answer is used as that contact’s role (server sets it; nothing is defaulted).

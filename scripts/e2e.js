@@ -251,7 +251,7 @@ const readOrders = () => JSON.parse(fs.readFileSync(path.join(DATA_ROOT, 'data',
   await expect(/Plaster/, 'review missing wall type');
   await expect(/Standard eye level \(59" center\)/, 'review missing default 59" center height');
   await expect(/Loading zone only/, 'review missing parking restriction');
-  if (!/^Pay \$/.test(await page.textContent('#nextBtn'))) errors.push('review button should be "Pay $…"');
+  if (!/^Pay 50% of base price \$\d{1,3}(,\d{3})+(\.\d{2})?$/.test(await page.textContent('#nextBtn'))) errors.push('review button (Not sure, 50/50) should be "Pay 50% of base price $…", got ' + (await page.textContent('#nextBtn')));
   // Order 1 has pickup fit = Not sure (access review) on a 50/50 job: base-price wording (Dot round 3).
   { const pc = (await page.textContent('.price-card').catch(() => '')) || '';
     for (const w of ['Estimated total (before access check)', 'Due today (base price)', '(before access check)', 'Access isn’t confirmed yet.']) if (!pc.includes(w)) errors.push('access review 50/50: price card missing "' + w + '"');
@@ -291,7 +291,8 @@ const readOrders = () => JSON.parse(fs.readFileSync(path.join(DATA_ROOT, 'data',
   { const pc = (await page.textContent('.price-card').catch(() => '')) || ''; const lbl = (await page.textContent('#estLabel')) || '';
     if (/before access check|base price|Access isn’t confirmed/.test(pc)) errors.push('normal branch: price card must not show access-check labels: ' + pc.slice(0, 200));
     if (!/Total/.test(pc) || !/Due today/.test(pc)) errors.push('normal branch: price card should keep "Total" and "Due today"');
-    if (/access to confirm/.test(lbl)) errors.push('normal branch: dock must not say access to confirm: ' + lbl); }
+    if (/access to confirm/.test(lbl)) errors.push('normal branch: dock must not say access to confirm: ' + lbl);
+    if (/base price/.test((await page.textContent('#nextBtn')) || '')) errors.push('normal branch: Pay button must not mention base price'); }
   await page.click('[data-pay-method] button[data-v="ach"]'); await page.waitForTimeout(200);
   await expect(/ACH processing/, 'ACH copy should mention “ACH processing”');
   await shot(page, '06-review-split-ach');
@@ -1021,6 +1022,129 @@ const readOrders = () => JSON.parse(fs.readFileSync(path.join(DATA_ROOT, 'data',
     if (hidden.n < 5 || hidden.tested < 5) errors.push('round 3: dock test exercised too few fields: ' + JSON.stringify({ n: hidden.n, tested: hidden.tested }));
     if (hidden.bad.length) errors.push('round 3 (430px): focused fields stayed under the dock: ' + hidden.bad.join(', '));
     if (!hidden.lastClear) errors.push('round 3 (430px): the last field is hidden under the dock at the bottom of the page');
+    // ---- Round 4 (a): typed text survives re-renders and access changes on every step ----
+    await startFresh(page);
+    await page.setViewportSize({ width: 430, height: 800 });
+    await page.click('[data-service="delivery_install"]'); await page.waitForTimeout(200);
+    const TEXT_SEL = '.app input[type=text], .app input:not([type]), .app input[type=tel], .app input[type=email], .app input[type=number], .app textarea';
+    const tested = new Set();
+    const typeSweep = async (label, disturb) => {
+      const ids = await page.$$eval(TEXT_SEL, (els) => [...new Set(els.filter((e) => e.offsetParent && e.id && !e.readOnly && !e.disabled && !/\.(state|country)$/.test(e.dataset.path || '')).map((e) => e.id))]);
+      for (const id of ids) {
+        const sel = `[id="${id}"]`;
+        if (!(await page.locator(sel).isVisible().catch(() => false))) continue;
+        const info = await page.$eval(sel, (e) => ({ path: e.dataset.path || '', type: e.type, im: e.inputMode || '' }));
+        const isPhone = /phone|Phone/.test(info.path) || info.type === 'tel';
+        const isNum = info.type === 'number' || /numeric|decimal/.test(info.im) || /\.(qty|w|h|d|value|weight|stairs|narrowestIn|centerHeight)$/.test(info.path);
+        const [p1, p2] = /\.zip$/.test(info.path) ? ['902', '10'] : isPhone ? ['310', '555'] : isNum ? ['1', '2'] : info.type === 'email' ? ['ab', '@c.co'] : ['Ab', 'c d'];
+        await page.click(sel); await page.fill(sel, ''); await page.keyboard.type(p1, { delay: 10 }); await page.waitForTimeout(80);
+        await disturb(info.path); await page.waitForTimeout(150);
+        await page.keyboard.type(p2, { delay: 10 }); await page.waitForTimeout(150);
+        const st = await page.evaluate((s) => { const el = document.querySelector(s); const p = el && el.dataset.path; return { v: el ? el.value : '<gone>', focus: !!el && document.activeElement === el, stored: p ? String(p.split('.').reduce((o, k) => (o == null ? o : o[k]), S) ?? '') : '' }; }, sel);
+        const want = p1 + p2; const digits = (x) => String(x).replace(/\D/g, '');
+        const okV = isPhone || isNum || /\.zip$/.test(info.path) ? digits(st.v) === digits(want) && digits(st.stored) === digits(want) : st.v === want && st.stored === want;
+        if (!okV) errors.push(`typing (${label}): ${info.path} lost input across a re-render: shows "${st.v}", saved "${st.stored}", typed "${want}"`);
+        if (!st.focus) errors.push(`typing (${label}): ${info.path} lost focus across a re-render`);
+        tested.add(info.path);
+      }
+    };
+    // What: a re-render mid-typing (what any tap on a chip or toggle does).
+    await typeSweep('What', async () => { await page.evaluate(() => render()); });
+    // Where: set every access branch that shows a typed field, then tap access answers mid-typing (no focus move, like iOS).
+    await page.evaluate(() => { step = STEPS.indexOf('Where'); render(); }); await page.waitForTimeout(300);
+    await setAccess(page, 'pickup', { mode: 'elevator', floor: '', elevStairs: 'stairs', flights: '4plus', dir: 'up', turns: 'no', fit: 'not_sure' });
+    await setAccess(page, 'dropoff', { mode: 'ground', fit: 'not_sure' });
+    let flip = false;
+    await typeSweep('Where', async (p) => {
+      const other = /^pickup/.test(p) ? 'dropoff' : 'pickup';
+      flip = !flip;
+      await page.$eval(`[data-seg="${other}.dock"] button[data-v="${flip ? 'yes' : 'no'}"]`, (b) => b.click()).catch(() => {});
+      await page.waitForTimeout(80);
+      await page.$eval(`[data-seg="${other}.doorway"] button[data-v="${flip ? 'double' : 'single'}"]`, (b) => b.click()).catch(() => {});
+    });
+    for (const must of ['dropoff.notes', 'pickup.notes', 'pickup.floor', 'pickup.stairs', 'pickup.narrowestIn', 'dropoff.narrowestIn', 'dropoff.contactName', 'dropoff.contactPhone', 'contact.name', 'contact.phone', 'pickup.hours', 'dropoff.street'])
+      if (!tested.has(must)) errors.push('typing test did not reach ' + must);
+    // Fields hidden by an access change come back with what was typed when the answer is switched back.
+    await fill(page, 'pickup.floor', 'Basement'); await fill(page, 'pickup.stairs', '6'); await fill(page, 'pickup.narrowestIn', '28');
+    await segClick(page, 'pickup.accessMode', 'ground'); await segClick(page, 'pickup.fits', 'yes');
+    await segClick(page, 'pickup.accessMode', 'elevator'); await segClick(page, 'pickup.elevatorStairs', 'stairs'); await segClick(page, 'pickup.stairFlights', '4plus'); await segClick(page, 'pickup.fits', 'not_sure');
+    { const v = await page.evaluate(() => ['floor', 'stairs', 'narrowestIn'].map((k) => [document.getElementById(`f-pickup.${k}`)?.value, String(S.pickup[k])]));
+      if (JSON.stringify(v) !== JSON.stringify([['Basement', 'Basement'], ['6', '6'], ['28', '28']])) errors.push('access switch away and back should keep Floor / Total number of flights / Narrowest opening: ' + JSON.stringify(v)); }
+    // A photo upload finishing while the customer types must not rebuild the field under them.
+    await page.click('[id="f-dropoff.notes"]'); await page.fill('[id="f-dropoff.notes"]', ''); await page.keyboard.type('Gate', { delay: 10 });
+    await page.evaluate(() => { document.activeElement.__mark = 1; S.dropoff.sitePhotos = [...(S.dropoff.sitePhotos || []), '/uploads/x.png']; persist(); renderWhenIdle(); });
+    await page.keyboard.type(' 12', { delay: 10 });
+    { const st = await page.evaluate(() => ({ same: document.activeElement.__mark === 1, v: document.activeElement.value, pending: renderPending }));
+      if (!st.same || st.v !== 'Gate 12' || !st.pending) errors.push('a finished upload must wait until the customer leaves the field: ' + JSON.stringify(st)); }
+    await page.click('h1'); await page.waitForTimeout(200);
+    { const st = await page.evaluate(() => ({ pending: renderPending, v: document.getElementById('f-dropoff.notes').value }));
+      if (st.pending || st.v !== 'Gate 12') errors.push('the waiting re-render should run after leaving the field and keep the text: ' + JSON.stringify(st)); }
+    // When step.
+    await page.evaluate(() => { step = STEPS.indexOf('When'); render(); }); await page.waitForTimeout(400);
+    await typeSweep('When', async () => { await page.evaluate(() => render()); });
+    // ---- Round 4 (c): mobile keyboard (shrunken visualViewport) keeps the focused field visible ----
+    await page.evaluate(() => { step = STEPS.indexOf('Where'); render(); }); await page.waitForTimeout(300);
+    const kb = await page.evaluate(async () => {
+      const wait = () => new Promise((r) => setTimeout(r, 80));
+      const out = [];
+      const fake = (h) => Object.defineProperty(window, 'visualViewport', { configurable: true, value: { offsetTop: 0, offsetLeft: 0, height: h, width: innerWidth, scale: 1, addEventListener() {}, removeEventListener() {} } });
+      for (const id of ['f-pickup.city', 'f-dropoff.contactPhone', 'f-dropoff.notes']) {
+        const el = document.getElementById(id); if (!el) { out.push([id, 'missing']); continue; }
+        delete window.visualViewport;
+        el.scrollIntoView({ block: 'center' }); await wait();
+        el.focus({ preventScroll: true }); await wait();
+        fake(360); onViewportResize(); await wait(); // keyboard opens after focus
+        const r1 = el.getBoundingClientRect();
+        document.activeElement.blur(); el.scrollIntoView({ block: 'end' }); await wait();
+        el.focus({ preventScroll: true }); await wait(); // focus while the keyboard is already open
+        const r2 = el.getBoundingClientRect();
+        out.push([id, Math.round(r1.top), Math.round(r1.bottom), Math.round(r2.top), Math.round(r2.bottom)]);
+      }
+      delete window.visualViewport; onViewportResize();
+      return out;
+    });
+    for (const [id, t1, b1, t2, b2] of kb) if (t1 === 'missing' || !(t1 >= 0 && b1 <= 360 && t2 >= 0 && b2 <= 360)) errors.push(`mobile keyboard: ${id} not kept visible above a 360px visual viewport: ${JSON.stringify([t1, b1, t2, b2])}`);
+    // ---- Round 4 (b)+(c): Same as me ↔ someone else, then a new "I am a…", on a Not sure order paid at the base price ----
+    await startFresh(page);
+    await page.click('[data-service="pickup_delivery"]'); await page.waitForTimeout(200);
+    await fill(page, 'items.0.description', 'Round 4 print'); await fill(page, 'items.0.w', 20); await fill(page, 'items.0.h', 24); await fill(page, 'items.0.d', 2); await fill(page, 'items.0.value', 900);
+    await frame(page, 0, 'no');
+    await next(page);
+    await me(page, 'Dana Booker', 'dana@example.com', '310-555-0142');
+    await page.selectOption('[data-path="contact.clientType"]', 'Collector'); await page.waitForTimeout(150);
+    await fillSite(page, 'pickup', { street: '8678 Melrose Ave', city: 'West Hollywood', zip: '90069', same: true });
+    // Pickup: Same as me → someone else.
+    await page.click('[data-same="pickup"]'); await page.waitForTimeout(200);
+    await fill(page, 'pickup.contactName', 'Rita Recipient'); await fill(page, 'pickup.contactPhone', '415-555-0102');
+    await page.selectOption('[data-path="pickup.contactRole"]', 'Homeowner'); await page.waitForTimeout(200);
+    // Delivery: someone else → back to Same as me, with fit Not sure (access review).
+    await fillSite(page, 'dropoff', { street: '456 N Rodeo Dr', city: 'Beverly Hills', zip: '90210', contactName: 'Sam Other', contactPhone: '213-555-0111', role: 'Assistant', access: { mode: 'ground', fit: 'not_sure' } });
+    await page.click('[data-same="dropoff"]'); await page.waitForTimeout(200);
+    if (await page.locator('[data-path="dropoff.contactRole"]').isVisible().catch(() => false)) errors.push('round 4: role field must hide after switching back to Same as me');
+    // The booker changes "I am a…" afterwards.
+    await page.selectOption('[data-path="contact.clientType"]', 'Gallery'); await page.waitForTimeout(200);
+    await next(page); await pickDay(page); await next(page); await page.waitForTimeout(600);
+    const payTxt = ((await page.textContent('#nextBtn')) || '').trim();
+    if (!/^Pay base price \$\d{1,3}(,\d{3})*(\.\d{2})?$/.test(payTxt)) errors.push('round 4: Not sure order button should read "Pay base price $…", got ' + payTxt);
+    const bigTxt = await page.evaluate(() => { const keep = quoteData; quoteData = { ...keep, dueNow: 12345.5, paymentPlan: 'full' }; paintButton(); const t = document.getElementById('nextBtn').textContent; quoteData = keep; paintButton(); return t; });
+    if (bigTxt.trim() !== 'Pay base price $12,345.50') errors.push('round 4: large base price should keep the comma format, got ' + bigTxt);
+    await expect(/Rita Recipient · [^<]*· Homeowner/, 'round 4: pickup (someone else) should show Rita as Homeowner');
+    await expect(/Dana Booker · [^<]*· Gallery/, 'round 4: delivery (Same as me) should show the new “I am a…” (Gallery)');
+    await page.click('#nextBtn'); await page.waitForSelector('.check'); await page.waitForTimeout(600);
+    const id4 = (await page.textContent('.done b')).trim();
+    const o4 = readOrders().find((o) => o.id === id4);
+    if (!o4) errors.push('round 4: order not saved');
+    else {
+      if (o4.pickup.sameAsMe || o4.pickup.contactName !== 'Rita Recipient' || o4.pickup.contactRole !== 'Homeowner') errors.push('round 4: pickup should be saved as Rita / Homeowner: ' + JSON.stringify([o4.pickup.sameAsMe, o4.pickup.contactName, o4.pickup.contactRole]));
+      if (!o4.dropoff.sameAsMe || o4.dropoff.contactName !== 'Dana Booker' || o4.dropoff.contactRole !== 'Gallery' || o4.dropoff.contactRoleOther) errors.push('round 4: delivery should be saved as Dana / Gallery (booker’s new “I am a…”): ' + JSON.stringify([o4.dropoff.sameAsMe, o4.dropoff.contactName, o4.dropoff.contactRole, o4.dropoff.contactRoleOther]));
+      if (!o4.accessReview) errors.push('round 4: fit Not sure order should be flagged for access review');
+      const ob = path.join(DATA_ROOT, 'outbox');
+      const f = fs.readdirSync(ob).find((x) => x.startsWith(id4 + '-') && x.includes('confirmation'));
+      const m = f ? fs.readFileSync(path.join(ob, f), 'utf8').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ') : '';
+      for (const w of ['Access isn’t confirmed yet. If it needs an added fee, we’ll go over it with you and get your OK before charging it.', 'Estimated total (before access check)', 'Paid today (base price)']) if (!m.includes(w)) errors.push(`round 4: Not sure confirmation email missing "${w}"`);
+      if (/paid in full/i.test(m) || / Total \$/.test(m) || /\bfinal\b/i.test(m)) errors.push('round 4: Not sure confirmation email must not say paid in full, a bare Total, or final');
+      if (/Sam Other|Assistant/.test(m)) errors.push('round 4: email still shows the old delivery contact');
+    }
     await page.setViewportSize({ width: 1280, height: 900 });
     // No crating, multiplier or internal zone codes anywhere in the app bundle shown to customers.
     const js = await (await fetch(BASE + '/app.js')).text();
