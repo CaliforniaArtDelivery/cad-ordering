@@ -98,9 +98,18 @@ const it = (kind, size, value, qty = 1, name = kind) => ({ name, kind, size, val
   ok(tierOf('Yezi Captiva Sectional') === 'large', 'the big 3-piece sectional is large/heavy');
   ok(tierOf('Alma Copper Executive Desk') === 'large', 'the Alma Copper Executive Desk is large/heavy');
   ok(tierOf('Arco Captiva Chair') === 'large' && tierOf('Vita Gris Swivel Chair') === 'medium' && tierOf('Cubo Captiva Ottoman') === 'small', 'chairs by size: the oversized 48" club chair is large, a normal swivel chair medium, the 16" cube ottoman small');
-  ok(['Austin Copper Coffee Table', 'Bixby Copper Coffee Table', 'Carmel 6-Drawer Coffee Table', 'Molera Oval Copper Coffee Table'].every((n) => tierOf(n) === 'large') && tierOf('Carmel 1-Drawer Coffee Table') === 'small', 'the heavy copper coffee tables are large; the small 40" one is small');
+  ok(['Austin Copper Coffee Table', 'Bixby Copper Coffee Table', 'Carmel 6-Drawer Coffee Table', 'Molera Oval Copper Coffee Table'].every((n) => tierOf(n) === 'large') && tierOf('Carmel 1-Drawer Coffee Table') === 'medium', 'the heavy copper coffee tables are large; the 40" x 30" Carmel 1-Drawer is a typical size, medium');
   const fam = (re) => new Set(PAL.catalog.filter((c) => re.test(c.name)).map((c) => tierOf(c.name))).size === 1;
   ok(fam(/^Egipcia .* Table Lamp$/) && fam(/^Lamp De Earl /) && fam(/^Camelot (Amber|Azul|Garnet|Natural) Crush$/) && fam(/^Camelot .* Crush Pendant$/) && fam(/^Sura (Amber|Azul|Garnet|Natural) Chandelier$/) && fam(/^Sura Grande /), 'color variants of the same model always share a tier');
+  ok(tierOf('Fest Captiva II Chair') === 'medium' && TJ.find((e) => e.name === 'Fest Captiva II Chair').needsStaffVerification === true, 'Fest Captiva II Chair: no published size, so medium (not large by family name) and flagged for staff verification');
+  const canopies = PAL.catalog.filter((c) => /^Canopy Ceiling Mount/.test(c.name));
+  ok(canopies.length === 2 && new Set(canopies.map((c) => c.name)).size === 2 && tierOf('Canopy Ceiling Mount (single fixture)') === 'xs' && tierOf('Canopy Ceiling Mount (set of three)') === 'medium', 'the two canopies are different products (6.37" iron single vs 24" wood triple), named apart and tiered by size');
+  const nsTiers = ['Hacienda Tooled Leather Nightstand (1-Drawer / 2-Door)', 'Hacienda Tooled Leather Nightstand (2-Drawer)'];
+  const nsQ = nsTiers.map((n) => PAL.partnerQuote(base([{ name: n, kind: byName(n).kind, catalogId: String(byName(n).id || byName(n).name), qty: 1 }])));
+  ok(nsTiers.every((n) => byName(n).kind === 'Nightstand') && nsQ[0].standard === 235 && nsQ[1].standard === 205 && /^Nightstand: /.test(nsQ[0].lines[0].label) && PAL.catalog.filter((c) => /End Table/.test(c.name)).every((c) => c.kind === 'Side Table'), 'Hacienda nightstands use the price card Nightstand row (large $235, medium $205 standard); the Carmel end tables stay Side Table');
+  ok(TJ.every((e) => typeof e.needsStaffVerification === 'boolean' && e.needsStaffVerification === (e.basis !== 'site dims')) && TJ.filter((e) => e.needsStaffVerification).length > 80, `pieces without published dimensions carry an internal needsStaffVerification flag (${TJ.filter((e) => e.needsStaffVerification).length} of ${TJ.length})`);
+  const cfgTxt = (await get('/api/palomas/config')).t;
+  ok(!/needsStaffVerification|Large \/ heavy|Medium \/ average|Small \/ light/.test(cfgTxt), 'the verification flag and tier names are not sent to the browser');
   const perType = {}; for (const c of PAL.catalog) { const t = (perType[c.kind] = perType[c.kind] || {}); const z = tierOf(c.name); t[z] = (t[z] || 0) + 1; }
   console.log('   tiers by type:', JSON.stringify(perType));
   const cT = PAL.resolveItem({ name: 'Custom teak root coffee table', kind: 'Coffee Table', custom: true });

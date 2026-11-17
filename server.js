@@ -438,7 +438,7 @@ app.get('/api/palomas/config', (_, res) => res.json({
   rules: PAL.RULES, catalog: PAL.catalog, pay: { stripe: !!stripe, testMode: !stripe && TEST_MODE, partnerEmail: PAL.PARTNER_EMAIL },
   kinds: {
     furniture: FURNITURE_KINDS, groups: config.pricing.furniture.decorKindGroups,
-    accents: config.pricing.furniture.accents.kinds, sizeLabels: config.pricing.furniture.sizeLabels,
+    accents: config.pricing.furniture.accents.kinds,
   },
   access: ACCESS.MODES, flights: ACCESS.FLIGHTS,
 }));

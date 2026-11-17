@@ -28,7 +28,7 @@
   "sub": "Chairs",
   "type": "furniture",
   "kind": "Armchair / Accent Chair",
-  "size": "large",
+  "size": "medium",
   "price": null,
   "dims": ""
  },
@@ -193,7 +193,7 @@
   "sub": "Coffee Tables",
   "type": "furniture",
   "kind": "Coffee Table",
-  "size": "small",
+  "size": "medium",
   "price": null,
   "dims": ""
  },
@@ -434,7 +434,7 @@
   "group": "Tables & desks",
   "sub": "Nightstands",
   "type": "furniture",
-  "kind": "Side Table",
+  "kind": "Nightstand",
   "size": "large",
   "price": null,
   "dims": ""
@@ -445,7 +445,7 @@
   "group": "Tables & desks",
   "sub": "Nightstands",
   "type": "furniture",
-  "kind": "Side Table",
+  "kind": "Nightstand",
   "size": "medium",
   "price": null,
   "dims": ""
@@ -1937,7 +1937,7 @@
  },
  {
   "id": "150",
-  "name": "Canopy Ceiling Mount",
+  "name": "Canopy Ceiling Mount (single fixture)",
   "group": "Accessories",
   "sub": "Ceiling Canopies",
   "type": "decor",
@@ -1948,7 +1948,7 @@
  },
  {
   "id": "151",
-  "name": "Canopy Ceiling Mount",
+  "name": "Canopy Ceiling Mount (set of three)",
   "group": "Accessories",
   "sub": "Ceiling Canopies",
   "type": "decor",

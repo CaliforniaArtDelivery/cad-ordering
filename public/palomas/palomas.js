@@ -14,9 +14,6 @@ const S = {
 let uid = 1, cat = 'All', quoteTok = 0, availTok = 0, qTimer = 0, aTimer = 0;
 
 const ACC = () => new Set(CFG.kinds.accents);
-const STD_SIZES = () => CFG.kinds.sizeLabels.standard;
-const ACC_SIZES = () => CFG.kinds.sizeLabels.accents;
-const sizesFor = (kind) => (ACC().has(kind) ? ACC_SIZES() : STD_SIZES());
 const isMirror = (kind) => kind === 'Mirror';
 const client2 = () => {
   if ($('#client2').hidden) return null;

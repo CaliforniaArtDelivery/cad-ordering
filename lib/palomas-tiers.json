@@ -1,5 +1,5 @@
 {
- "_about": "Audit data for the Paloma's flow. Each catalog piece is priced at the CAD furniture tier (small/light, medium/average, large/heavy; accents use xs-xl) judged against a typical piece of its type, per the CAD price card: Small/Light = noticeably smaller or lighter than average for the type; Medium/Average = the standard category for most items of a type; Large/Heavy = noticeably larger or heavier than average. dims = published W x D x H where the site lists them (else not listed); weight is not published by the site for any piece; maxDimIn drives the automatic stairs fee (main-site size rule); basis says how the tier was judged. Staff and clients never see tier names.",
+ "_about": "Audit data for the Paloma's flow. Each catalog piece is priced at the CAD furniture tier (small/light, medium/average, large/heavy; accents use xs-xl) judged against a typical piece of its type, per the CAD price card: Small/Light = noticeably smaller or lighter than average for the type; Medium/Average = the standard category for most items of a type; Large/Heavy = noticeably larger or heavier than average. dims = published W x D x H where the site lists them (else not listed); weight is not published by the site for any piece; maxDimIn drives the automatic stairs fee (main-site size rule); basis says how the tier was judged. Staff and clients never see tier names. needsStaffVerification (internal, never sent to the browser) marks pieces whose dimensions are not published on the site, so staff should confirm the tier against the real piece.",
  "items": [
   {
    "id": "35",
@@ -13,7 +13,8 @@
    "weight": "not published",
    "basis": "photo/estimate",
    "reason": "Big 3-piece L-shaped sectional, roughly double the price and mass of a sofa; a large/heavy sectional",
-   "previous": "large"
+   "previous": "large",
+   "needsStaffVerification": true
   },
   {
    "id": "29",
@@ -27,7 +28,8 @@
    "weight": "not published",
    "basis": "site dims",
    "reason": "Oversized 48\" wide club chair, much bigger and heavier than a typical armchair (~30\"); large/heavy",
-   "previous": "medium"
+   "previous": "medium",
+   "needsStaffVerification": false
   },
   {
    "id": "884",
@@ -35,13 +37,14 @@
    "kind": "Armchair / Accent Chair",
    "group": "Seating",
    "sub": "Chairs",
-   "tier": "large",
-   "dims": "not listed (Captiva II club-chair frame, photo)",
+   "tier": "medium",
+   "dims": "not listed (no dimensions on the site)",
    "maxDimIn": 0,
    "weight": "not published",
    "basis": "site/photo",
-   "reason": "Same deep upholstered Captiva II chair family as the 48\" Arco chair, well above a typical armchair; large/heavy (judgment, size not published)",
-   "previous": "medium"
+   "reason": "Dimensions not published and no photo to judge by; not assumed large from the family name, so medium/average until staff verify",
+   "previous": "medium",
+   "needsStaffVerification": true
   },
   {
    "id": "294",
@@ -55,7 +58,8 @@
    "weight": "not published",
    "basis": "site dims",
    "reason": "Carved solid-wood chair; compact footprint but dense hardwood, so an average armchair-class piece",
-   "previous": "medium"
+   "previous": "medium",
+   "needsStaffVerification": false
   },
   {
    "id": "866",
@@ -69,7 +73,8 @@
    "weight": "not published",
    "basis": "site/photo",
    "reason": "Teak lounge chair; standard lounge-chair size, solid teak is normal weight for the type",
-   "previous": "medium"
+   "previous": "medium",
+   "needsStaffVerification": true
   },
   {
    "id": "887",
@@ -83,7 +88,8 @@
    "weight": "not published",
    "basis": "site dims",
    "reason": "Standard upholstered swivel chair, typical armchair size; medium/average",
-   "previous": "medium"
+   "previous": "medium",
+   "needsStaffVerification": false
   },
   {
    "id": "163",
@@ -97,7 +103,8 @@
    "weight": "not published",
    "basis": "site dims",
    "reason": "Standard dining-chair footprint; hammered copper back adds some weight but not a heavy chair",
-   "previous": "medium"
+   "previous": "medium",
+   "needsStaffVerification": false
   },
   {
    "id": "Rio West Dining Chair",
@@ -111,7 +118,8 @@
    "weight": "not published",
    "basis": "site/photo",
    "reason": "Standard single dining chair; medium/average",
-   "previous": "medium"
+   "previous": "medium",
+   "needsStaffVerification": true
   },
   {
    "id": "878",
@@ -125,7 +133,8 @@
    "weight": "not published",
    "basis": "site dims",
    "reason": "Typical 65\" loveseat; medium/average",
-   "previous": "large"
+   "previous": "large",
+   "needsStaffVerification": false
   },
   {
    "id": "30",
@@ -139,7 +148,8 @@
    "weight": "not published",
    "basis": "site dims",
    "reason": "Typical 65\" loveseat; medium/average",
-   "previous": "large"
+   "previous": "large",
+   "needsStaffVerification": false
   },
   {
    "id": "32",
@@ -153,7 +163,8 @@
    "weight": "not published",
    "basis": "site dims",
    "reason": "Compact 16\" cube ottoman, noticeably smaller and lighter than a typical ottoman; small/light",
-   "previous": "medium"
+   "previous": "medium",
+   "needsStaffVerification": false
   },
   {
    "id": "883",
@@ -167,7 +178,8 @@
    "weight": "not published",
    "basis": "site dims",
    "reason": "Compact 16\" cube ottoman, noticeably smaller and lighter than a typical ottoman; small/light",
-   "previous": "medium"
+   "previous": "medium",
+   "needsStaffVerification": false
   },
   {
    "id": "31",
@@ -181,7 +193,8 @@
    "weight": "not published",
    "basis": "site dims",
    "reason": "Standard-size 85\" upholstered sofa; Paloma's typical sofa = medium/average",
-   "previous": "large"
+   "previous": "large",
+   "needsStaffVerification": false
   },
   {
    "id": "876",
@@ -195,7 +208,8 @@
    "weight": "not published",
    "basis": "site dims",
    "reason": "Standard-size 88\" upholstered sofa, normal weight; medium/average",
-   "previous": "large"
+   "previous": "large",
+   "needsStaffVerification": false
   },
   {
    "id": "893",
@@ -209,7 +223,8 @@
    "weight": "not published",
    "basis": "site dims",
    "reason": "Same 88\" frame as the Beraldi sofa (leather adds little); medium/average",
-   "previous": "large"
+   "previous": "large",
+   "needsStaffVerification": false
   },
   {
    "id": "Austin Copper Coffee Table",
@@ -223,7 +238,8 @@
    "weight": "not published",
    "basis": "site dims",
    "reason": "48\" hammered-copper table: solid copper-clad wood is much heavier than a typical coffee table; large/heavy",
-   "previous": "medium"
+   "previous": "medium",
+   "needsStaffVerification": false
   },
   {
    "id": "Bixby Copper Coffee Table",
@@ -237,7 +253,8 @@
    "weight": "not published",
    "basis": "site dims",
    "reason": "48\" x 28\" copper-clad coffee table, heavy for its size; large/heavy",
-   "previous": "medium"
+   "previous": "medium",
+   "needsStaffVerification": false
   },
   {
    "id": "83",
@@ -245,13 +262,14 @@
    "kind": "Coffee Table",
    "group": "Tables & desks",
    "sub": "Coffee Tables",
-   "tier": "small",
+   "tier": "medium",
    "dims": "40\" W x 30\" D x 19\" H",
    "maxDimIn": 40,
    "weight": "not published",
    "basis": "site dims",
-   "reason": "Smallest coffee table in the catalog (40\" x 30\") with one drawer; small/light",
-   "previous": "small"
+   "reason": "40\" x 30\" one-drawer table is a typical coffee-table size (copper-clad but not oversized); medium/average",
+   "previous": "small",
+   "needsStaffVerification": false
   },
   {
    "id": "Carmel 6-Drawer Coffee Table",
@@ -265,7 +283,8 @@
    "weight": "not published",
    "basis": "site dims",
    "reason": "50\" x 38\" six-drawer copper case, very heavy; large/heavy",
-   "previous": "large"
+   "previous": "large",
+   "needsStaffVerification": false
   },
   {
    "id": "Mission Copper Coffee Table",
@@ -279,7 +298,8 @@
    "weight": "not published",
    "basis": "site dims",
    "reason": "44\" x 34\" copper-clad table, typical coffee-table size; medium/average",
-   "previous": "small"
+   "previous": "small",
+   "needsStaffVerification": false
   },
   {
    "id": "108",
@@ -293,7 +313,8 @@
    "weight": "not published",
    "basis": "site dims",
    "reason": "51\" x 35\" oval copper top, large footprint and heavy copper; large/heavy",
-   "previous": "small"
+   "previous": "small",
+   "needsStaffVerification": false
   },
   {
    "id": "73",
@@ -307,7 +328,8 @@
    "weight": "not published",
    "basis": "site dims",
    "reason": "72\" five-drawer copper executive desk: large solid case piece, several hundred lb; large/heavy",
-   "previous": "large"
+   "previous": "large",
+   "needsStaffVerification": false
   },
   {
    "id": "79",
@@ -321,7 +343,8 @@
    "weight": "not published",
    "basis": "site dims",
    "reason": "54\" round table seats 4, smaller than a typical dining table",
-   "previous": "small"
+   "previous": "small",
+   "needsStaffVerification": false
   },
   {
    "id": "75",
@@ -335,7 +358,8 @@
    "weight": "not published",
    "basis": "site dims",
    "reason": "76\" x 43\" is a standard dining-table size",
-   "previous": "medium"
+   "previous": "medium",
+   "needsStaffVerification": false
   },
   {
    "id": "851",
@@ -349,7 +373,8 @@
    "weight": "not published",
    "basis": "site dims",
    "reason": "96\" x 44\" four-post copper table, big and very heavy",
-   "previous": "large"
+   "previous": "large",
+   "needsStaffVerification": false
   },
   {
    "id": "853",
@@ -363,7 +388,8 @@
    "weight": "not published",
    "basis": "site dims",
    "reason": "54\" round table, smaller than typical",
-   "previous": "small"
+   "previous": "small",
+   "needsStaffVerification": false
   },
   {
    "id": "92",
@@ -377,7 +403,8 @@
    "weight": "not published",
    "basis": "site dims",
    "reason": "42\" pub table, smaller than a typical dining table",
-   "previous": "small"
+   "previous": "small",
+   "needsStaffVerification": false
   },
   {
    "id": "852",
@@ -391,7 +418,8 @@
    "weight": "not published",
    "basis": "site dims",
    "reason": "96\" x 44\" copper trestle table, big and heavy",
-   "previous": "large"
+   "previous": "large",
+   "needsStaffVerification": false
   },
   {
    "id": "102",
@@ -405,7 +433,8 @@
    "weight": "not published",
    "basis": "site dims",
    "reason": "96\" x 44\" copper table, big and heavy",
-   "previous": "large"
+   "previous": "large",
+   "needsStaffVerification": false
   },
   {
    "id": "854",
@@ -419,7 +448,8 @@
    "weight": "not published",
    "basis": "site dims",
    "reason": "42\" bar table, smaller than a typical dining table",
-   "previous": "small"
+   "previous": "small",
+   "needsStaffVerification": false
   },
   {
    "id": "793",
@@ -433,7 +463,8 @@
    "weight": "not published",
    "basis": "site dims",
    "reason": "96\" x 44\" copper table, big and heavy",
-   "previous": "large"
+   "previous": "large",
+   "needsStaffVerification": false
   },
   {
    "id": "114",
@@ -447,7 +478,8 @@
    "weight": "not published",
    "basis": "site dims",
    "reason": "72\" x 42\" is a typical dining-table size; medium/average",
-   "previous": "medium"
+   "previous": "medium",
+   "needsStaffVerification": false
   },
   {
    "id": "116",
@@ -461,7 +493,8 @@
    "weight": "not published",
    "basis": "site dims",
    "reason": "48\" round table, smaller than typical",
-   "previous": "small"
+   "previous": "small",
+   "needsStaffVerification": false
   },
   {
    "id": "855",
@@ -475,7 +508,8 @@
    "weight": "not published",
    "basis": "site dims",
    "reason": "42\" bar table, smaller than a typical dining table",
-   "previous": "small"
+   "previous": "small",
+   "needsStaffVerification": false
   },
   {
    "id": "Bixby Copper End Table (22\")",
@@ -489,7 +523,8 @@
    "weight": "not published",
    "basis": "site dims",
    "reason": "22\" copper end table: small footprint but dense copper, average for an end table",
-   "previous": "medium"
+   "previous": "medium",
+   "needsStaffVerification": false
   },
   {
    "id": "Carmel 1-Drawer End Table (19\" x 21\")",
@@ -503,7 +538,8 @@
    "weight": "not published",
    "basis": "site dims",
    "reason": "19\" x 21\" one-drawer table, smaller than a typical end table",
-   "previous": "medium"
+   "previous": "medium",
+   "needsStaffVerification": false
   },
   {
    "id": "Carmel 1-Drawer End Table (26\" x 26\")",
@@ -517,7 +553,8 @@
    "weight": "not published",
    "basis": "site dims",
    "reason": "26\" square one-drawer end table; typical end-table size",
-   "previous": "medium"
+   "previous": "medium",
+   "needsStaffVerification": false
   },
   {
    "id": "Carmel 3-Drawer End Table",
@@ -531,7 +568,8 @@
    "weight": "not published",
    "basis": "site dims",
    "reason": "28\" x 21\" x 30\" three-drawer copper case, bigger and heavier than a typical end table",
-   "previous": "large"
+   "previous": "large",
+   "needsStaffVerification": false
   },
   {
    "id": "Carmel End Table (2-Door / 1 Drawer)",
@@ -545,12 +583,13 @@
    "weight": "not published",
    "basis": "site dims",
    "reason": "28\" x 21\" x 31\" two-door cabinet, bigger and heavier than a typical end table",
-   "previous": "medium"
+   "previous": "medium",
+   "needsStaffVerification": false
   },
   {
    "id": "Hacienda Tooled Leather Nightstand (1-Drawer / 2-Door)",
    "name": "Hacienda Tooled Leather Nightstand (1-Drawer / 2-Door)",
-   "kind": "Side Table",
+   "kind": "Nightstand",
    "group": "Tables & desks",
    "sub": "Nightstands",
    "tier": "large",
@@ -558,13 +597,14 @@
    "maxDimIn": 32,
    "weight": "not published",
    "basis": "site dims",
-   "reason": "30\" x 19\" x 32\" cabinet nightstand, noticeably bigger and heavier than a typical nightstand",
-   "previous": "small"
+   "reason": "30\" x 19\" x 32\" cabinet nightstand, noticeably bigger and heavier than a typical nightstand (~24\" x 16\" x 26\"); large/heavy",
+   "previous": "small",
+   "needsStaffVerification": false
   },
   {
    "id": "Hacienda Tooled Leather Nightstand (2-Drawer)",
    "name": "Hacienda Tooled Leather Nightstand (2-Drawer)",
-   "kind": "Side Table",
+   "kind": "Nightstand",
    "group": "Tables & desks",
    "sub": "Nightstands",
    "tier": "medium",
@@ -573,7 +613,8 @@
    "weight": "not published",
    "basis": "site/photo",
    "reason": "Two-drawer nightstand in the same line, smaller than the 2-door cabinet; medium/average",
-   "previous": "small"
+   "previous": "small",
+   "needsStaffVerification": true
   },
   {
    "id": "212",
@@ -587,7 +628,8 @@
    "weight": "not published",
    "basis": "site dims",
    "reason": "72\" x 42\" tall solid-wood bar, heavy case piece; large/heavy",
-   "previous": "medium"
+   "previous": "medium",
+   "needsStaffVerification": false
   },
   {
    "id": "121",
@@ -601,7 +643,8 @@
    "weight": "not published",
    "basis": "site dims",
    "reason": "Buffet plus 76\" hutch, tall and very heavy; large/heavy",
-   "previous": "large"
+   "previous": "large",
+   "needsStaffVerification": false
   },
   {
    "id": "119",
@@ -615,7 +658,8 @@
    "weight": "not published",
    "basis": "site dims",
    "reason": "56\" buffet, a standard buffet size; copper adds weight but still average for the type",
-   "previous": "medium"
+   "previous": "medium",
+   "needsStaffVerification": false
   },
   {
    "id": "120",
@@ -629,7 +673,8 @@
    "weight": "not published",
    "basis": "site dims",
    "reason": "56\" buffet, a standard buffet size; medium/average",
-   "previous": "medium"
+   "previous": "medium",
+   "needsStaffVerification": false
   },
   {
    "id": "81",
@@ -643,7 +688,8 @@
    "weight": "not published",
    "basis": "site dims",
    "reason": "48\" console, typical console size; medium/average",
-   "previous": "medium"
+   "previous": "medium",
+   "needsStaffVerification": false
   },
   {
    "id": "106",
@@ -657,7 +703,8 @@
    "weight": "not published",
    "basis": "site dims",
    "reason": "48\" console, typical size; medium/average",
-   "previous": "small"
+   "previous": "small",
+   "needsStaffVerification": false
   },
   {
    "id": "856",
@@ -671,7 +718,8 @@
    "weight": "not published",
    "basis": "site dims",
    "reason": "48\" console, typical size; medium/average",
-   "previous": "small"
+   "previous": "small",
+   "needsStaffVerification": false
   },
   {
    "id": "111",
@@ -685,7 +733,8 @@
    "weight": "not published",
    "basis": "site dims",
    "reason": "60\" long copper console, noticeably longer and heavier than a typical console",
-   "previous": "medium"
+   "previous": "medium",
+   "needsStaffVerification": false
   },
   {
    "id": "858",
@@ -699,7 +748,8 @@
    "weight": "not published",
    "basis": "site/photo",
    "reason": "Solid rosewood console of standard length; medium/average",
-   "previous": "medium"
+   "previous": "medium",
+   "needsStaffVerification": true
   },
   {
    "id": "87",
@@ -713,7 +763,8 @@
    "weight": "not published",
    "basis": "site dims",
    "reason": "54\" two-door sideboard, standard size; medium/average",
-   "previous": "medium"
+   "previous": "medium",
+   "needsStaffVerification": false
   },
   {
    "id": "88",
@@ -727,7 +778,8 @@
    "weight": "not published",
    "basis": "site dims",
    "reason": "75\" long four-drawer copper sideboard, long and heavy; large/heavy",
-   "previous": "large"
+   "previous": "large",
+   "needsStaffVerification": false
   },
   {
    "id": "91",
@@ -741,7 +793,8 @@
    "weight": "not published",
    "basis": "site dims",
    "reason": "64\" x 24\" deep copper media cabinet, heavy; large/heavy",
-   "previous": "large"
+   "previous": "large",
+   "needsStaffVerification": false
   },
   {
    "id": "74",
@@ -755,7 +808,8 @@
    "weight": "not published",
    "basis": "site dims",
    "reason": "King-size copper bed frame, big and very heavy; large/heavy",
-   "previous": "large"
+   "previous": "large",
+   "needsStaffVerification": false
   },
   {
    "id": "865",
@@ -769,7 +823,8 @@
    "weight": "not published",
    "basis": "site dims",
    "reason": "Queen panel bed with 80\" tall copper-and-wood headboard, heavy for a queen; large/heavy",
-   "previous": "medium"
+   "previous": "medium",
+   "needsStaffVerification": false
   },
   {
    "id": "786",
@@ -783,7 +838,8 @@
    "weight": "not published",
    "basis": "site/photo",
    "reason": "Standard queen-size bed frame; medium/average",
-   "previous": "medium"
+   "previous": "medium",
+   "needsStaffVerification": true
   },
   {
    "id": "72",
@@ -797,7 +853,8 @@
    "weight": "not published",
    "basis": "site dims",
    "reason": "72\" double vanity, big and very heavy; large/heavy",
-   "previous": "large"
+   "previous": "large",
+   "needsStaffVerification": false
   },
   {
    "id": "69",
@@ -811,7 +868,8 @@
    "weight": "not published",
    "basis": "site dims",
    "reason": "37\" single vanity, standard size; medium/average",
-   "previous": "medium"
+   "previous": "medium",
+   "needsStaffVerification": false
   },
   {
    "id": "70",
@@ -825,7 +883,8 @@
    "weight": "not published",
    "basis": "site dims",
    "reason": "48\" single vanity, upper end of standard size; medium/average",
-   "previous": "medium"
+   "previous": "medium",
+   "needsStaffVerification": false
   },
   {
    "id": "71",
@@ -839,7 +898,8 @@
    "weight": "not published",
    "basis": "site/photo",
    "reason": "Single 2-door vanity, standard size; medium/average",
-   "previous": "medium"
+   "previous": "medium",
+   "needsStaffVerification": true
   },
   {
    "id": "126",
@@ -853,7 +913,8 @@
    "weight": "not published",
    "basis": "type/price/photo",
    "reason": "Single-pendant fixture (one shade), small/light",
-   "previous": "small"
+   "previous": "small",
+   "needsStaffVerification": true
   },
   {
    "id": "845",
@@ -867,7 +928,8 @@
    "weight": "not published",
    "basis": "type/price/photo",
    "reason": "Multi-pendant cluster chandelier; typical chandelier = medium/average",
-   "previous": "medium"
+   "previous": "medium",
+   "needsStaffVerification": true
   },
   {
    "id": "127",
@@ -881,7 +943,8 @@
    "weight": "not published",
    "basis": "type/price/photo",
    "reason": "Single-pendant fixture (one shade), small/light",
-   "previous": "small"
+   "previous": "small",
+   "needsStaffVerification": true
   },
   {
    "id": "128",
@@ -895,7 +958,8 @@
    "weight": "not published",
    "basis": "type/price/photo",
    "reason": "Single-pendant fixture (one shade), small/light",
-   "previous": "small"
+   "previous": "small",
+   "needsStaffVerification": true
   },
   {
    "id": "129",
@@ -909,7 +973,8 @@
    "weight": "not published",
    "basis": "type/price/photo",
    "reason": "Single-pendant fixture (one shade), small/light",
-   "previous": "small"
+   "previous": "small",
+   "needsStaffVerification": true
   },
   {
    "id": "370",
@@ -923,7 +988,8 @@
    "weight": "not published",
    "basis": "type/price/photo",
    "reason": "Multi-pendant cluster chandelier; typical chandelier = medium/average",
-   "previous": "medium"
+   "previous": "medium",
+   "needsStaffVerification": true
   },
   {
    "id": "684",
@@ -937,7 +1003,8 @@
    "weight": "not published",
    "basis": "type/price/photo",
    "reason": "Single-pendant fixture (one shade), small/light",
-   "previous": "small"
+   "previous": "small",
+   "needsStaffVerification": true
   },
   {
    "id": "686",
@@ -951,7 +1018,8 @@
    "weight": "not published",
    "basis": "type/price/photo",
    "reason": "Single-pendant fixture (one shade), small/light",
-   "previous": "small"
+   "previous": "small",
+   "needsStaffVerification": true
   },
   {
    "id": "846",
@@ -965,7 +1033,8 @@
    "weight": "not published",
    "basis": "type/price/photo",
    "reason": "Multi-pendant cluster chandelier; typical chandelier = medium/average",
-   "previous": "medium"
+   "previous": "medium",
+   "needsStaffVerification": true
   },
   {
    "id": "692",
@@ -979,7 +1048,8 @@
    "weight": "not published",
    "basis": "type/price/photo",
    "reason": "Single-pendant fixture (one shade), small/light",
-   "previous": "small"
+   "previous": "small",
+   "needsStaffVerification": true
   },
   {
    "id": "693",
@@ -993,7 +1063,8 @@
    "weight": "not published",
    "basis": "type/price/photo",
    "reason": "Multi-pendant cluster chandelier; typical chandelier = medium/average",
-   "previous": "medium"
+   "previous": "medium",
+   "needsStaffVerification": true
   },
   {
    "id": "694",
@@ -1007,7 +1078,8 @@
    "weight": "not published",
    "basis": "type/price/photo",
    "reason": "Single-pendant fixture (one shade), small/light",
-   "previous": "small"
+   "previous": "small",
+   "needsStaffVerification": true
   },
   {
    "id": "695",
@@ -1021,7 +1093,8 @@
    "weight": "not published",
    "basis": "type/price/photo",
    "reason": "Multi-pendant cluster chandelier; typical chandelier = medium/average",
-   "previous": "medium"
+   "previous": "medium",
+   "needsStaffVerification": true
   },
   {
    "id": "700",
@@ -1035,7 +1108,8 @@
    "weight": "not published",
    "basis": "type/price/photo",
    "reason": "Single-pendant fixture (one shade), small/light",
-   "previous": "small"
+   "previous": "small",
+   "needsStaffVerification": true
   },
   {
    "id": "701",
@@ -1049,7 +1123,8 @@
    "weight": "not published",
    "basis": "type/price/photo",
    "reason": "Multi-pendant cluster chandelier; typical chandelier = medium/average",
-   "previous": "medium"
+   "previous": "medium",
+   "needsStaffVerification": true
   },
   {
    "id": "702",
@@ -1063,7 +1138,8 @@
    "weight": "not published",
    "basis": "type/price/photo",
    "reason": "Single-pendant fixture (one shade), small/light",
-   "previous": "small"
+   "previous": "small",
+   "needsStaffVerification": true
   },
   {
    "id": "703",
@@ -1077,7 +1153,8 @@
    "weight": "not published",
    "basis": "type/price/photo",
    "reason": "Multi-pendant cluster chandelier; typical chandelier = medium/average",
-   "previous": "medium"
+   "previous": "medium",
+   "needsStaffVerification": true
   },
   {
    "id": "706",
@@ -1091,7 +1168,8 @@
    "weight": "not published",
    "basis": "type/price/photo",
    "reason": "Single-pendant fixture (one shade), small/light",
-   "previous": "small"
+   "previous": "small",
+   "needsStaffVerification": true
   },
   {
    "id": "707",
@@ -1105,7 +1183,8 @@
    "weight": "not published",
    "basis": "type/price/photo",
    "reason": "Multi-pendant cluster chandelier; typical chandelier = medium/average",
-   "previous": "medium"
+   "previous": "medium",
+   "needsStaffVerification": true
   },
   {
    "id": "146",
@@ -1119,7 +1198,8 @@
    "weight": "not published",
    "basis": "type/price/photo",
    "reason": "Single-pendant fixture (one shade), small/light",
-   "previous": "small"
+   "previous": "small",
+   "needsStaffVerification": true
   },
   {
    "id": "708",
@@ -1133,7 +1213,8 @@
    "weight": "not published",
    "basis": "type/price/photo",
    "reason": "Multi-pendant cluster chandelier; typical chandelier = medium/average",
-   "previous": "medium"
+   "previous": "medium",
+   "needsStaffVerification": true
   },
   {
    "id": "844",
@@ -1147,7 +1228,8 @@
    "weight": "not published",
    "basis": "type/price/photo",
    "reason": "Single-pendant fixture (one shade), small/light",
-   "previous": "small"
+   "previous": "small",
+   "needsStaffVerification": true
   },
   {
    "id": "847",
@@ -1161,7 +1243,8 @@
    "weight": "not published",
    "basis": "type/price/photo",
    "reason": "Multi-pendant cluster chandelier; typical chandelier = medium/average",
-   "previous": "medium"
+   "previous": "medium",
+   "needsStaffVerification": true
   },
   {
    "id": "131",
@@ -1175,7 +1258,8 @@
    "weight": "not published",
    "basis": "type/price/photo",
    "reason": "Single-pendant fixture (one shade), small/light",
-   "previous": "small"
+   "previous": "small",
+   "needsStaffVerification": true
   },
   {
    "id": "130",
@@ -1189,7 +1273,8 @@
    "weight": "not published",
    "basis": "type/price/photo",
    "reason": "Multi-pendant cluster chandelier; typical chandelier = medium/average",
-   "previous": "medium"
+   "previous": "medium",
+   "needsStaffVerification": true
   },
   {
    "id": "797",
@@ -1203,7 +1288,8 @@
    "weight": "not published",
    "basis": "type/price/photo",
    "reason": "Large cluster or \"Grande\" chandelier, noticeably bigger and heavier; large/heavy",
-   "previous": "large"
+   "previous": "large",
+   "needsStaffVerification": true
   },
   {
    "id": "711",
@@ -1217,7 +1303,8 @@
    "weight": "not published",
    "basis": "type/price/photo",
    "reason": "Multi-pendant cluster chandelier; typical chandelier = medium/average",
-   "previous": "medium"
+   "previous": "medium",
+   "needsStaffVerification": true
   },
   {
    "id": "796",
@@ -1231,7 +1318,8 @@
    "weight": "not published",
    "basis": "type/price/photo",
    "reason": "Multi-pendant cluster chandelier; typical chandelier = medium/average",
-   "previous": "medium"
+   "previous": "medium",
+   "needsStaffVerification": true
   },
   {
    "id": "719",
@@ -1245,7 +1333,8 @@
    "weight": "not published",
    "basis": "type/price/photo",
    "reason": "Single-pendant fixture (one shade), small/light",
-   "previous": "small"
+   "previous": "small",
+   "needsStaffVerification": true
   },
   {
    "id": "725",
@@ -1259,7 +1348,8 @@
    "weight": "not published",
    "basis": "type/price/photo",
    "reason": "Single-pendant fixture (one shade), small/light",
-   "previous": "small"
+   "previous": "small",
+   "needsStaffVerification": true
   },
   {
    "id": "181",
@@ -1273,7 +1363,8 @@
    "weight": "not published",
    "basis": "type/price/photo",
    "reason": "Single-pendant fixture (one shade), small/light",
-   "previous": "small"
+   "previous": "small",
+   "needsStaffVerification": true
   },
   {
    "id": "366",
@@ -1287,7 +1378,8 @@
    "weight": "not published",
    "basis": "type/price/photo",
    "reason": "Multi-pendant cluster chandelier; typical chandelier = medium/average",
-   "previous": "medium"
+   "previous": "medium",
+   "needsStaffVerification": true
   },
   {
    "id": "186",
@@ -1301,7 +1393,8 @@
    "weight": "not published",
    "basis": "type/price/photo",
    "reason": "Single-pendant fixture (one shade), small/light",
-   "previous": "small"
+   "previous": "small",
+   "needsStaffVerification": true
   },
   {
    "id": "348",
@@ -1315,7 +1408,8 @@
    "weight": "not published",
    "basis": "type/price/photo",
    "reason": "Large cluster or \"Grande\" chandelier, noticeably bigger and heavier; large/heavy",
-   "previous": "large"
+   "previous": "large",
+   "needsStaffVerification": true
   },
   {
    "id": "188",
@@ -1329,7 +1423,8 @@
    "weight": "not published",
    "basis": "type/price/photo",
    "reason": "Single-pendant fixture (one shade), small/light",
-   "previous": "small"
+   "previous": "small",
+   "needsStaffVerification": true
   },
   {
    "id": "368",
@@ -1343,7 +1438,8 @@
    "weight": "not published",
    "basis": "type/price/photo",
    "reason": "Large cluster or \"Grande\" chandelier, noticeably bigger and heavier; large/heavy",
-   "previous": "large"
+   "previous": "large",
+   "needsStaffVerification": true
   },
   {
    "id": "190",
@@ -1357,7 +1453,8 @@
    "weight": "not published",
    "basis": "type/price/photo",
    "reason": "Single-pendant fixture (one shade), small/light",
-   "previous": "small"
+   "previous": "small",
+   "needsStaffVerification": true
   },
   {
    "id": "848",
@@ -1371,7 +1468,8 @@
    "weight": "not published",
    "basis": "type/price/photo",
    "reason": "Large cluster or \"Grande\" chandelier, noticeably bigger and heavier; large/heavy",
-   "previous": "large"
+   "previous": "large",
+   "needsStaffVerification": true
   },
   {
    "id": "192",
@@ -1385,7 +1483,8 @@
    "weight": "not published",
    "basis": "type/price/photo",
    "reason": "Large cluster or \"Grande\" chandelier, noticeably bigger and heavier; large/heavy",
-   "previous": "large"
+   "previous": "large",
+   "needsStaffVerification": true
   },
   {
    "id": "194",
@@ -1399,7 +1498,8 @@
    "weight": "not published",
    "basis": "type/price/photo",
    "reason": "Large cluster or \"Grande\" chandelier, noticeably bigger and heavier; large/heavy",
-   "previous": "large"
+   "previous": "large",
+   "needsStaffVerification": true
   },
   {
    "id": "195",
@@ -1413,7 +1513,8 @@
    "weight": "not published",
    "basis": "type/price/photo",
    "reason": "Large cluster or \"Grande\" chandelier, noticeably bigger and heavier; large/heavy",
-   "previous": "large"
+   "previous": "large",
+   "needsStaffVerification": true
   },
   {
    "id": "196",
@@ -1427,7 +1528,8 @@
    "weight": "not published",
    "basis": "type/price/photo",
    "reason": "Single-pendant fixture (one shade), small/light",
-   "previous": "small"
+   "previous": "small",
+   "needsStaffVerification": true
   },
   {
    "id": "369",
@@ -1441,7 +1543,8 @@
    "weight": "not published",
    "basis": "type/price/photo",
    "reason": "Large cluster or \"Grande\" chandelier, noticeably bigger and heavier; large/heavy",
-   "previous": "large"
+   "previous": "large",
+   "needsStaffVerification": true
   },
   {
    "id": "156",
@@ -1455,7 +1558,8 @@
    "weight": "not published",
    "basis": "site dims",
    "reason": "28\" glass lamp, a typical table-lamp size (same model in all four colors)",
-   "previous": "medium"
+   "previous": "medium",
+   "needsStaffVerification": false
   },
   {
    "id": "Egipcia Azul Table Lamp",
@@ -1469,7 +1573,8 @@
    "weight": "not published",
    "basis": "site dims",
    "reason": "28\" glass lamp, a typical table-lamp size (same model in all four colors)",
-   "previous": "medium"
+   "previous": "medium",
+   "needsStaffVerification": false
   },
   {
    "id": "Egipcia Garnet Table Lamp",
@@ -1483,7 +1588,8 @@
    "weight": "not published",
    "basis": "site dims",
    "reason": "28\" glass lamp, a typical table-lamp size (same model in all four colors)",
-   "previous": "small"
+   "previous": "small",
+   "needsStaffVerification": false
   },
   {
    "id": "Egipcia Natural Table Lamp",
@@ -1497,7 +1603,8 @@
    "weight": "not published",
    "basis": "site dims",
    "reason": "28\" glass lamp, a typical table-lamp size (same model in all four colors)",
-   "previous": "small"
+   "previous": "small",
+   "needsStaffVerification": false
   },
   {
    "id": "160",
@@ -1511,7 +1618,8 @@
    "weight": "not published",
    "basis": "site/photo",
    "reason": "Illuminated bubble-glass table art, standard lamp size; medium/average",
-   "previous": "medium"
+   "previous": "medium",
+   "needsStaffVerification": true
   },
   {
    "id": "Lamp De Earl Amber Table Lamp",
@@ -1525,7 +1633,8 @@
    "weight": "not published",
    "basis": "site dims",
    "reason": "35\" tall heavy-glass lamp, noticeably taller and heavier than a typical table lamp (same model in all colors)",
-   "previous": "small"
+   "previous": "small",
+   "needsStaffVerification": false
   },
   {
    "id": "142",
@@ -1539,7 +1648,8 @@
    "weight": "not published",
    "basis": "site dims",
    "reason": "35\" tall heavy-glass lamp, noticeably taller and heavier than a typical table lamp (same model in all colors)",
-   "previous": "small"
+   "previous": "small",
+   "needsStaffVerification": false
   },
   {
    "id": "Lamp De Earl Garnet Table Lamp",
@@ -1553,7 +1663,8 @@
    "weight": "not published",
    "basis": "site dims",
    "reason": "35\" tall heavy-glass lamp, noticeably taller and heavier than a typical table lamp (same model in all colors)",
-   "previous": "small"
+   "previous": "small",
+   "needsStaffVerification": false
   },
   {
    "id": "Lamp De Earl Metal X Table Lamp",
@@ -1567,7 +1678,8 @@
    "weight": "not published",
    "basis": "site dims",
    "reason": "35\" tall heavy-glass lamp, noticeably taller and heavier than a typical table lamp (same model in all colors)",
-   "previous": "small"
+   "previous": "small",
+   "needsStaffVerification": false
   },
   {
    "id": "Lamp De Earl Natural Table Lamp",
@@ -1581,7 +1693,8 @@
    "weight": "not published",
    "basis": "site dims",
    "reason": "35\" tall heavy-glass lamp, noticeably taller and heavier than a typical table lamp (same model in all colors)",
-   "previous": "small"
+   "previous": "small",
+   "needsStaffVerification": false
   },
   {
    "id": "Merlin Amber Table Lamp",
@@ -1595,7 +1708,8 @@
    "weight": "not published",
    "basis": "site dims",
    "reason": "32\" lamp, a typical table-lamp size",
-   "previous": "small"
+   "previous": "small",
+   "needsStaffVerification": false
   },
   {
    "id": "175",
@@ -1609,7 +1723,8 @@
    "weight": "not published",
    "basis": "site dims",
    "reason": "30\" illuminated glass art lamp, typical lamp size",
-   "previous": "medium"
+   "previous": "medium",
+   "needsStaffVerification": false
   },
   {
    "id": "180",
@@ -1623,7 +1738,8 @@
    "weight": "not published",
    "basis": "site/photo",
    "reason": "Small illuminated fish art lamp; small/light",
-   "previous": "small"
+   "previous": "small",
+   "needsStaffVerification": true
   },
   {
    "id": "191",
@@ -1637,7 +1753,8 @@
    "weight": "not published",
    "basis": "site dims",
    "reason": "28\" lamp, typical size",
-   "previous": "medium"
+   "previous": "medium",
+   "needsStaffVerification": false
   },
   {
    "id": "792",
@@ -1651,7 +1768,8 @@
    "weight": "not published",
    "basis": "site dims",
    "reason": "48\" x 27\" framed mirror, standard size",
-   "previous": "medium"
+   "previous": "medium",
+   "needsStaffVerification": false
   },
   {
    "id": "791",
@@ -1665,7 +1783,8 @@
    "weight": "not published",
    "basis": "site dims",
    "reason": "47\" x 70\" tall wide-frame mirror, big and heavy",
-   "previous": "medium"
+   "previous": "medium",
+   "needsStaffVerification": false
   },
   {
    "id": "205",
@@ -1679,7 +1798,8 @@
    "weight": "not published",
    "basis": "site dims",
    "reason": "63\" painted glass panel (glass is heavy and fragile), well above typical wall decor",
-   "previous": "large"
+   "previous": "large",
+   "needsStaffVerification": false
   },
   {
    "id": "315",
@@ -1693,7 +1813,8 @@
    "weight": "not published",
    "basis": "type/price/photo",
    "reason": "Wall piece sized by price and photo; small/light",
-   "previous": "small"
+   "previous": "small",
+   "needsStaffVerification": true
   },
   {
    "id": "15",
@@ -1707,7 +1828,8 @@
    "weight": "not published",
    "basis": "site dims",
    "reason": "39\" x 27\" metal wall art, typical wall-decor size",
-   "previous": "small"
+   "previous": "small",
+   "needsStaffVerification": false
   },
   {
    "id": "327",
@@ -1721,7 +1843,8 @@
    "weight": "not published",
    "basis": "type/price/photo",
    "reason": "Wall piece sized by price and photo; small/light",
-   "previous": "small"
+   "previous": "small",
+   "needsStaffVerification": true
   },
   {
    "id": "318",
@@ -1735,7 +1858,8 @@
    "weight": "not published",
    "basis": "type/price/photo",
    "reason": "Wall piece sized by price and photo; small/light",
-   "previous": "small"
+   "previous": "small",
+   "needsStaffVerification": true
   },
   {
    "id": "903",
@@ -1749,7 +1873,8 @@
    "weight": "not published",
    "basis": "site/photo",
    "reason": "Small wall piece; small/light",
-   "previous": "small"
+   "previous": "small",
+   "needsStaffVerification": true
   },
   {
    "id": "243",
@@ -1763,7 +1888,8 @@
    "weight": "not published",
    "basis": "site dims",
    "reason": "Small 19\" x 21\" glass piece",
-   "previous": "small"
+   "previous": "small",
+   "needsStaffVerification": false
   },
   {
    "id": "244",
@@ -1777,7 +1903,8 @@
    "weight": "not published",
    "basis": "site dims",
    "reason": "63\" painted glass panel (glass is heavy and fragile), well above typical wall decor",
-   "previous": "large"
+   "previous": "large",
+   "needsStaffVerification": false
   },
   {
    "id": "208",
@@ -1791,7 +1918,8 @@
    "weight": "not published",
    "basis": "site dims",
    "reason": "63\" painted glass panel (glass is heavy and fragile), well above typical wall decor",
-   "previous": "large"
+   "previous": "large",
+   "needsStaffVerification": false
   },
   {
    "id": "123",
@@ -1805,7 +1933,8 @@
    "weight": "not published",
    "basis": "site/photo",
    "reason": "Larger solid-wood rice-plow shelf, heavy; large/heavy",
-   "previous": "large"
+   "previous": "large",
+   "needsStaffVerification": true
   },
   {
    "id": "122",
@@ -1819,7 +1948,8 @@
    "weight": "not published",
    "basis": "site dims",
    "reason": "Tall 67\" corner shelf in solid wood; medium/average",
-   "previous": "medium"
+   "previous": "medium",
+   "needsStaffVerification": false
   },
   {
    "id": "328",
@@ -1833,7 +1963,8 @@
    "weight": "not published",
    "basis": "site dims",
    "reason": "80\" wide wall sculpture, much bigger than typical wall decor",
-   "previous": "medium"
+   "previous": "medium",
+   "needsStaffVerification": false
   },
   {
    "id": "209",
@@ -1847,7 +1978,8 @@
    "weight": "not published",
    "basis": "site dims",
    "reason": "63\" painted glass panel (glass is heavy and fragile), well above typical wall decor",
-   "previous": "large"
+   "previous": "large",
+   "needsStaffVerification": false
   },
   {
    "id": "184",
@@ -1861,7 +1993,8 @@
    "weight": "not published",
    "basis": "type/price/photo",
    "reason": "Wall piece sized by price and photo; small/light",
-   "previous": "small"
+   "previous": "small",
+   "needsStaffVerification": true
   },
   {
    "id": "522",
@@ -1875,7 +2008,8 @@
    "weight": "not published",
    "basis": "type/price/photo",
    "reason": "Wall piece sized by price and photo; small/light",
-   "previous": "small"
+   "previous": "small",
+   "needsStaffVerification": true
   },
   {
    "id": "152",
@@ -1889,7 +2023,8 @@
    "weight": "not published",
    "basis": "site/photo",
    "reason": "Typical-size wall art (priced mid-range); medium/average",
-   "previous": "medium"
+   "previous": "medium",
+   "needsStaffVerification": true
   },
   {
    "id": "13",
@@ -1903,7 +2038,8 @@
    "weight": "not published",
    "basis": "site dims",
    "reason": "38\" x 35\" metal wall tree, typical size",
-   "previous": "small"
+   "previous": "small",
+   "needsStaffVerification": false
   },
   {
    "id": "14",
@@ -1917,7 +2053,8 @@
    "weight": "not published",
    "basis": "site dims",
    "reason": "Same model as the Autumn tree; typical size",
-   "previous": "small"
+   "previous": "small",
+   "needsStaffVerification": false
   },
   {
    "id": "906",
@@ -1931,7 +2068,8 @@
    "weight": "not published",
    "basis": "site dims",
    "reason": "Narrow 16\" x 40\" wall piece, light",
-   "previous": "small"
+   "previous": "small",
+   "needsStaffVerification": false
   },
   {
    "id": "907",
@@ -1945,7 +2083,8 @@
    "weight": "not published",
    "basis": "site dims",
    "reason": "Low 37\" x 19\" wall piece, light",
-   "previous": "small"
+   "previous": "small",
+   "needsStaffVerification": false
   },
   {
    "id": "515",
@@ -1959,7 +2098,8 @@
    "weight": "not published",
    "basis": "type/price/photo",
    "reason": "Small accent / décor piece sized by type, price and photo (xs)",
-   "previous": "xs"
+   "previous": "xs",
+   "needsStaffVerification": true
   },
   {
    "id": "516",
@@ -1973,7 +2113,8 @@
    "weight": "not published",
    "basis": "type/price/photo",
    "reason": "Small accent / décor piece sized by type, price and photo (xs)",
-   "previous": "xs"
+   "previous": "xs",
+   "needsStaffVerification": true
   },
   {
    "id": "275",
@@ -1987,7 +2128,8 @@
    "weight": "not published",
    "basis": "type/price/photo",
    "reason": "Small accent / décor piece sized by type, price and photo (xs)",
-   "previous": "xs"
+   "previous": "xs",
+   "needsStaffVerification": true
   },
   {
    "id": "276",
@@ -2001,7 +2143,8 @@
    "weight": "not published",
    "basis": "type/price/photo",
    "reason": "Small accent / décor piece sized by type, price and photo (xs)",
-   "previous": "xs"
+   "previous": "xs",
+   "needsStaffVerification": true
   },
   {
    "id": "155",
@@ -2015,7 +2158,8 @@
    "weight": "not published",
    "basis": "type/price/photo",
    "reason": "Small accent / décor piece sized by type, price and photo (small)",
-   "previous": "small"
+   "previous": "small",
+   "needsStaffVerification": true
   },
   {
    "id": "316",
@@ -2029,7 +2173,8 @@
    "weight": "not published",
    "basis": "type/price/photo",
    "reason": "Small accent / décor piece sized by type, price and photo (small)",
-   "previous": "small"
+   "previous": "small",
+   "needsStaffVerification": true
   },
   {
    "id": "280",
@@ -2043,7 +2188,8 @@
    "weight": "not published",
    "basis": "type/price/photo",
    "reason": "Small accent / décor piece sized by type, price and photo (xs)",
-   "previous": "xs"
+   "previous": "xs",
+   "needsStaffVerification": true
   },
   {
    "id": "281",
@@ -2057,7 +2203,8 @@
    "weight": "not published",
    "basis": "type/price/photo",
    "reason": "Small accent / décor piece sized by type, price and photo (xs)",
-   "previous": "xs"
+   "previous": "xs",
+   "needsStaffVerification": true
   },
   {
    "id": "179",
@@ -2071,7 +2218,8 @@
    "weight": "not published",
    "basis": "type/price/photo",
    "reason": "Small accent / décor piece sized by type, price and photo (medium)",
-   "previous": "medium"
+   "previous": "medium",
+   "needsStaffVerification": true
   },
   {
    "id": "178",
@@ -2085,7 +2233,8 @@
    "weight": "not published",
    "basis": "type/price/photo",
    "reason": "Small accent / décor piece sized by type, price and photo (medium)",
-   "previous": "medium"
+   "previous": "medium",
+   "needsStaffVerification": true
   },
   {
    "id": "872",
@@ -2099,7 +2248,8 @@
    "weight": "not published",
    "basis": "type/price/photo",
    "reason": "Small accent / décor piece sized by type, price and photo (small)",
-   "previous": "small"
+   "previous": "small",
+   "needsStaffVerification": true
   },
   {
    "id": "19",
@@ -2113,7 +2263,8 @@
    "weight": "not published",
    "basis": "type/price/photo",
    "reason": "Small accent / décor piece sized by type, price and photo (medium)",
-   "previous": "medium"
+   "previous": "medium",
+   "needsStaffVerification": true
   },
   {
    "id": "266",
@@ -2127,7 +2278,8 @@
    "weight": "not published",
    "basis": "type/price/photo",
    "reason": "Small accent / décor piece sized by type, price and photo (xs)",
-   "previous": "xs"
+   "previous": "xs",
+   "needsStaffVerification": true
   },
   {
    "id": "808",
@@ -2141,7 +2293,8 @@
    "weight": "not published",
    "basis": "type/price/photo",
    "reason": "Small accent / décor piece sized by type, price and photo (xs)",
-   "previous": "xs"
+   "previous": "xs",
+   "needsStaffVerification": true
   },
   {
    "id": "273",
@@ -2155,7 +2308,8 @@
    "weight": "not published",
    "basis": "type/price/photo",
    "reason": "Small accent / décor piece sized by type, price and photo (xs)",
-   "previous": "xs"
+   "previous": "xs",
+   "needsStaffVerification": true
   },
   {
    "id": "353",
@@ -2169,7 +2323,8 @@
    "weight": "not published",
    "basis": "type/price/photo",
    "reason": "Small accent / décor piece sized by type, price and photo (xs)",
-   "previous": "xs"
+   "previous": "xs",
+   "needsStaffVerification": true
   },
   {
    "id": "356",
@@ -2183,7 +2338,8 @@
    "weight": "not published",
    "basis": "type/price/photo",
    "reason": "Small accent / décor piece sized by type, price and photo (xs)",
-   "previous": "xs"
+   "previous": "xs",
+   "needsStaffVerification": true
   },
   {
    "id": "351",
@@ -2197,7 +2353,8 @@
    "weight": "not published",
    "basis": "type/price/photo",
    "reason": "Small accent / décor piece sized by type, price and photo (xs)",
-   "previous": "xs"
+   "previous": "xs",
+   "needsStaffVerification": true
   },
   {
    "id": "354",
@@ -2211,7 +2368,8 @@
    "weight": "not published",
    "basis": "type/price/photo",
    "reason": "Small accent / décor piece sized by type, price and photo (xs)",
-   "previous": "xs"
+   "previous": "xs",
+   "needsStaffVerification": true
   },
   {
    "id": "357",
@@ -2225,7 +2383,8 @@
    "weight": "not published",
    "basis": "type/price/photo",
    "reason": "Small accent / décor piece sized by type, price and photo (xs)",
-   "previous": "xs"
+   "previous": "xs",
+   "needsStaffVerification": true
   },
   {
    "id": "350",
@@ -2239,7 +2398,8 @@
    "weight": "not published",
    "basis": "type/price/photo",
    "reason": "Small accent / décor piece sized by type, price and photo (xs)",
-   "previous": "xs"
+   "previous": "xs",
+   "needsStaffVerification": true
   },
   {
    "id": "352",
@@ -2253,7 +2413,8 @@
    "weight": "not published",
    "basis": "type/price/photo",
    "reason": "Small accent / décor piece sized by type, price and photo (xs)",
-   "previous": "xs"
+   "previous": "xs",
+   "needsStaffVerification": true
   },
   {
    "id": "355",
@@ -2267,7 +2428,8 @@
    "weight": "not published",
    "basis": "type/price/photo",
    "reason": "Small accent / décor piece sized by type, price and photo (xs)",
-   "previous": "xs"
+   "previous": "xs",
+   "needsStaffVerification": true
   },
   {
    "id": "312",
@@ -2281,7 +2443,8 @@
    "weight": "not published",
    "basis": "type/price/photo",
    "reason": "Small accent / décor piece sized by type, price and photo (xs)",
-   "previous": "xs"
+   "previous": "xs",
+   "needsStaffVerification": true
   },
   {
    "id": "288",
@@ -2295,7 +2458,8 @@
    "weight": "not published",
    "basis": "type/price/photo",
    "reason": "Small accent / décor piece sized by type, price and photo (xs)",
-   "previous": "xs"
+   "previous": "xs",
+   "needsStaffVerification": true
   },
   {
    "id": "278",
@@ -2309,7 +2473,8 @@
    "weight": "not published",
    "basis": "type/price/photo",
    "reason": "Small accent / décor piece sized by type, price and photo (xs)",
-   "previous": "xs"
+   "previous": "xs",
+   "needsStaffVerification": true
   },
   {
    "id": "277",
@@ -2323,7 +2488,8 @@
    "weight": "not published",
    "basis": "type/price/photo",
    "reason": "Small accent / décor piece sized by type, price and photo (xs)",
-   "previous": "xs"
+   "previous": "xs",
+   "needsStaffVerification": true
   },
   {
    "id": "365",
@@ -2337,7 +2503,8 @@
    "weight": "not published",
    "basis": "type/price/photo",
    "reason": "Small accent / décor piece sized by type, price and photo (xs)",
-   "previous": "xs"
+   "previous": "xs",
+   "needsStaffVerification": true
   },
   {
    "id": "849",
@@ -2351,7 +2518,8 @@
    "weight": "not published",
    "basis": "type/price/photo",
    "reason": "Small accent / décor piece sized by type, price and photo (xs)",
-   "previous": "xs"
+   "previous": "xs",
+   "needsStaffVerification": true
   },
   {
    "id": "201",
@@ -2365,7 +2533,8 @@
    "weight": "not published",
    "basis": "type/price/photo",
    "reason": "Small accent / décor piece sized by type, price and photo (xs)",
-   "previous": "xs"
+   "previous": "xs",
+   "needsStaffVerification": true
   },
   {
    "id": "199",
@@ -2379,7 +2548,8 @@
    "weight": "not published",
    "basis": "type/price/photo",
    "reason": "Small accent / décor piece sized by type, price and photo (xs)",
-   "previous": "xs"
+   "previous": "xs",
+   "needsStaffVerification": true
   },
   {
    "id": "200",
@@ -2393,7 +2563,8 @@
    "weight": "not published",
    "basis": "type/price/photo",
    "reason": "Small accent / décor piece sized by type, price and photo (xs)",
-   "previous": "xs"
+   "previous": "xs",
+   "needsStaffVerification": true
   },
   {
    "id": "217",
@@ -2407,7 +2578,8 @@
    "weight": "not published",
    "basis": "type/price/photo",
    "reason": "Small accent / décor piece sized by type, price and photo (small)",
-   "previous": "small"
+   "previous": "small",
+   "needsStaffVerification": true
   },
   {
    "id": "218",
@@ -2421,7 +2593,8 @@
    "weight": "not published",
    "basis": "type/price/photo",
    "reason": "Small accent / décor piece sized by type, price and photo (xs)",
-   "previous": "xs"
+   "previous": "xs",
+   "needsStaffVerification": true
   },
   {
    "id": "283",
@@ -2435,7 +2608,8 @@
    "weight": "not published",
    "basis": "type/price/photo",
    "reason": "Small accent / décor piece sized by type, price and photo (small)",
-   "previous": "small"
+   "previous": "small",
+   "needsStaffVerification": true
   },
   {
    "id": "804",
@@ -2449,7 +2623,8 @@
    "weight": "not published",
    "basis": "type/price/photo",
    "reason": "Small accent / décor piece sized by type, price and photo (xs)",
-   "previous": "xs"
+   "previous": "xs",
+   "needsStaffVerification": true
   },
   {
    "id": "806",
@@ -2463,35 +2638,38 @@
    "weight": "not published",
    "basis": "type/price/photo",
    "reason": "Small accent / décor piece sized by type, price and photo (xs)",
-   "previous": "xs"
+   "previous": "xs",
+   "needsStaffVerification": true
   },
   {
    "id": "150",
-   "name": "Canopy Ceiling Mount",
+   "name": "Canopy Ceiling Mount (single fixture)",
    "kind": "Objets d'art",
    "group": "Accessories",
    "sub": "Ceiling Canopies",
    "tier": "xs",
-   "dims": "not listed",
-   "maxDimIn": 0,
+   "dims": "6.37\" diameter x 3\" H",
+   "maxDimIn": 6.37,
    "weight": "not published",
-   "basis": "type/price/photo",
-   "reason": "Small accent / décor piece sized by type, price and photo (xs)",
-   "previous": "xs"
+   "basis": "site dims",
+   "reason": "Different product: small iron single-fixture canopy (6.37\" across, $89, holds one light); extra small",
+   "previous": "xs",
+   "needsStaffVerification": false
   },
   {
    "id": "151",
-   "name": "Canopy Ceiling Mount",
+   "name": "Canopy Ceiling Mount (set of three)",
    "kind": "Objets d'art",
    "group": "Accessories",
    "sub": "Ceiling Canopies",
    "tier": "medium",
-   "dims": "not listed",
-   "maxDimIn": 0,
+   "dims": "24\" diameter x 1.5\" H",
+   "maxDimIn": 24,
    "weight": "not published",
-   "basis": "type/price/photo",
-   "reason": "Small accent / décor piece sized by type, price and photo (medium)",
-   "previous": "medium"
+   "basis": "site dims",
+   "reason": "Different product: 24\" wood triple-fixture canopy (holds three lights, $589 set of three), much bigger than the single; medium",
+   "previous": "medium",
+   "needsStaffVerification": false
   },
   {
    "id": "850",
@@ -2505,7 +2683,8 @@
    "weight": "not published",
    "basis": "type/price/photo",
    "reason": "Small accent / décor piece sized by type, price and photo (xs)",
-   "previous": "xs"
+   "previous": "xs",
+   "needsStaffVerification": true
   },
   {
    "id": "251",
@@ -2519,7 +2698,8 @@
    "weight": "not published",
    "basis": "type/price/photo",
    "reason": "Small accent / décor piece sized by type, price and photo (xs)",
-   "previous": "xs"
+   "previous": "xs",
+   "needsStaffVerification": true
   },
   {
    "id": "Tibor Piso",
@@ -2533,7 +2713,8 @@
    "weight": "not published",
    "basis": "type/price/photo",
    "reason": "Small accent / décor piece sized by type, price and photo (xl)",
-   "previous": "xl"
+   "previous": "xl",
+   "needsStaffVerification": true
   },
   {
    "id": "Tricycle Flower Vase",
@@ -2547,7 +2728,8 @@
    "weight": "not published",
    "basis": "type/price/photo",
    "reason": "Small accent / décor piece sized by type, price and photo (xs)",
-   "previous": "xs"
+   "previous": "xs",
+   "needsStaffVerification": true
   }
  ]
 }
