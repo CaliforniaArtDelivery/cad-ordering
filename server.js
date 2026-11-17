@@ -42,6 +42,7 @@ const loadCustomers = () => (fs.existsSync(CUSTOMERS) ? JSON.parse(fs.readFileSy
 const saveCustomers = (c) => fs.writeFileSync(CUSTOMERS, JSON.stringify(c, null, 2));
 
 const app = express();
+app.set('trust proxy', 1); // behind Render's proxy: req.ip is the real visitor IP (per-visitor staff-code rate limit)
 // Stripe webhook (raw body for the signature check). Marks the order paid and confirmed even if the customer never returns to the site.
 app.post('/api/stripe/webhook', express.raw({ type: 'application/json' }), (req, res) => {
   const secret = process.env.STRIPE_WEBHOOK_SECRET || '';
