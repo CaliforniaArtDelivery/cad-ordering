@@ -217,20 +217,30 @@ const it = (kind, size, value, qty = 1, name = kind) => ({ name, kind, size, val
 
   console.log('   4d. Access follow-ups, oversized flag and the schedule notes');
   const accBody = base([{ ...it('Sofa', 'small', 3000, 1, 'Marble-top Sofa Table'), oversized: true }, it('Table Lamp', 'small', 100, 1, 'Lamp')],
-    { access: { mode: 'elevator', floor: '4', elevatorType: 'freight', elevatorReserve: true, hours: 'Weekdays 9am-4pm via the front desk', tight: 'narrow turn past the lobby' }, schedule: { date: pu, deliveryDate: de },
+    { access: { mode: 'elevator', floor: '4', elevatorType: 'freight', elevatorReserve: true, elevSteps: 'yes', elevStepsN: '4', hours: 'Weekdays 9am-4pm via the front desk', tight: 'narrow turn past the lobby' }, schedule: { date: pu, deliveryDate: de },
       delivery: { ...body.delivery, notes: 'Gate code 1234 ' + RUN } });
   let bad = await post('/api/palomas/orders', { ...accBody, access: { mode: 'elevator', floor: '4' } });
   ok(bad.s === 400 && /elevator type/.test(bad.j.error), 'elevator without freight/passenger answer is refused');
+  bad = await post('/api/palomas/orders', { ...accBody, access: { mode: 'elevator', floor: '4', elevatorType: 'freight' } });
+  ok(bad.s === 400 && /steps before or after the elevator/.test(bad.j.error), 'elevator without the steps answer (yes / no / not sure) is refused');
+  bad = await post('/api/palomas/orders', { ...accBody, access: { mode: 'elevator', floor: '4', elevatorType: 'freight', elevSteps: 'yes' } });
+  ok(bad.s === 400 && /how many steps/.test(bad.j.error), 'steps = Yes without a count is refused');
   r = await post('/api/palomas/orders', accBody);
   o = r.j.order || {};
   ok(r.s === 200 && o.dropoff.serviceElevator === 'yes' && o.dropoff.hours === 'Weekdays 9am-4pm via the front desk', 'freight elevator + building hours saved on the order (same fields as the main site)');
   ok(/must be reserved in advance/.test(o.dropoff.notes) && /Tight fit: narrow turn/.test(o.dropoff.notes) && /Gate code 1234/.test(o.dropoff.notes), 'reservation, tight-fit note and client notes are all in the delivery notes');
+  ok(/Steps before\/after the elevator: yes, 4 steps/.test(o.dropoff.notes) && o.dropoff.elevatorStairs === 'not_sure' && o.accessReview === true, 'elevator steps (4) saved in the notes; more than 3 steps is flagged for CAD to confirm');
+  for (const [ans, n, want] of [['no', '', 'no'], ['yes', '2', 'steps'], ['not_sure', '', 'not_sure']]) {
+    const e = PAL.buildDropoff(base([]).delivery, { mode: 'elevator', floor: '2', elevatorType: 'passenger', elevSteps: ans, elevStepsN: n });
+    ok(e.elevatorStairs === want && /Steps before\/after the elevator/.test(e.notes), `elevator steps "${ans}${n ? ' ' + n : ''}" → main-site answer "${want}", noted for the crew`);
+  }
   ok(o.items[0].oversized === true && o.items[0].sizeClass === 'large', 'oversized item saved flagged, bumped to the large tier');
   pr = await pay(r.j.id);
   ok(pr.s === 200 && pr.j.order.status === 'confirmed', 'access order paid and confirmed');
   if (KEY) {
     const csv = await fetch(BASE + '/api/admin/schedule.csv?key=' + KEY).then((x) => x.text());
     ok(/Hours: Weekdays 9am-4pm/.test(csv) && /must be reserved in advance/.test(csv) && /Tight fit: narrow turn/.test(csv), 'schedule notes (DE Notes) carry hours, elevator reservation and the tight-fit note');
+    ok(/Steps before\/after the elevator: yes, 4 steps/.test(csv), 'schedule notes (DE Notes) carry the steps before/after the elevator');
     ok(/OVERSIZED \/ VERY HEAVY/.test(csv), 'schedule item text flags the oversized piece for the crew');
   }
   const pAcc = await post('/api/palomas/orders', { ...accBody, access: { mode: 'stairs', flights: '2', hours: '', tight: '' }, delivery: { ...body.delivery, notes: 'stairs ' + RUN } });
@@ -247,6 +257,33 @@ const it = (kind, size, value, qty = 1, name = kind) => ({ name, kind, size, val
   ok(lOrder.s === 200, 'an order on a later date (beyond the first 14 days) is accepted by the same scheduling rules');
   const badDay = await post('/api/palomas/orders', base([it('Sofa', 'medium', 3000)], { schedule: { date: '2026-12-26', deliveryDate: '2026-12-27' }, delivery: { ...body.delivery, notes: 'blackout ' + RUN } }));
   ok(badDay.s === 400, 'a non-route day / holiday is still refused');
+
+  console.log('   4e. Access-fee copy and Manager\'s courtesy visibility (summary, receipt, emails)');
+  const FEE = PAL.ACCESS_FEE_NOTE;
+  ok(/covers the delivery as quoted/i.test(FEE) && /approval before charging/.test(FEE) && /reschedule or adjust/.test(FEE) && !/\bcrat|\bmov(e|ing)|hoist|\bCOI\b/i.test(FEE), 'access-fee note: price covers the delivery as quoted; extra access fees get approval first; if declined CAD contacts them to reschedule or adjust; copy rules respected');
+  const qpub = await post('/api/palomas/quote', base([it('Sofa', 'medium', 3000)]));
+  ok(qpub.j.accessFeeNote === FEE && qpub.j.payment.paymentSummary === 'Covers the delivery as quoted', 'live quote carries the note and no longer says "Paid in full at booking"');
+  const mkCourt = (court, tag) => ({ ...body, courtesy: court, payer: 'client', payMode: 'link', delivery: { ...body.delivery, notes: `court-${tag} ${RUN}`, email: `court-${tag}@example.com` } });
+  const rOff = await post('/api/palomas/orders', mkCourt(false, 'off'));
+  const rOn = await post('/api/palomas/orders', mkCourt(true, 'on'));
+  ok(rOff.j.order.quote.partnerPricing.courtesyOff === 0 && !rOff.j.order.quote.lines.some((l) => /courtesy/i.test(l.label)) && !(rOff.j.order.quote.notes || []).some((n) => /courtesy/i.test(n)), 'courtesy unchecked: no courtesy line or note on the order quote');
+  ok(rOn.j.order.quote.lines.some((l) => l.label === "Manager's courtesy" && l.amount < 0), 'courtesy checked: the "Manager\'s courtesy" line is on the order');
+  ok(rOn.j.order.quote.accessFeeNote === FEE && !(rOn.j.order.quote.notes || []).includes('Access isn’t confirmed yet. If it needs an added fee, we’ll go over it with you and get your OK before charging it.'), 'order quote carries the access-fee note (not the generic "access isn\'t confirmed" note)');
+  if (KEY) {
+    const mOff = await mailOf(rOff.j.order.emails.find((e) => e.kind === 'payment_link'));
+    const mOn = await mailOf(rOn.j.order.emails.find((e) => e.kind === 'payment_link'));
+    ok(!/courtesy/i.test(mOff), 'courtesy unchecked: the option never appears in the payment-link email');
+    ok(/Manager's courtesy<\/b> −\$/.test(mOn), 'courtesy checked: the "Manager\'s courtesy" line shows in the payment-link email');
+    ok(mOn.includes(FEE.replace(/’/g, '’')) || mOn.includes(FEE), 'payment-link email carries the access-fee note');
+    ok(!/Paid in full at booking/.test(mOn) && !/\bcrat(e|ing|ed)\b|\bmov(e|ing|ers?)\b|\bhoist(ing|ed)?\b|\bCOI\b/i.test(mOn), 'payment-link email: no "Paid in full at booking", copy rules respected');
+    const pOn = await pay(rOn.j.id);
+    const conf = pOn.j.order.emails.find((e) => e.kind === 'confirmation');
+    const cm = await mailOf(conf);
+    ok(/Paid today/.test(cm) && !/Paid in full at booking/.test(cm) && cm.includes(FEE), 'confirmation/receipt email: "Paid today" + access-fee note');
+    const pOff = await pay(rOff.j.id);
+    const cmo = await mailOf(pOff.j.order.emails.find((e) => e.kind === 'confirmation'));
+    ok(!/courtesy/i.test(cmo) && /Manager's courtesy<\/b> −\$/.test(cm), "courtesy unchecked: never in the receipt email; checked: the line shows on the receipt");
+  } else { await pay(rOn.j.id); await pay(rOff.j.id); }
 
   console.log('\n5. Out of state → Shipping quote');
   r = await post('/api/palomas/orders', base([it('Sofa', 'medium', 3000)], { delivery: { ...base([]).delivery, city: 'Phoenix', state: 'AZ', zip: '85001' } }));

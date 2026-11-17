@@ -7,7 +7,7 @@
 <meta name="robots" content="noindex">
 <title>Paloma's Home Furnishings × California Art Delivery · Place a delivery order</title>
 <link rel="icon" type="image/png" href="/cad-logo.jpg">
-<link rel="stylesheet" href="/palomas/palomas.css?v=5">
+<link rel="stylesheet" href="/palomas/palomas.css?v=6">
 </head>
 <body>
 <header class="hero">
@@ -103,6 +103,8 @@
         <label class="field" id="aFlightsWrap" hidden><span class="lbl">Flights of stairs</span><select id="aFlights"></select></label>
         <label class="field" id="aFlightsNWrap" hidden><span class="lbl">How many flights?</span><input id="aFlightsN" type="text" inputmode="numeric" maxlength="2" placeholder="4 or more"></label>
         <label class="field" id="aFloorWrap" hidden><span class="lbl">Floor</span><input id="aFloor" type="text" maxlength="10" placeholder="e.g. 3"></label>
+        <label class="field" id="aElevStepsWrap" hidden><span class="lbl">Any steps before or after the elevator?</span><select id="aElevSteps"><option value="">Choose…</option><option value="no">No</option><option value="yes">Yes</option><option value="not_sure">Not sure</option></select></label>
+        <label class="field" id="aElevStepsNWrap" hidden><span class="lbl">How many steps?</span><input id="aElevStepsN" type="text" inputmode="numeric" maxlength="3" placeholder="e.g. 4"></label>
         <label class="field" id="aElevTypeWrap" hidden><span class="lbl">Which elevator?</span><select id="aElevType"><option value="">Choose…</option><option value="freight">Freight / service elevator</option><option value="passenger">Passenger elevator only</option><option value="not_sure">Not sure</option></select></label>
       </div>
       <label class="check-sm" id="aElevResWrap" hidden><input type="checkbox" id="aElevRes"><span>Elevator has to be reserved in advance</span></label>
@@ -110,7 +112,7 @@
         <label class="field"><span class="lbl">Building access hours or restrictions <small>(optional)</small></span><input id="aHours" type="text" maxlength="200" placeholder="e.g. Weekdays 9am–4pm, check in at the front desk"></label>
         <label class="field"><span class="lbl">Anything tight? <small>(optional)</small></span><input id="aTight" type="text" maxlength="300" placeholder="e.g. narrow hallway, tight turn at the landing"></label>
       </div>
-      <p class="mini" id="accessHint" hidden>Stairs can add a fee for larger pieces. We'll confirm it with the client before delivery.</p>
+      <p class="mini" id="accessHint" hidden>Stairs can add a fee for larger pieces. We confirm it with the client and get approval before charging it.</p>
       <label class="field"><span class="lbl">Notes &amp; special instructions <small>(optional)</small></span>
         <textarea id="dNotes" rows="3" maxlength="800" placeholder="Gate code, parking, who to call on arrival, where it goes in the home…"></textarea></label>
     </section>
@@ -141,6 +143,6 @@
   <div><span class="bar-l">Total</span> <b id="barTotal">—</b></div>
   <a class="btn primary" href="#summary" id="barBtn">Review &amp; pay</a>
 </div>
-<script src="/palomas/palomas.js?v=5"></script>
+<script src="/palomas/palomas.js?v=6"></script>
 </body>
 </html>

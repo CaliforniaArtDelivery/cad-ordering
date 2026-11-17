@@ -508,6 +508,7 @@ const accessBlock = (key, a) => {
 };
 
 // ---------- pricing blocks ----------
+const feeNoteHtml = (q) => (q && q.accessFeeNote ? `<p class="mini access-fee-note" data-access-fee-note>${esc(q.accessFeeNote)}</p>` : '');
 const payPlan = (q) => {
   if (isQuote(q)) {
     return `<div class="plan"><div class="plan-head">Quote request · no payment due yet</div>
@@ -519,9 +520,9 @@ const payPlan = (q) => {
   if (q.paymentPlan === 'deposit') {
     return `<div class="plan"><div class="plan-head">Orders of ${fmt(CFG.payment.depositThreshold)}+ are split 50/50</div>
       <div class="sum-row"><span>${accessTbc(q) ? CADAccess.TBC_DUE : 'Due today'}</span><span class="amt"><b>${fmt(q.dueNow)}</b></span></div>
-      <div class="sum-row"><span>Balance due ${esc(q.balanceWhen)}${accessTbc(q) ? ' (before access check)' : ''}</span><span class="amt"><b>${fmt(q.balanceDue)}</b></span></div></div>`;
+      <div class="sum-row"><span>Balance due ${esc(q.balanceWhen)}${accessTbc(q) ? ' (before access check)' : ''}</span><span class="amt"><b>${fmt(q.balanceDue)}</b></span></div>${feeNoteHtml(q)}</div>`;
   }
-  return `<div class="plan"><div class="sum-row"><span>${accessTbc(q) ? CADAccess.TBC_DUE : 'Due today · paid in full at booking'}</span><span class="amt"><b>${fmt(q.dueNow)}</b></span></div></div>`;
+  return `<div class="plan"><div class="sum-row"><span>${accessTbc(q) ? CADAccess.TBC_DUE : (q.accessFeeNote ? 'Due today' : 'Due today · paid in full at booking')}</span><span class="amt"><b>${fmt(q.dueNow)}</b></span></div>${feeNoteHtml(q)}</div>`;
 };
 // Access flagged Not sure (mode, fit or elevator stairs): the pricing API adds CADAccess.PRICE_NOTE; show it next to the price.
 const accessTbc = (q) => !!(q && (q.notes || []).includes(CADAccess.PRICE_NOTE));
@@ -973,7 +974,7 @@ const views = {
       <div class="sum-row"><span>Payment</span><span>${ach ? `<b>ACH processing</b> · ${fmt(p.amount)}` : `Paid ${fmt(p.amount)}`} · ${how}${p.method && p.method.startsWith('mock') ? ' (test)' : ''}${p.saved ? ' · saved' : ''}</span></div>
       ${o.quote.paymentPlan === 'deposit' ? `<div class="sum-row"><span>Balance due ${esc(o.quote.balanceWhen)}</span><span class="amt"><b>${fmt(o.quote.balanceDue)}</b></span></div>` : ''}
       <div class="total"><span>${accessTbc(o.quote) ? CADAccess.TBC_TOTAL : 'Order total'}</span><span class="amt">${fmt(o.quote.total)}</span></div>
-      ${accessTbc(o.quote) ? `<p class="mini access-tbc" data-access-tbc><b>${esc(CADAccess.PRICE_NOTE)}</b></p>` : ''}</div>
+      ${accessTbc(o.quote) ? `<p class="mini access-tbc" data-access-tbc><b>${esc(CADAccess.PRICE_NOTE)}</b></p>` : ''}${feeNoteHtml(o.quote)}</div>
       ${ach ? '<p class="mini">Your job is confirmed. The bank transfer shows as processing until it clears.</p>' : ''}
       <button type="button" class="btn ghost full" id="newOrder">Start a new booking</button>`;
   },

@@ -181,3 +181,4 @@ input:focus,select:focus,textarea:focus{border-color:var(--navy);box-shadow:0 0 
 .check-sm small{color:var(--muted)}.check-sm em{display:block;font-style:normal;color:var(--copper);font-size:12.5px}
 html{scroll-padding-bottom:96px;scroll-padding-top:12px}
 .cardbox .two{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}.cardbox input{width:100%;min-width:0}
+.fee-note{margin:6px 0 10px;line-height:1.4}

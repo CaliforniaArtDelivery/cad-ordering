@@ -441,6 +441,7 @@ app.get('/api/orders/:id/verify', async (req, res) => {
 // A dedicated, streamlined order page for the showroom. Prices come from the same engine (member code PALOMAS = the 25% member
 // rates), then the partner rules in lib/palomas.js. Orders go into the same store, emails, admin and schedule CSV as every other order.
 const PAL = require('./lib/palomas');
+const ACCESS_PAL = require('./public/access');
 app.get('/palomas', (_, res) => res.sendFile(path.join(__dirname, 'public', 'palomas', 'index.html')));
 app.get('/api/palomas/config', (_, res) => res.json({
   partner: PAL.PARTNER_NAME, placedBy: PAL.PLACED_BY, pickups: Object.values(PAL.PICKUPS).map(({ key, label, detail }) => ({ key, label, detail })),
@@ -507,7 +508,7 @@ app.post('/api/palomas/orders', (req, res) => {
     id: newOrderId(load()), createdAt: new Date().toISOString(), fingerprint: fp,
     crating: false, rush: false, dedicated: false,
     // Stairs or "Not sure": CAD confirms access (and any stairs fee) with the client before the job.
-    accessReview: ['not_sure', 'stairs'].includes(dropoff.accessMode),
+    accessReview: ['not_sure', 'stairs'].includes(dropoff.accessMode) || ACCESS_PAL.needsReview(dropoff),
     member: true, memberCode: PAL.PARTNER_CODE, memberCompany: PAL.PARTNER_NAME, heard: { repeatClient: true }, referral: false,
     declaredValueProtection: false, // Paloma's pays no declared value protection
     items, pickup, dropoff,
@@ -541,7 +542,7 @@ app.post('/api/palomas/orders', (req, res) => {
     ...(q.courtesyOff ? [{ label: "Manager's courtesy", amount: -q.courtesyOff }] : []),
   ];
   order.quote = {
-    ...q.engine, lines, total: q.total, regularTotal: q.total, protection: null, member: true, memberCompany: PAL.PARTNER_NAME,
+    ...q.engine, notes: (q.engine.notes || []).filter((n) => n !== ACCESS_PAL.PRICE_NOTE), accessFeeNote: PAL.ACCESS_FEE_NOTE, lines, total: q.total, regularTotal: q.total, protection: null, member: true, memberCompany: PAL.PARTNER_NAME,
     ...q.payment, // same payment plan as the main site (paid in full; 50% at booking from $3,000)
     partnerPricing: { standard: q.standard, partnerPrice: q.partner, partnerSavings: q.partnerSavings, volumeOff: q.volumeOff, courtesyOff: q.courtesyOff, delivery: q.delivery, items: q.lines.map(({ label, standard, amount, after, qty }) => ({ label, standard, partner: amount, allIn: after, qty })) },
   };

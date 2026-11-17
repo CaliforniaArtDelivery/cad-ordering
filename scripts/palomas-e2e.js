@@ -67,6 +67,13 @@ const txt = async (page, sel) => ((await page.locator(sel).first().innerText().c
     ok(await page.locator('#aElevTypeWrap').isHidden() && await page.locator('#aMoreWrap').isVisible(), 'stairs: no elevator questions, but the optional access-hours / tight-fit fields appear');
     await page.selectOption('#aMode', 'elevator');
     ok(await page.locator('#aElevTypeWrap').isVisible() && await page.locator('#aElevResWrap').isVisible() && await page.locator('#aFloorWrap').isVisible() && await page.locator('#aFlightsWrap').isHidden(), 'elevator: asks freight or passenger, whether it must be reserved, and the floor (flights question hidden)');
+    ok(await page.locator('#aElevStepsWrap').isVisible() && await page.locator('#aElevStepsNWrap').isHidden(), 'elevator: asks "Any steps before or after the elevator?" (Yes / No / Not sure), count hidden at first');
+    ok((await page.locator('#aElevSteps option').allInnerTexts()).join('|') === 'Choose…|No|Yes|Not sure', 'the steps question offers No / Yes / Not sure');
+    await page.selectOption('#aElevSteps', 'yes');
+    ok(await page.locator('#aElevStepsNWrap').isVisible(), 'answering Yes asks how many steps');
+    await page.fill('#aElevStepsN', '4');
+    await page.selectOption('#aElevSteps', 'no');
+    ok(await page.locator('#aElevStepsNWrap').isHidden(), 'answering No hides the count');
     await page.selectOption('#aElevType', 'freight'); await page.fill('#aFloor', '3'); await page.locator('#aElevRes').check();
     await page.fill('#aHours', 'Weekdays 9am-4pm'); await page.fill('#aTight', 'narrow hallway');
     await page.selectOption('#aMode', 'stairs');
@@ -103,6 +110,8 @@ const txt = async (page, sel) => ((await page.locator(sel).first().innerText().c
     // staff options: collapsed, low key, courtesy checkbox
     ok(!(await page.locator('details.staff').evaluate((d) => d.open)) && !(await page.locator('details.staff p').first().isVisible()), 'Staff options is collapsed and the "Your call" hint is hidden');
     ok(!/price sensitive/i.test(await page.evaluate(() => document.body.innerText + document.documentElement.innerHTML)), 'the words "price sensitive" appear nowhere in the client-facing page');
+    ok(!/courtesy/i.test(await page.locator('#sumBody').innerText()), 'nothing about the courtesy is visible in the summary while it is unchecked and Staff options is collapsed');
+    ok(/Covers the delivery as quoted/.test(sumNow) && !/Paid in full at booking/i.test(sumNow) && /extra fee \(for example, unexpected stairs\)/.test(await txt(page, '#feeNote')) && /reschedule or adjust/.test(await txt(page, '#feeNote')), 'copy under Due today: price covers the delivery as quoted; extra access fee needs approval first; decline → reschedule or adjust');
     const before = await txt(page, '.sl.big');
     await page.locator('details.staff summary').click();
     ok(/Your call, no approval needed/.test(await txt(page, 'details.staff')), 'expanding Staff options shows "Your call, no approval needed."');
@@ -118,6 +127,15 @@ const txt = async (page, sel) => ((await page.locator(sel).first().innerText().c
     ok(sumCents(await allIn()) === Math.round((await totalNow()) * 100), 'unchecking removes the courtesy line; the lines still add up');
     await page.locator('#mc').check();
     await page.waitForFunction(() => [...document.querySelectorAll('.sl.disc span:first-child')].some((e) => e.innerText === "Manager's courtesy"));
+    await page.locator('details.staff summary').click();
+    ok(!(await page.locator('details.staff').evaluate((d) => d.open)), 'staff closes Staff options');
+    await page.locator('.irow').nth(2).locator('[data-f=oversized]').check();
+    await page.waitForTimeout(700);
+    await page.locator('.irow').nth(2).locator('[data-f=oversized]').uncheck();
+    await page.waitForTimeout(700);
+    await page.waitForSelector('.li .li-all');
+    ok(!(await page.locator('details.staff').evaluate((d) => d.open)), 'Staff options stays collapsed after the price recalculates');
+    ok(/Manager's courtesy/.test(await txt(page, '#sumBody')) && !(await page.locator('#mc').isVisible()), "the applied \"Manager's courtesy\" line stays visible in the summary while the option itself stays tucked away");
     await page.locator('#summary').scrollIntoViewIfNeeded();
     await page.waitForTimeout(300);
     await page.screenshot({ path: `${OUT}/palomas-${name}-summary.png`, fullPage: false });
@@ -177,13 +195,35 @@ const txt = async (page, sel) => ((await page.locator(sel).first().innerText().c
     await page.click('#place');
     await page.waitForSelector('.done');
     ok(/Delivery locked in/.test(await txt(page, '.done')) && /by Paloma's Home Furnishings/.test(await txt(page, '.done .box')), 'path 2: Paloma\'s pays by card in the same checkout, billed to Paloma\'s');
-    // path 3: email a payment link
+    // path 3: email a payment link (courtesy applied), then the payment page the client opens
+    const payPage = async (id) => {
+      const p2 = await ctx.newPage();
+      await p2.goto(`${BASE}/?order=${id}&pay=1`);
+      await p2.waitForFunction(() => /Due today/.test(document.body.innerText), null, { timeout: 20000 });
+      const t = await p2.evaluate(() => document.body.innerText);
+      await p2.close();
+      return t;
+    };
     await quick();
+    await page.locator('details.staff summary').click();
+    await page.locator('#mc').check();
+    await page.waitForFunction(() => [...document.querySelectorAll('.sl.disc span:first-child')].some((e) => e.innerText === "Manager's courtesy"));
     await page.click('#sendLink');
     await page.waitForSelector('.done');
     const d3 = await txt(page, '.done');
     ok(/Payment link sent/.test(d3) && /lee@example.com/.test(d3) && /Awaiting payment — not scheduled until paid/.test(d3), 'path 3: payment link emailed, order shows "Awaiting payment — not scheduled until paid"');
     ok(!/Paid today/.test(await txt(page, '.done .box')), 'path 3: nothing is shown as paid');
+    const id3 = (d3.match(/CAD-[A-Z0-9]+/) || [])[0];
+    const pp = await payPage(id3);
+    ok(/Manager's courtesy/.test(pp) && /extra fee \(for example, unexpected stairs\)/.test(pp) && !/paid in full at booking/i.test(pp), 'payment-link page: the applied "Manager\'s courtesy" line and the access-fee note show; no "paid in full at booking"');
+    ok(!/price sensitive/i.test(pp), 'payment-link page: no "price sensitive" wording');
+    // path 3b: link with the courtesy left unchecked
+    await quick();
+    await page.click('#sendLink');
+    await page.waitForSelector('.done');
+    const id3b = ((await txt(page, '.done')).match(/CAD-[A-Z0-9]+/) || [])[0];
+    const pp2 = await payPage(id3b);
+    ok(!/courtesy/i.test(pp2) && /Due today/.test(pp2), 'payment-link page with the courtesy unchecked: no trace of it');
     await page.screenshot({ path: `${OUT}/palomas-${name}-link-sent.png` });
     ok(errors.length === 0, 'no console errors' + (errors.length ? ': ' + errors.join(' | ') : ''));
     await ctx.close();

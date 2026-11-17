@@ -22,7 +22,7 @@ const delivery = () => ({
   name: $('#dName').value.trim(), phone: $('#dPhone').value.trim(), email: $('#dEmail').value.trim(), street: $('#dStreet').value.trim(),
   unit: $('#dUnit').value.trim(), city: $('#dCity').value.trim(), state: ($('#dState').value.trim() || 'CA').toUpperCase(), zip: $('#dZip').value.trim(), notes: $('#dNotes').value.trim(),
 });
-const access = () => ({ mode: $('#aMode').value, flights: $('#aFlights').value, flightsCount: $('#aFlightsN').value.trim(), floor: $('#aFloor').value.trim(), elevatorType: $('#aElevType').value, elevatorReserve: $('#aElevRes').checked, hours: $('#aHours').value.trim(), tight: $('#aTight').value.trim() });
+const access = () => ({ mode: $('#aMode').value, flights: $('#aFlights').value, flightsCount: $('#aFlightsN').value.trim(), floor: $('#aFloor').value.trim(), elevatorType: $('#aElevType').value, elevatorReserve: $('#aElevRes').checked, elevSteps: $('#aElevSteps').value, elevStepsN: $('#aElevStepsN').value.trim(), hours: $('#aHours').value.trim(), tight: $('#aTight').value.trim() });
 const outOfState = () => { const d = delivery(); const z = parseInt(d.zip.slice(0, 3), 10); return (d.state && d.state !== 'CA') || (/^\d{5}/.test(d.zip) && !(z >= 900 && z <= 961)); };
 const payload = (payMode = 'now') => ({
   payer: S.payer, payMode,
@@ -114,6 +114,8 @@ function problems() {
   if (a.mode === 'stairs' && a.flights === '4plus' && !(parseInt(a.flightsCount, 10) >= 4)) add('How many flights (4 or more)', '#aFlightsN');
   if (a.mode === 'elevator' && !a.floor) add('Elevator floor', '#aFloor');
   if (a.mode === 'elevator' && !a.elevatorType) add('Which elevator (freight or passenger)', '#aElevType');
+  if (a.mode === 'elevator' && !a.elevSteps) add('Any steps before or after the elevator', '#aElevSteps');
+  if (a.mode === 'elevator' && a.elevSteps === 'yes' && !(parseInt(a.elevStepsN, 10) >= 1)) add('How many steps', '#aElevStepsN');
   if (!q.special && !outOfState() && /^\d{5}/.test(d.zip) && (!S.pickupDate || !S.deliveryDate)) add('Pickup and delivery days', '#sec-dates');
   return out;
 }
@@ -133,7 +135,8 @@ function payBlock(q) {
   <p class="mini payerline" id="payerLine">${payerLineHtml()}</p>`;
   h += deposit
     ? `<div class="sl big rule due"><span>Due today<small>${esc(pay.paymentSummary || '')}</small></span><span class="a">${usd(pay.dueNow)}</span></div>`
-    : `<div class="sl big rule due"><span>Due today<small>Paid in full at booking</small></span><span class="a">${usd(pay.dueNow || q.total)}</span></div>`;
+    : `<div class="sl big rule due"><span>Due today<small>${esc(pay.paymentSummary || 'Covers the delivery as quoted')}</small></span><span class="a">${usd(pay.dueNow || q.total)}</span></div>`;
+  if (q.accessFeeNote) h += `<p class="mini fee-note" id="feeNote">${esc(q.accessFeeNote)}</p>`;
   if (mock) {
     h += `<div class="cardbox"><div class="wallets"><button type="button" class="btn ghost wal" data-wallet="apple_pay">Apple Pay</button><button type="button" class="btn ghost wal" data-wallet="google_pay">Google Pay</button></div>
       <div class="or">or pay by card <em>test mode, no real charge</em></div>
@@ -170,7 +173,7 @@ function renderSummary() {
     html += `<div class="sum-note">${q.volumeEligible ? '✓ ' : ''}Delivery orders of $${q.rules.volumeThreshold.toLocaleString('en-US')} or more (after partnership pricing) get an additional ${q.rules.volumePct}% off the whole delivery price.</div>`;
     if (q.courtesy) html += `<div class="sl disc"><span>Manager's courtesy</span><span class="a">−${usd(q.courtesyOff)}</span></div>`;
     html += `<div class="sl big rule"><span>Total</span><span class="a">${q.standard !== q.total ? `<s>${usd(q.standard)}</s>` : ''}${usd(q.total)}</span></div>`;
-    html += `<details class="staff" id="staff" ${S.courtesy || S.staffOpen ? 'open' : ''}><summary>Staff options</summary>
+    html += `<details class="staff" id="staff" ${S.staffOpen ? 'open' : ''}><summary>Staff options</summary>
       <label class="mc"><input type="checkbox" id="mc" ${S.courtesy ? 'checked' : ''}><span>Manager's courtesy (−${q.rules.courtesyPct}%)</span></label>
       <p class="mini">Your call, no approval needed.</p></details>`;
     if (q.notes && q.notes.length) html += q.notes.filter((n) => !/access/i.test(n)).map((n) => `<p class="mini">${esc(n)}</p>`).join('');
@@ -274,7 +277,9 @@ function showDone(j, how) {
       <p><b>Pickup</b> ${esc(S.pickup === 'salinas' ? 'Salinas warehouse, 329 Rianda St' : 'Carmel-by-the-Sea showroom, Ocean Ave at Mission St')}${S.pickupDate && !shipping ? ' · ' + esc(day(S.pickupDate)) : ''}</p>
       <p><b>Deliver to</b> ${esc(d.name)} · ${esc(d.street)}${d.unit ? ', ' + esc(d.unit) : ''}, ${esc(d.city)} ${esc(d.state)} ${esc(d.zip)}${S.deliveryDate && !shipping ? ' · ' + esc(day(S.deliveryDate)) : ''}</p>
       <p><b>Items</b> ${S.items.map((i) => `${i.qty} × ${esc(i.name)}`).join('; ')}</p>
+      ${shipping ? '' : (((j.order || {}).quote || {}).lines || []).filter((l) => l.label === "Manager's courtesy").map((l) => `<p><b>Manager's courtesy</b> −${usd(Math.abs(l.amount))}</p>`).join('')}
       ${shipping ? '' : `<p><b>Total</b> ${usd(q.total)}${S.courtesy ? " (Manager's courtesy)" : ''}</p>`}
+      ${shipping ? '' : `<p class="mini">${esc(q.accessFeeNote || (j.order && j.order.quote && j.order.quote.accessFeeNote) || '')}</p>`}
       ${shipping || how === 'link' ? '' : `<p><b>Paid today</b> ${usd(q.dueNow || q.total)}${o.quote && o.quote.balanceDue ? ' · balance ' + usd(o.quote.balanceDue) + ' due ' + esc(o.quote.balanceWhen || '') : ''} · by ${S.payer === 'palomas' ? "Paloma's Home Furnishings" : esc(d.name)}</p>`}
     </div>
     <button class="btn primary" id="again" type="button">Place another order</button></div>`;
@@ -332,7 +337,7 @@ function bind() {
     scheduleQuote(); if (f === 'qty') scheduleAvail(); renderCatalog();
   });
   // delivery fields
-  ['dName', 'dPhone', 'dEmail', 'dStreet', 'dUnit', 'dCity', 'dState', 'dZip', 'dNotes', 'aFlightsN', 'aFloor', 'aHours', 'aTight'].forEach((id) => $('#' + id).addEventListener('input', (e) => {
+  ['dName', 'dPhone', 'dEmail', 'dStreet', 'dUnit', 'dCity', 'dState', 'dZip', 'dNotes', 'aFlightsN', 'aFloor', 'aHours', 'aTight', 'aElevStepsN'].forEach((id) => $('#' + id).addEventListener('input', (e) => {
     e.target.classList.remove('bad');
     if (id === 'dName' || id === 'dEmail') { const pl = $('#payerLine'); if (pl) pl.innerHTML = payerLineHtml(); }
     if (id === 'dZip' || id === 'dState') { scheduleQuote(); scheduleAvail(); renderDatesVisibility(); }
@@ -344,13 +349,15 @@ function bind() {
     const m = am.value; const fl = $('#aFlights').value;
     $('#aFlightsWrap').hidden = m !== 'stairs'; $('#aFlightsNWrap').hidden = !(m === 'stairs' && fl === '4plus'); $('#aFloorWrap').hidden = m !== 'elevator';
     $('#aElevTypeWrap').hidden = m !== 'elevator'; $('#aElevResWrap').hidden = m !== 'elevator'; $('#aMoreWrap').hidden = !m;
-    $('#accessHint').hidden = !['stairs', 'not_sure'].includes(m);
+    $('#aElevStepsWrap').hidden = m !== 'elevator'; $('#aElevStepsNWrap').hidden = !(m === 'elevator' && $('#aElevSteps').value === 'yes');
+    $('#accessHint').hidden = !(['stairs', 'not_sure'].includes(m) || (m === 'elevator' && ['yes', 'not_sure'].includes($('#aElevSteps').value)));
     scheduleQuote();
   };
   am.addEventListener('change', () => { am.classList.remove('bad'); syncAccess(); });
   $('#aFlights').addEventListener('change', (e) => { e.target.classList.remove('bad'); syncAccess(); });
   $('#aFlightsN').addEventListener('input', scheduleQuote);
   $('#aElevType').addEventListener('change', (e) => e.target.classList.remove('bad'));
+  $('#aElevSteps').addEventListener('change', (e) => { e.target.classList.remove('bad'); syncAccess(); });
   // dates
   $('#puDays').addEventListener('click', (e) => { const b = e.target.closest('[data-pu]'); if (!b) return; S.pickupDate = b.dataset.pu; S.deliveryDate = ''; S.deFrom = ''; S.deMore = false; renderDays(); refreshDelivery(); });
   $('#deDays').addEventListener('click', (e) => { const b = e.target.closest('[data-de]'); if (!b) return; S.deliveryDate = b.dataset.de; renderDays(); });
