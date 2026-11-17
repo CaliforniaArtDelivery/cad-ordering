@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#f6f5f1">
+<meta name="robots" content="noindex">
+<title>Paloma's Home Furnishings × California Art Delivery · Place a delivery order</title>
+<link rel="icon" type="image/png" href="/cad-logo.jpg">
+<link rel="stylesheet" href="/palomas/palomas.css?v=1">
+</head>
+<body>
+<header class="hero">
+  <div class="wrap">
+    <div class="logos">
+      <img class="logo-p" src="/palomas/palomas-logo.png" width="311" height="92" alt="Paloma's Home Furnishings">
+      <span class="x" aria-hidden="true">×</span>
+      <img class="logo-c" src="/cad-logo.jpg" width="1023" height="928" alt="California Art Delivery">
+    </div>
+    <p class="collab">Paloma's Home Furnishings <em>in collaboration with</em> California Art Delivery</p>
+    <h1>Place a delivery order</h1>
+    <p class="lede">Pick the pieces, tell us where they go, and you're done. Partnership pricing is applied automatically.</p>
+  </div>
+</header>
+
+<main class="wrap layout" id="main">
+  <form id="form" class="form" novalidate autocomplete="off">
+
+    <section class="card" id="sec-who">
+      <h2><span class="n">1</span> Who's placing this order?</h2>
+      <div class="grid2">
+        <label class="field">
+          <span class="lbl">Your name</span>
+          <select id="placedBy" required>
+            <option value="">Choose…</option>
+            <option>Arnie</option><option>Heather</option><option>Carl</option><option value="Other">Other</option>
+          </select>
+        </label>
+        <label class="field" id="otherWrap" hidden>
+          <span class="lbl">Type your name</span>
+          <input id="placedOther" type="text" maxlength="60" placeholder="First and last name">
+        </label>
+      </div>
+    </section>
+
+    <section class="card" id="sec-pickup">
+      <h2><span class="n">2</span> Pickup from</h2>
+      <div class="radios" role="radiogroup" aria-label="Pickup location">
+        <label class="radio on"><input type="radio" name="pickup" value="salinas" checked>
+          <span class="rt"><b>Salinas warehouse</b><span>329 Rianda St, Salinas</span></span><i class="tag">Most orders</i></label>
+        <label class="radio"><input type="radio" name="pickup" value="carmel">
+          <span class="rt"><b>Carmel-by-the-Sea showroom</b><span>Ocean Ave at Mission St</span></span></label>
+      </div>
+    </section>
+
+    <section class="card" id="sec-items">
+      <h2><span class="n">3</span> Items</h2>
+      <div class="picker">
+        <div class="search-row">
+          <input id="search" type="search" placeholder="Search Paloma's pieces (e.g. coffee table, chandelier, Beraldi)" aria-label="Search items">
+        </div>
+        <div class="chips" id="cats" role="tablist" aria-label="Categories"></div>
+        <div class="catalog" id="catalog" aria-label="Paloma's catalog"></div>
+        <p class="mini" id="catalogNote"></p>
+        <button type="button" class="btn ghost" id="customToggle" aria-expanded="false">+ Add a custom item</button>
+        <div class="custom" id="customForm" hidden>
+          <div class="grid2">
+            <label class="field"><span class="lbl">Item name</span><input id="cName" type="text" maxlength="120" placeholder="e.g. Custom copper bench"></label>
+            <label class="field"><span class="lbl">Closest type</span><select id="cKind"></select></label>
+          </div>
+          <div class="grid3">
+            <label class="field"><span class="lbl">Size</span><select id="cSize"></select></label>
+            <label class="field"><span class="lbl">Declared value</span><div class="money"><i>$</i><input id="cValue" type="text" inputmode="decimal" placeholder="0"></div></label>
+            <div class="field"><span class="lbl">&nbsp;</span><button type="button" class="btn primary" id="cAdd">Add item</button></div>
+          </div>
+        </div>
+      </div>
+
+      <h3 class="sub-h">Your items <span id="itemCount" class="count"></span></h3>
+      <div id="items" class="items" aria-live="polite"></div>
+      <p class="mini" id="itemsHint">Size sets the price tier (small / light, medium / average, large / heavy). We picked the closest match for each piece. Change it if a piece is bigger or smaller.</p>
+    </section>
+
+    <section class="card" id="sec-delivery">
+      <h2><span class="n">4</span> Deliver to</h2>
+      <div class="grid2">
+        <label class="field"><span class="lbl">Client name</span><input id="dName" type="text" autocomplete="off" maxlength="100"></label>
+        <label class="field"><span class="lbl">Client phone</span><input id="dPhone" type="tel" inputmode="tel" maxlength="30" placeholder="(831) 555-0123"></label>
+      </div>
+      <label class="field"><span class="lbl">Client email</span><input id="dEmail" type="email" inputmode="email" maxlength="120" placeholder="name@email.com"></label>
+      <div class="grid2">
+        <label class="field"><span class="lbl">Street address</span><input id="dStreet" type="text" maxlength="120"></label>
+        <label class="field"><span class="lbl">Apt / suite <small>(optional)</small></span><input id="dUnit" type="text" maxlength="40"></label>
+      </div>
+      <div class="grid3 addr">
+        <label class="field"><span class="lbl">City</span><input id="dCity" type="text" maxlength="60"></label>
+        <label class="field"><span class="lbl">State</span><input id="dState" type="text" maxlength="2" value="CA" style="text-transform:uppercase"></label>
+        <label class="field"><span class="lbl">ZIP</span><input id="dZip" type="text" inputmode="numeric" maxlength="10"></label>
+      </div>
+      <div class="grid2">
+        <label class="field"><span class="lbl">How do we get in?</span>
+          <select id="aMode"><option value="">Choose…</option></select></label>
+        <label class="field" id="aFlightsWrap" hidden><span class="lbl">Flights of stairs</span><select id="aFlights"></select></label>
+        <label class="field" id="aFlightsNWrap" hidden><span class="lbl">How many flights?</span><input id="aFlightsN" type="text" inputmode="numeric" maxlength="2" placeholder="4 or more"></label>
+        <label class="field" id="aFloorWrap" hidden><span class="lbl">Floor</span><input id="aFloor" type="text" maxlength="10" placeholder="e.g. 3"></label>
+      </div>
+      <p class="mini" id="accessHint" hidden>Stairs can add a fee for larger pieces. We'll confirm it with the client before delivery.</p>
+      <label class="field"><span class="lbl">Notes &amp; special instructions <small>(optional)</small></span>
+        <textarea id="dNotes" rows="3" maxlength="800" placeholder="Gate code, parking, who to call on arrival, where it goes in the home…"></textarea></label>
+    </section>
+
+    <section class="card" id="sec-dates">
+      <h2><span class="n">5</span> Dates</h2>
+      <p class="sub" id="datesSub">Enter the delivery ZIP above and the available days appear here. We pre-select the earliest.</p>
+      <div id="datesBox" hidden>
+        <div class="lbl">Pickup day</div>
+        <div class="days" id="puDays"></div>
+        <div class="lbl" style="margin-top:14px">Delivery day</div>
+        <div class="days" id="deDays"></div>
+        <p class="mini" id="dateSummary"></p>
+      </div>
+    </section>
+
+  </form>
+
+  <aside class="summary" id="summary" aria-label="Order summary">
+    <div class="card sticky">
+      <h2 class="sum-h">Order summary</h2>
+      <div id="sumBody"><p class="empty">Add an item to see pricing.</p></div>
+    </div>
+  </aside>
+</main>
+
+<div class="bar" id="bar" hidden>
+  <div><span class="bar-l">Total</span> <b id="barTotal">—</b></div>
+  <a class="btn primary" href="#summary" id="barBtn">Review &amp; place order</a>
+</div>
+<script src="/palomas/palomas.js?v=1"></script>
+</body>
+</html>

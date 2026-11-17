@@ -4,7 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const config = require('./config');
-const { quote, isOutOfState, applyApprovedPrice, SERVICES, OFFERED_SERVICES, displayFrom, FURNITURE_KINDS, DECOR_KINDS, needsStairwellFit, numVal } = require('./lib/pricing');
+const { quote, isOutOfState, applyApprovedPrice, protectionLabel, SERVICES, OFFERED_SERVICES, displayFrom, FURNITURE_KINDS, DECOR_KINDS, needsStairwellFit, numVal } = require('./lib/pricing');
 const sched = require('./lib/scheduling');
 const schedule = require('./lib/schedule');
 const email = require('./lib/email');
@@ -435,6 +435,113 @@ app.get('/api/orders/:id/verify', async (req, res) => {
     }
   }
   res.json({ order: o });
+});
+
+// ---------- Paloma's Home Furnishings partner flow (/palomas) ----------
+// A dedicated, streamlined order page for the showroom. Prices come from the same engine (member code PALOMAS = the 25% member
+// rates), then the partner rules in lib/palomas.js. Orders go into the same store, emails, admin and schedule CSV as every other order.
+const PAL = require('./lib/palomas');
+app.get('/palomas', (_, res) => res.sendFile(path.join(__dirname, 'public', 'palomas', 'index.html')));
+app.get('/api/palomas/config', (_, res) => res.json({
+  partner: PAL.PARTNER_NAME, placedBy: PAL.PLACED_BY, pickups: Object.values(PAL.PICKUPS).map(({ key, label, detail }) => ({ key, label, detail })),
+  rules: PAL.RULES, catalog: PAL.catalog,
+  kinds: {
+    furniture: FURNITURE_KINDS, groups: config.pricing.furniture.decorKindGroups,
+    accents: config.pricing.furniture.accents.kinds, sizeLabels: config.pricing.furniture.sizeLabels,
+  },
+  access: ACCESS.MODES, flights: ACCESS.FLIGHTS,
+}));
+function palomasPublicQuote(q) {
+  if (q.special) return { special: true, shipping: q.shipping, quoteNote: q.quoteNote, notes: q.notes };
+  const { engine, ...rest } = q;
+  return rest;
+}
+app.post('/api/palomas/quote', (req, res) => {
+  const b = req.body || {};
+  if (!Array.isArray(b.items) || !b.items.length) return res.json({ empty: true });
+  try { res.json(palomasPublicQuote(PAL.partnerQuote(b))); } catch (e) { res.status(400).json({ error: 'Could not price that yet.' }); }
+});
+app.post('/api/palomas/availability', (req, res) => {
+  const b = req.body || {};
+  const o = PAL.engineOrder(b, { member: true });
+  const zip = String(o.dropoff.zip || '');
+  if (!/^\d{5}/.test(zip)) return res.json({ days: [] });
+  const dateOk = /^\d{4}-\d{2}-\d{2}$/.test(String(b.pickupDate || ''));
+  if (b.leg === 'dropoff' && dateOk) {
+    const from = new Date(b.pickupDate + 'T12:00:00Z');
+    return res.json({ days: sched.availableDays(o.dropoff, { from, count: config.scheduling.showDays, order: o, leadTime: 0 }) });
+  }
+  res.json({ days: sched.availableDays(o.pickup, { order: o }) });
+});
+app.post('/api/palomas/orders', (req, res) => {
+  const b = req.body || {};
+  const errs = PAL.validate(b);
+  const eo = PAL.engineOrder(b, { member: true });
+  const q = errs.length ? null : PAL.partnerQuote(b);
+  if (!errs.length && !q.special) {
+    const sc = b.schedule || {};
+    const ordForDates = { ...eo, schedule: { date: sc.date, deliveryDate: sc.deliveryDate } };
+    if (!sc.date || !sc.deliveryDate || sc.deliveryDate < sc.date) errs.push('pickup and delivery days');
+    else errs.push(...scheduleErrors(ordForDates));
+  }
+  if (errs.length) return res.status(400).json({ error: 'Missing: ' + errs.join(', ') });
+  const fp = fingerprint(b);
+  const dup = load().find((x) => x.fingerprint === fp && Date.now() - Date.parse(x.createdAt) < DEDUPE_MS);
+  if (dup) return res.json({ id: dup.id, status: dup.status, order: dup, duplicate: true });
+  const placedName = b.placedBy.name === 'Other' ? String(b.placedBy.other).trim() : b.placedBy.name;
+  const pickup = PAL.pickupAddress(b.pickupLocation);
+  const dropoff = eo.dropoff;
+  const items = eo.items.map(routeDecorMirror);
+  const outOfState = isOutOfState({ service: 'pickup_delivery', pickup, dropoff });
+  const partnerInfo = {
+    placedBy: placedName, pickupLocation: PAL.PICKUPS[b.pickupLocation].label, priceSensitive: !!b.priceSensitive,
+    standard: q.standard, partnerPrice: q.partner, volumeOff: q.volumeOff, sensitiveOff: q.sensitiveOff,
+  };
+  const base = {
+    id: newOrderId(load()), createdAt: new Date().toISOString(), fingerprint: fp,
+    crating: false, rush: false, dedicated: false,
+    // Stairs or "Not sure": CAD confirms access (and any stairs fee) with the client before the job.
+    accessReview: ['not_sure', 'stairs'].includes(dropoff.accessMode),
+    member: true, memberCode: PAL.PARTNER_CODE, memberCompany: PAL.PARTNER_NAME, heard: { repeatClient: true }, referral: false,
+    declaredValueProtection: !q.special && q.protectionAmount > 0,
+    items, pickup, dropoff,
+    contact: { name: placedName, email: PAL.PARTNER_EMAIL, phone: PAL.PARTNER_PHONE, company: PAL.PARTNER_NAME, clientType: `Partner: ${PAL.PARTNER_NAME}` },
+    partner: { type: 'Partner', name: PAL.PARTNER_NAME, email: PAL.PARTNER_EMAIL, phone: PAL.PARTNER_PHONE },
+    partnerOrder: true, partnerInfo, payer: 'other', payerOther: { name: PAL.PARTNER_NAME, email: PAL.PARTNER_EMAIL, phone: PAL.PARTNER_PHONE },
+    notes: [`Partner order placed by ${placedName} (${PAL.PARTNER_NAME}); pickup: ${partnerInfo.pickupLocation}.`, String(b.delivery.notes || '').trim()].filter(Boolean).join(' '),
+    emails: [],
+  };
+  if (q.special || outOfState) {
+    const order = {
+      ...base, status: 'pending_approval', service: 'crating_shipping', serviceLabel: SERVICES.crating_shipping.label, requestedService: 'pickup_delivery', outOfState: true,
+      shipping: { flexible: true, notes: 'Partner order from the Paloma’s flow; Samantha to confirm destination service level and dates.' },
+      schedule: { date: '', region: 'Shipping', deliveryLater: false, deliveryDate: '', timePref: 'none', timeNote: '', deliveryTimePref: 'none', deliveryTimeNote: '' },
+    };
+    order.quote = quote({ ...order, memberCode: PAL.PARTNER_CODE });
+    const all = load(); all.unshift(order); save(all);
+    const sent = email.send('quote_received', order);
+    update(order.id, (x) => x.emails.push(sent));
+    return res.json({ id: order.id, status: order.status, quote: { special: true }, order: findOrder(order.id) });
+  }
+  const sc = b.schedule;
+  const order = {
+    ...base, status: 'awaiting_payment', service: 'pickup_delivery', serviceLabel: SERVICES.pickup_delivery.label,
+    schedule: { date: sc.date, deliveryDate: sc.deliveryDate, deliveryLater: sc.deliveryDate > sc.date, region: sched.regionForDate(new Date(sc.date + 'T12:00:00Z')), timePref: 'none', timeNote: '', deliveryTimePref: 'none', deliveryTimeNote: '' },
+  };
+  const lines = [
+    ...q.lines.map(({ label, amount }) => ({ label, amount })),
+    ...(q.volumeOff ? [{ label: `Partnership volume discount: additional ${PAL.RULES.volumePct}% off (orders of $${PAL.RULES.volumeThreshold.toLocaleString('en-US')}+)`, amount: -q.volumeOff }] : []),
+    ...(q.sensitiveOff ? [{ label: `Price sensitive client: additional ${PAL.RULES.sensitivePct}% off`, amount: -q.sensitiveOff }] : []),
+    ...(q.protection ? [{ label: protectionLabel(q.protection.eligibleValue), amount: q.protectionAmount }] : []),
+  ];
+  order.quote = {
+    ...q.engine, lines, total: q.total, regularTotal: q.total, protection: q.protection, member: true, memberCompany: PAL.PARTNER_NAME,
+    paymentPlan: 'full', dueNow: 0, balanceDue: 0, balanceWhen: null, paymentSummary: `Billed to ${PAL.PARTNER_NAME}`,
+    partnerPricing: { standard: q.standard, partnerPrice: q.partner, partnerSavings: q.partnerSavings, volumeOff: q.volumeOff, sensitiveOff: q.sensitiveOff, delivery: q.delivery, protection: q.protectionAmount },
+  };
+  const all = load(); all.unshift(order); save(all);
+  const done = finalize(order.id, { method: 'partner_billing', status: 'billed', amount: q.total, ref: `partner_${PAL.PARTNER_CODE.toLowerCase()}` });
+  res.json({ id: order.id, status: done.status, quote: { total: q.total }, order: done });
 });
 
 // ---------- Admin (prototype: simple shared key) ----------
