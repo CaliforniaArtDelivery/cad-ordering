@@ -190,3 +190,18 @@ html{scroll-padding-bottom:96px;scroll-padding-top:12px}
 .chev:hover,.chev:focus-visible{color:var(--muted)}
 .chev svg{transition:transform .15s var(--ease)}.chev.open svg{transform:rotate(180deg)}
 .morepanel{display:flex;justify-content:flex-end;margin:0 0 4px}
+
+/* client blocks, second client, staff code prompt */
+.clientblock{display:grid;gap:12px;margin:0 0 4px}
+.clientblock.second{border:1.5px solid #d9d5cb;border-radius:14px;padding:12px 14px;margin:12px 0 4px;background:#fbfaf7}
+.clientblock[hidden]{display:none}
+.cb-head{display:flex;justify-content:space-between;align-items:center}
+.addclient{margin:10px 0 4px}
+.grid1{display:grid;grid-template-columns:1fr;gap:12px;margin-top:12px}
+.grid1[hidden]{display:none}
+.pin{display:flex;justify-content:flex-end;gap:6px;margin:4px 0 6px}
+.pin input{width:120px;padding:7px 10px;font-size:14px;border:1.5px solid #d9d5cb;border-radius:10px;background:#fff}
+.pin input.bad{border-color:#b3261e}
+.pin button{border:1.5px solid #d9d5cb;background:#fff;border-radius:10px;padding:0 10px;color:var(--muted);cursor:pointer}
+.paymore{display:flex;justify-content:flex-start;margin:0}
+.payopt{margin:8px 0 0}

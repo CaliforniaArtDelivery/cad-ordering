@@ -94,7 +94,7 @@
   "sub": "Sofas And Sectionals",
   "type": "furniture",
   "kind": "Loveseat",
-  "size": "medium",
+  "size": "large",
   "price": null,
   "dims": ""
  },
@@ -105,7 +105,7 @@
   "sub": "Sofas And Sectionals",
   "type": "furniture",
   "kind": "Loveseat",
-  "size": "medium",
+  "size": "large",
   "price": 2200.0,
   "dims": ""
  },
@@ -138,7 +138,7 @@
   "sub": "Sofas And Sectionals",
   "type": "furniture",
   "kind": "Sofa",
-  "size": "medium",
+  "size": "large",
   "price": 2900.0,
   "dims": ""
  },
@@ -149,7 +149,7 @@
   "sub": "Sofas And Sectionals",
   "type": "furniture",
   "kind": "Sofa",
-  "size": "medium",
+  "size": "large",
   "price": null,
   "dims": ""
  },
@@ -160,7 +160,7 @@
   "sub": "Sofas And Sectionals",
   "type": "furniture",
   "kind": "Sofa",
-  "size": "medium",
+  "size": "large",
   "price": null,
   "dims": ""
  },

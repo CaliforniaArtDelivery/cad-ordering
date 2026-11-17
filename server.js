@@ -42,6 +42,16 @@ const loadCustomers = () => (fs.existsSync(CUSTOMERS) ? JSON.parse(fs.readFileSy
 const saveCustomers = (c) => fs.writeFileSync(CUSTOMERS, JSON.stringify(c, null, 2));
 
 const app = express();
+// Stripe webhook (raw body for the signature check). Marks the order paid and confirmed even if the customer never returns to the site.
+app.post('/api/stripe/webhook', express.raw({ type: 'application/json' }), (req, res) => {
+  const secret = process.env.STRIPE_WEBHOOK_SECRET || '';
+  if (!stripe || !secret) return res.status(503).json({ error: 'webhook not configured' });
+  let evt;
+  try { evt = stripe.webhooks.constructEvent(req.body, req.get('stripe-signature'), secret); } catch (e) { return res.status(400).json({ error: 'bad signature' }); }
+  const hit = STRIPE_CO.orderFromEvent(evt);
+  if (hit && findOrder(hit.orderId)) finalize(hit.orderId, hit.payment);
+  res.json({ received: true });
+});
 app.use(express.json({ limit: '2mb' }));
 // Access answers (ground / steps / stairs / elevator) are mapped onto the legacy stair fields before pricing or booking.
 app.use((req, _res, next) => {
@@ -335,21 +345,7 @@ app.post('/api/orders/:id/pay', async (req, res) => {
 
   if (stripe) {
     const { customerId } = await stripeCustomerFor(o, saveMethod);
-    const session = await stripe.checkout.sessions.create({
-      mode: 'payment',
-      ...(customerId
-        ? { customer: customerId, customer_update: { name: 'auto', address: 'auto' } }
-        : { customer_email: o.contact.email }),
-      payment_method_types: ['card', 'us_bank_account'],
-      payment_method_options: {
-        us_bank_account: { financial_connections: { permissions: ['payment_method'] } },
-      },
-      ...(saveMethod ? { payment_intent_data: { setup_future_usage: 'off_session' } } : {}),
-      line_items: [{ quantity: 1, price_data: { currency: config.pricing.currency, unit_amount: Math.round(o.quote.dueNow * 100), product_data: { name: `${config.company.name}: ${o.serviceLabel}`, description: `Order ${o.id}` } } }],
-      metadata: { orderId: o.id, saveMethod: saveMethod ? '1' : '0' },
-      success_url: `${BASE_URL}/?order=${o.id}&session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${BASE_URL}/?order=${o.id}&canceled=1`,
-    });
+    const session = await stripe.checkout.sessions.create(STRIPE_CO.sessionParams(o, { baseUrl: BASE_URL, currency: config.pricing.currency, companyName: config.company.name, customerId, saveMethod }));
     update(o.id, (x) => { x.savePaymentMethod = saveMethod; if (customerId) x.stripeCustomerId = customerId; });
     return res.json({ redirect: session.url });
   }
@@ -410,17 +406,9 @@ app.get('/api/orders/:id/verify', async (req, res) => {
   if (stripe && req.query.session_id) {
     const s = await stripe.checkout.sessions.retrieve(req.query.session_id);
     // Confirm the job on submission, including ACH that is still processing / has not cleared (Chad, Nov 14 2026).
-    if ((s.payment_status === 'paid' || s.payment_status === 'processing') && s.metadata.orderId === o.id) {
-      const pm = s.payment_method_types && s.payment_method_types[0];
-      const method = s.payment_status === 'processing' || pm === 'us_bank_account' ? 'stripe_ach' : 'stripe_card';
-      const payment = {
-        method,
-        // job is confirmed now; ACH money is labeled as processing until the bank clears it
-        status: (s.payment_status === 'processing' || pm === 'us_bank_account') ? 'ach_processing' : 'paid',
-        achPending: s.payment_status === 'processing' || pm === 'us_bank_account',
-        amount: (s.amount_total || 0) / 100, ref: s.id,
-        saved: s.metadata.saveMethod === '1',
-      };
+    const payment = STRIPE_CO.paymentFromSession(s, o.id);
+    if (payment) {
+      const method = payment.method;
       if (payment.saved && s.customer) {
         const book = loadCustomers();
         const emailKey = (o.contact.email || '').toLowerCase();
@@ -441,6 +429,7 @@ app.get('/api/orders/:id/verify', async (req, res) => {
 // A dedicated, streamlined order page for the showroom. Prices come from the same engine (member code PALOMAS = the 25% member
 // rates), then the partner rules in lib/palomas.js. Orders go into the same store, emails, admin and schedule CSV as every other order.
 const PAL = require('./lib/palomas');
+const STRIPE_CO = require('./lib/stripe-checkout');
 const ACCESS_PAL = require('./public/access');
 app.get('/palomas', (_, res) => res.sendFile(path.join(__dirname, 'public', 'palomas', 'index.html')));
 app.get('/api/palomas/config', (_, res) => res.json({
@@ -457,8 +446,18 @@ function palomasPublicQuote(q) {
   const { engine, ...rest } = q;
   return rest;
 }
+// Staff code for the two hidden controls. Neutral wording on purpose: nothing here says what the controls do.
+const unlockHits = new Map();
+app.post('/api/palomas/unlock', (req, res) => {
+  const now = Date.now(); const ip = req.ip || 'x';
+  const hits = (unlockHits.get(ip) || []).filter((t) => now - t < 60000);
+  if (hits.length >= 10) return res.status(429).json({ ok: false });
+  hits.push(now); unlockHits.set(ip, hits);
+  res.json({ ok: PAL.staffCodeOk(String((req.body || {}).code || '')) });
+});
 app.post('/api/palomas/quote', (req, res) => {
   const b = req.body || {};
+  if (b.courtesy && !PAL.staffCodeOk(b.pin)) b.courtesy = false; // never applied without the staff code
   if (!Array.isArray(b.items) || !b.items.length) return res.json({ empty: true });
   try { res.json(palomasPublicQuote(PAL.partnerQuote(b))); } catch (e) { res.status(400).json({ error: 'Could not price that yet.' }); }
 });
@@ -480,6 +479,7 @@ app.post('/api/palomas/availability', (req, res) => {
 });
 app.post('/api/palomas/orders', (req, res) => {
   const b = req.body || {};
+  if ((b.courtesy || b.payer === 'palomas') && !PAL.staffCodeOk(b.pin)) return res.status(403).json({ error: 'That option isn’t available.' });
   const errs = PAL.validate(b);
   const eo = PAL.engineOrder(b, { member: true });
   const q = errs.length ? null : PAL.partnerQuote(b);
@@ -507,14 +507,15 @@ app.post('/api/palomas/orders', (req, res) => {
   const base = {
     id: newOrderId(load()), createdAt: new Date().toISOString(), fingerprint: fp,
     crating: false, rush: false, dedicated: false,
-    // Stairs or "Not sure": CAD confirms access (and any stairs fee) with the client before the job.
-    accessReview: ['not_sure', 'stairs'].includes(dropoff.accessMode) || ACCESS_PAL.needsReview(dropoff),
+    // "Not sure": CAD confirms access with the client before the job. Stairs are priced up front (per flight, large pieces).
+    accessReview: dropoff.accessMode === 'not_sure' || ACCESS_PAL.needsReview(dropoff),
     member: true, memberCode: PAL.PARTNER_CODE, memberCompany: PAL.PARTNER_NAME, heard: { repeatClient: true }, referral: false,
     declaredValueProtection: false, // Paloma's pays no declared value protection
     items, pickup, dropoff,
     // The client is the booker (confirmation and payment link go to them). The payer is the client, or Paloma's when they choose to pay.
     contact: { name: b.delivery.name.trim(), email: b.delivery.email.trim(), phone: b.delivery.phone.trim(), company: '', clientType: `Partner: ${PAL.PARTNER_NAME}` },
     partner: { type: 'Partner', name: PAL.PARTNER_NAME, email: PAL.PARTNER_EMAIL, phone: PAL.PARTNER_PHONE },
+    contact2: (b.delivery.client2 && String(b.delivery.client2.name || '').trim()) ? { name: String(b.delivery.client2.name).trim(), phone: String(b.delivery.client2.phone || '').trim(), email: String(b.delivery.client2.email || '').trim() } : null,
     partnerOrder: true, partnerInfo, payer: palomasPays ? 'other' : 'me', payerOther: palomasPays ? { name: PAL.PARTNER_NAME, email: PAL.PARTNER_EMAIL, phone: PAL.PARTNER_PHONE } : {},
     notes: [`Partner order placed by ${placedName} (${PAL.PARTNER_NAME}); pickup: ${partnerInfo.pickupLocation}.`, String(b.delivery.notes || '').trim()].filter(Boolean).join(' '),
     emails: [],

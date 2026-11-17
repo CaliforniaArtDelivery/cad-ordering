@@ -7,7 +7,7 @@
 <meta name="robots" content="noindex">
 <title>Paloma's Home Furnishings × California Art Delivery · Place a delivery order</title>
 <link rel="icon" type="image/png" href="/cad-logo.jpg">
-<link rel="stylesheet" href="/palomas/palomas.css?v=9">
+<link rel="stylesheet" href="/palomas/palomas.css?v=10">
 </head>
 <body>
 <header class="hero">
@@ -76,26 +76,29 @@
             <label class="field"><span class="lbl">Item name</span><input id="cName" type="text" maxlength="120" placeholder="e.g. Custom copper bench"></label>
             <label class="field"><span class="lbl">Closest type</span><select id="cKind"></select></label>
           </div>
-          <div class="grid3">
-            <label class="field"><span class="lbl">Size</span><select id="cSize"></select></label>
-            <label class="field"><span class="lbl">Declared value (for our records)</span><div class="money"><i>$</i><input id="cValue" type="text" inputmode="decimal" placeholder="Optional"></div></label>
-            <div class="field"><span class="lbl">&nbsp;</span><button type="button" class="btn primary" id="cAdd">Add item</button></div>
-          </div>
+          <div class="field"><button type="button" class="btn primary" id="cAdd">Add item</button></div>
         </div>
       </div>
 
       <h3 class="sub-h">Your items <span id="itemCount" class="count"></span></h3>
       <div id="items" class="items" aria-live="polite"></div>
-      <p class="mini" id="itemsHint">Size sets the price tier (small / light, medium / average, large / heavy). We picked the closest match for each piece. Change it if a piece is bigger or smaller.</p>
     </section>
 
     <section class="card" id="sec-delivery">
-      <h2><span class="n">4</span> Deliver to</h2>
-      <div class="grid2">
+      <h2><span class="n">4</span> Client &amp; delivery</h2>
+      <div class="clientblock" id="client1">
         <label class="field"><span class="lbl">Client name</span><input id="dName" type="text" autocomplete="off" maxlength="100"></label>
         <label class="field"><span class="lbl">Client phone</span><input id="dPhone" type="tel" inputmode="tel" maxlength="30" placeholder="(831) 555-0123"></label>
+        <label class="field"><span class="lbl">Client email</span><input id="dEmail" type="email" inputmode="email" maxlength="120" placeholder="name@email.com"></label>
       </div>
-      <label class="field"><span class="lbl">Client email</span><input id="dEmail" type="email" inputmode="email" maxlength="120" placeholder="name@email.com"></label>
+      <div class="clientblock second" id="client2" role="group" aria-label="Second client" hidden>
+        <div class="cb-head"><b>Second client</b><button type="button" class="linkbtn" id="c2Remove">Remove</button></div>
+        <label class="field"><span class="lbl">Name</span><input id="c2Name" type="text" autocomplete="off" maxlength="100"></label>
+        <label class="field"><span class="lbl">Phone</span><input id="c2Phone" type="tel" inputmode="tel" maxlength="30" placeholder="(831) 555-0123"></label>
+        <label class="field"><span class="lbl">Email</span><input id="c2Email" type="email" inputmode="email" maxlength="120" placeholder="name@email.com"></label>
+      </div>
+      <button type="button" class="btn ghost addclient" id="addClient">+ Add client</button>
+      <h3 class="sub-h">Delivery address</h3>
       <div class="grid2">
         <label class="field"><span class="lbl">Street address</span><input id="dStreet" type="text" maxlength="120"></label>
         <label class="field"><span class="lbl">Apt / suite <small>(optional)</small></span><input id="dUnit" type="text" maxlength="40"></label>
@@ -116,13 +119,11 @@
         <label class="field" id="aElevTypeWrap" hidden><span class="lbl">Which elevator?</span><select id="aElevType"><option value="">Choose…</option><option value="freight">Freight / service elevator</option><option value="passenger">Passenger elevator only</option><option value="not_sure">Not sure</option></select></label>
       </div>
       <label class="check-sm" id="aElevResWrap" hidden><input type="checkbox" id="aElevRes"><span>Elevator has to be reserved in advance</span></label>
-      <div class="grid2" id="aMoreWrap" hidden>
+      <div class="grid1" id="aMoreWrap" hidden>
         <label class="field"><span class="lbl">Building access hours or restrictions <small>(optional)</small></span><input id="aHours" type="text" maxlength="200" placeholder="e.g. Weekdays 9am–4pm, check in at the front desk"></label>
-        <label class="field"><span class="lbl">Anything tight? <small>(optional)</small></span><input id="aTight" type="text" maxlength="300" placeholder="e.g. narrow hallway, tight turn at the landing"></label>
       </div>
-      <p class="mini" id="accessHint" hidden>Stairs can add a fee for larger pieces. We confirm it with the client and get approval before charging it.</p>
       <label class="field"><span class="lbl">Notes &amp; special instructions <small>(optional)</small></span>
-        <textarea id="dNotes" rows="3" maxlength="800" placeholder="Gate code, parking, who to call on arrival, where it goes in the home…"></textarea></label>
+        <textarea id="dNotes" rows="3" maxlength="800" placeholder="Gate code, parking, who to call on arrival, where it goes in the home, anything tight like narrow hallways or doorways"></textarea></label>
     </section>
 
     <section class="card" id="sec-dates">
@@ -151,6 +152,6 @@
   <div><span class="bar-l">Total</span> <b id="barTotal">—</b></div>
   <a class="btn primary" href="#summary" id="barBtn">Review &amp; pay</a>
 </div>
-<script src="/palomas/palomas.js?v=9"></script>
+<script src="/palomas/palomas.js?v=10"></script>
 </body>
 </html>

@@ -7,7 +7,7 @@ const num = (v) => { const n = Number(String(v ?? '').replace(/[,$\s]/g, '')); r
 
 let CFG = null;
 const S = {
-  placedBy: '', placedOther: '', pickup: 'salinas', items: [], courtesy: false, staffOpen: false, puMore: false, deMore: false, puFrom: '', deFrom: '',
+  placedBy: '', placedOther: '', pickup: 'salinas', items: [], courtesy: false, staffOpen: false, payOpen: false, unlocked: false, pin: '', pinFor: '', pinVal: '', puMore: false, deMore: false, puFrom: '', deFrom: '',
   payer: 'client', card: '', exp: '', cvc: '', payError: '',
   pickupDate: '', deliveryDate: '', puDays: [], deDays: [], quote: null, submitting: false, errors: [], showErrors: false,
 };
@@ -18,16 +18,21 @@ const STD_SIZES = () => CFG.kinds.sizeLabels.standard;
 const ACC_SIZES = () => CFG.kinds.sizeLabels.accents;
 const sizesFor = (kind) => (ACC().has(kind) ? ACC_SIZES() : STD_SIZES());
 const isMirror = (kind) => kind === 'Mirror';
+const client2 = () => {
+  if ($('#client2').hidden) return null;
+  const c = { name: $('#c2Name').value.trim(), phone: $('#c2Phone').value.trim(), email: $('#c2Email').value.trim() };
+  return c.name || c.phone || c.email ? c : null;
+};
 const delivery = () => ({
   name: $('#dName').value.trim(), phone: $('#dPhone').value.trim(), email: $('#dEmail').value.trim(), street: $('#dStreet').value.trim(),
-  unit: $('#dUnit').value.trim(), city: $('#dCity').value.trim(), state: ($('#dState').value.trim() || 'CA').toUpperCase(), zip: $('#dZip').value.trim(), notes: $('#dNotes').value.trim(),
+  unit: $('#dUnit').value.trim(), city: $('#dCity').value.trim(), state: ($('#dState').value.trim() || 'CA').toUpperCase(), zip: $('#dZip').value.trim(), notes: $('#dNotes').value.trim(), client2: client2(),
 });
-const access = () => ({ mode: $('#aMode').value, flights: $('#aFlights').value, flightsCount: $('#aFlightsN').value.trim(), floor: $('#aFloor').value.trim(), elevatorType: $('#aElevType').value, elevatorReserve: $('#aElevRes').checked, elevSteps: $('#aElevSteps').value, elevStepsN: $('#aElevStepsN').value.trim(), hours: $('#aHours').value.trim(), tight: $('#aTight').value.trim() });
+const access = () => ({ mode: $('#aMode').value, flights: $('#aFlights').value, flightsCount: $('#aFlightsN').value.trim(), floor: $('#aFloor').value.trim(), elevatorType: $('#aElevType').value, elevatorReserve: $('#aElevRes').checked, elevSteps: $('#aElevSteps').value, elevStepsN: $('#aElevStepsN').value.trim(), hours: $('#aHours').value.trim() });
 const outOfState = () => { const d = delivery(); const z = parseInt(d.zip.slice(0, 3), 10); return (d.state && d.state !== 'CA') || (/^\d{5}/.test(d.zip) && !(z >= 900 && z <= 961)); };
 const payload = (payMode = 'now') => ({
   payer: S.payer, payMode,
-  placedBy: { name: S.placedBy, other: S.placedOther }, pickupLocation: S.pickup, courtesy: S.courtesy,
-  items: S.items.map((i) => ({ name: i.name, kind: i.kind, size: i.size, value: num(i.value), qty: i.qty, catalogId: i.catalogId, custom: !!i.custom, oversized: !!i.oversized, w: i.w, h: i.h })),
+  placedBy: { name: S.placedBy, other: S.placedOther }, pickupLocation: S.pickup, courtesy: S.courtesy, ...(S.unlocked ? { pin: S.pin } : {}),
+  items: S.items.map((i) => ({ name: i.name, kind: i.kind, qty: i.qty, catalogId: i.catalogId, custom: !!i.custom, w: i.w, h: i.h })),
   delivery: delivery(), access: access(), schedule: { date: S.pickupDate, deliveryDate: S.deliveryDate },
 });
 async function api(url, body) {
@@ -57,7 +62,7 @@ function addFromCatalog(key) {
   const c = CFG.catalog.find((x) => (x.id || x.name) === key); if (!c) return;
   const ex = S.items.find((i) => i.catalogId === key);
   if (ex) ex.qty = Math.min(99, ex.qty + 1);
-  else S.items.push({ uid: uid++, name: c.name, kind: c.kind, size: c.size, value: c.price ? String(c.price) : '', qty: 1, catalogId: key, thumb: c.id || '', dims: c.dims, w: '', h: '' });
+  else S.items.push({ uid: uid++, name: c.name, kind: c.kind, qty: 1, catalogId: key, thumb: c.id || '', dims: c.dims, w: '', h: '' });
   itemsChanged(true);
 }
 function renderItems() {
@@ -65,16 +70,12 @@ function renderItems() {
   $('#itemCount').textContent = S.items.length ? `(${S.items.reduce((s, i) => s + i.qty, 0)})` : '';
   if (!S.items.length) { box.innerHTML = `<p class="empty">Nothing added yet. Tap a piece above.</p>`; return; }
   box.innerHTML = S.items.map((i) => {
-    const sz = sizesFor(i.kind);
     return `<div class="irow" data-uid="${i.uid}">
       <div class="th">${i.thumb ? `<img src="/palomas/thumbs/${esc(i.thumb)}.jpg" alt="" onerror="this.replaceWith(document.createTextNode('◇'))">` : '◇'}</div>
       <div><div class="nm">${esc(i.name)}</div><div class="ty">${esc(i.kind)}${i.dims ? ' · ' + esc(i.dims) : ''}${i.custom ? ' · custom' : ''}</div>
         <div class="ctl">
           <div><span class="lbl">Qty</span><div class="qty"><button type="button" data-q="-1" aria-label="Fewer">−</button><input data-f="qty" value="${i.qty}" inputmode="numeric" aria-label="Quantity"><button type="button" data-q="1" aria-label="More">+</button></div></div>
-          <div><span class="lbl">Size tier</span><select data-f="size" aria-label="Size tier">${sz.map(([k, l]) => `<option value="${k}" ${k === i.size ? 'selected' : ''} ${i.oversized && sz.findIndex(([x]) => x === k) < sz.findIndex(([x]) => x === 'large') ? 'disabled' : ''}>${esc(l)}</option>`).join('')}</select></div>
-          <div class="v"><span class="lbl">Declared value (for our records)</span><div class="money"><i>$</i><input data-f="value" value="${esc(i.value)}" inputmode="decimal" placeholder="Optional" aria-label="Declared value (for our records), optional"></div></div>
         </div>
-        <label class="check-sm"><input type="checkbox" data-f="oversized" ${i.oversized ? 'checked' : ''}><span>Oversized or very heavy <small>(e.g., 150+ lbs, marble, armoire)</small>${i.oversized ? '<em> Large tier applied, crew is told to bring extra help.</em>' : ''}</span></label>
         ${isMirror(i.kind) ? `<div class="dims">Face size, optional: <input data-f="w" value="${esc(i.w)}" inputmode="numeric" placeholder="W"> × <input data-f="h" value="${esc(i.h)}" inputmode="numeric" placeholder="H"> in</div>` : ''}
       </div><button type="button" class="rm" data-rm="1" aria-label="Remove ${esc(i.name)}">×</button></div>`;
   }).join('');
@@ -105,6 +106,13 @@ function problems() {
   if (!d.name) add('Client name', '#dName');
   if (d.phone.replace(/\D/g, '').length < 7) add('Client phone', '#dPhone');
   if (!/\S+@\S+\.\S+/.test(d.email)) add('Client email', '#dEmail');
+  const c2 = d.client2;
+  if (c2) {
+    if (!c2.name) add('Second client name', '#c2Name');
+    if (!c2.phone && !c2.email) add('Second client phone or email', '#c2Phone');
+    else if (c2.phone && c2.phone.replace(/\D/g, '').length < 7) add('Second client phone', '#c2Phone');
+    else if (c2.email && !/\S+@\S+\.\S+/.test(c2.email)) add('Second client email', '#c2Email');
+  }
   if (!d.street) add('Delivery street address', '#dStreet');
   if (!d.city) add('City', '#dCity');
   if (!/^\d{5}(-\d{4})?$/.test(d.zip)) add('ZIP code', '#dZip');
@@ -120,6 +128,22 @@ function problems() {
   return out;
 }
 
+/* Staff code prompt: shared by the two unlabeled chevrons. Neutral on purpose (no wording about what it unlocks). */
+const CHEV_SVG = '<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false"><path d="M3.5 6l4.5 4.5L12.5 6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+const pinHtml = (which) => (S.pinFor === which ? `<form class="pin" id="pinForm" data-for="${which}" autocomplete="off"><input type="password" id="pinInput" name="code" placeholder="Code" aria-label="Code" autocomplete="off" value="${esc(S.pinVal)}"><button type="submit" aria-label="Enter">→</button></form>` : '');
+function openChevron(which) {
+  // which: 'staffOpen' (courtesy) or 'payOpen' (second payer option)
+  if (S.unlocked) { S[which] = !S[which]; S.pinFor = ''; renderSummary(); const c = $('#' + (which === 'staffOpen' ? 'more' : 'payMore')); if (c) c.focus({ preventScroll: true }); return; }
+  S.pinFor = S.pinFor === which ? '' : which; S.pinVal = ''; renderSummary();
+  const i = $('#pinInput'); if (i) i.focus({ preventScroll: true });
+}
+async function submitPin(e) {
+  e.preventDefault();
+  const which = S.pinFor, code = $('#pinInput').value;
+  const { j } = await api('/api/palomas/unlock', { code });
+  if (j && j.ok) { S.unlocked = true; S.pin = code; S[which] = true; S.pinFor = ''; S.pinVal = ''; renderSummary(); return; }
+  S.pinVal = ''; renderSummary(); const i = $('#pinInput'); if (i) { i.classList.add('bad'); i.focus({ preventScroll: true }); }
+}
 const payerInfo = () => (S.payer === 'palomas' ? { name: "Paloma's Home Furnishings", email: CFG.pay.partnerEmail } : { name: delivery().name, email: delivery().email });
 function payerLineHtml() { const p = payerInfo(); return p.name || p.email ? `Payer: <b>${esc(p.name || '—')}</b>${p.email ? ' · ' + esc(p.email) : ''}` : 'Payer: fill in the client name and email above.'; }
 function shippingButton() {
@@ -130,20 +154,20 @@ function payBlock(q) {
   const mock = !CFG.pay.stripe && CFG.pay.testMode, offline = !CFG.pay.stripe && !CFG.pay.testMode;
   let h = `<div class="payer" role="radiogroup" aria-label="Who is paying">
     <label class="prow ${S.payer === 'client' ? 'on' : ''}"><input type="radio" name="payer" value="client" ${S.payer === 'client' ? 'checked' : ''}><span><b>Client pays now</b><small>Card payment at checkout</small></span></label>
-    <label class="prow ${S.payer === 'palomas' ? 'on' : ''}"><input type="radio" name="payer" value="palomas" ${S.payer === 'palomas' ? 'checked' : ''}><span><b>Paloma's is paying</b><small>Same card checkout, billed to Paloma's</small></span></label>
+    ${S.payOpen ? `<label class="prow ${S.payer === 'palomas' ? 'on' : ''}"><input type="radio" name="payer" value="palomas" ${S.payer === 'palomas' ? 'checked' : ''}><span><b>Paloma's Pay</b><small>Same card checkout, billed to Paloma's</small></span></label>` : ''}
   </div>
+  <div class="paymore"><button type="button" class="chev ${S.payOpen ? 'open' : ''}" id="payMore" aria-label="More" aria-expanded="${S.payOpen ? 'true' : 'false'}">${CHEV_SVG}</button></div>${pinHtml('payOpen')}
   <p class="mini payerline" id="payerLine">${payerLineHtml()}</p>`;
   h += deposit
     ? `<div class="sl big rule due"><span>Due today<small>${esc(pay.paymentSummary || '')}</small></span><span class="a">${usd(pay.dueNow)}</span></div>`
     : `<div class="sl big rule due"><span>Due today<small>${esc(pay.paymentSummary || 'Covers the delivery as quoted')}</small></span><span class="a">${usd(pay.dueNow || q.total)}</span></div>`;
-  if (q.accessFeeNote) h += `<p class="mini fee-note" id="feeNote">${esc(q.accessFeeNote)}</p>`;
   if (mock) {
     h += `<div class="cardbox"><div class="wallets"><button type="button" class="btn ghost wal" data-wallet="apple_pay">Apple Pay</button><button type="button" class="btn ghost wal" data-wallet="google_pay">Google Pay</button></div>
       <div class="or">or pay by card <em>test mode, no real charge</em></div>
       <label class="field"><span class="lbl">Card number</span><input id="cardNum" type="text" inputmode="numeric" autocomplete="cc-number" maxlength="23" value="${esc(S.card)}" placeholder="4242 4242 4242 4242"></label>
       <div class="two"><label class="field"><span class="lbl">Expiry</span><input id="cardExp" type="text" inputmode="numeric" autocomplete="cc-exp" maxlength="7" value="${esc(S.exp)}" placeholder="MM / YY"></label>
       <label class="field"><span class="lbl">CVC</span><input id="cardCvc" type="text" inputmode="numeric" autocomplete="cc-csc" maxlength="4" value="${esc(S.cvc)}" placeholder="123"></label></div></div>`;
-  } else if (!offline) h += `<p class="mini" style="margin:8px 0">You'll finish on our secure Stripe checkout page (card or bank).</p>`;
+  } else if (!offline) h += `<p class="mini" style="margin:8px 0">You'll finish on our secure Stripe checkout page: card, Apple Pay, Google Pay, Link and more.</p>`;
   else h += `<p class="mini" style="margin:8px 0">Online payment isn't available right now. Please call us.</p>`;
   if (S.payError) h += `<div class="errs" role="alert"><b>Payment didn't go through.</b>${esc(S.payError)}</div>`;
   h += `<button type="button" class="btn primary wide" id="place" ${S.submitting || offline ? 'disabled' : ''}>${S.submitting ? 'Processing…' : 'Pay &amp; lock in delivery'}</button>`;
@@ -174,7 +198,7 @@ function renderSummary() {
     if (q.courtesy) html += `<div class="sl disc"><span>Manager's courtesy</span><span class="a">−${usd(q.courtesyOff)}</span></div>`;
     html += `<div class="sl big rule"><span>Total</span><span class="a">${q.standard !== q.total ? `<s>${usd(q.standard)}</s>` : ''}${usd(q.total)}</span></div>`;
     // Discreet control: a small unlabeled chevron (aria-label "More"); the checkbox only exists in the page while it is expanded.
-    html += `<div class="more"><button type="button" class="chev ${S.staffOpen ? 'open' : ''}" id="more" aria-label="More" aria-expanded="${S.staffOpen ? 'true' : 'false'}" aria-controls="morePanel"><svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false"><path d="M3.5 6l4.5 4.5L12.5 6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button></div>`;
+    html += `<div class="more"><button type="button" class="chev ${S.staffOpen ? 'open' : ''}" id="more" aria-label="More" aria-expanded="${S.staffOpen ? 'true' : 'false'}" aria-controls="morePanel">${CHEV_SVG}</button></div>${pinHtml('staffOpen')}`;
     if (S.staffOpen) html += `<div id="morePanel" class="morepanel"><label class="mc"><input type="checkbox" id="mc" ${S.courtesy ? 'checked' : ''}><span>Manager's courtesy (−${q.rules.courtesyPct}%)</span></label></div>`;
     if (q.notes && q.notes.length) html += q.notes.filter((n) => !/access/i.test(n)).map((n) => `<p class="mini">${esc(n)}</p>`).join('');
     barTotal.textContent = usd(q.total);
@@ -308,14 +332,12 @@ function bind() {
   const kind = $('#cKind');
   kind.innerHTML = `<optgroup label="Furniture">${CFG.kinds.furniture.map((k) => `<option>${esc(k)}</option>`).join('')}</optgroup>` +
     CFG.kinds.groups.map((g) => `<optgroup label="${esc(g.label === 'Wall' ? 'Wall décor & mirrors' : g.label === 'Lighting' ? 'Lighting' : 'Accents & objects')}">${g.items.map((k) => `<option>${esc(k)}</option>`).join('')}</optgroup>`).join('');
-  const fillSize = () => { $('#cSize').innerHTML = sizesFor(kind.value).map(([k, l]) => `<option value="${k}" ${k === 'medium' ? 'selected' : ''}>${esc(l)}</option>`).join(''); };
-  kind.addEventListener('change', fillSize); fillSize();
   $('#cAdd').addEventListener('click', () => {
-    const n = $('#cName').value.trim(), v = num($('#cValue').value);
+    const n = $('#cName').value.trim();
     $('#cName').classList.toggle('bad', !n);
     if (!n) return;
-    S.items.push({ uid: uid++, name: n, kind: kind.value, size: $('#cSize').value, value: v > 0 ? String(v) : '', qty: 1, catalogId: 'custom-' + uid, custom: true, thumb: '', dims: '', w: '', h: '' });
-    $('#cName').value = ''; $('#cValue').value = ''; itemsChanged(true);
+    S.items.push({ uid: uid++, name: n, kind: kind.value, qty: 1, catalogId: 'custom-' + uid, custom: true, thumb: '', dims: '', w: '', h: '' });
+    $('#cName').value = ''; itemsChanged(true);
   });
   // item rows
   const rowOf = (el) => { const r = el.closest('.irow'); return r && S.items.find((i) => String(i.uid) === r.dataset.uid); };
@@ -327,17 +349,11 @@ function bind() {
   $('#items').addEventListener('input', (e) => {
     const it = rowOf(e.target); const f = e.target.dataset.f; if (!it || !f) return;
     if (f === 'qty') { it.qty = Math.max(1, Math.min(99, parseInt(e.target.value, 10) || 1)); }
-    else if (f === 'value') { it.value = e.target.value.replace(/[^0-9.,]/g, ''); e.target.value = it.value; e.target.classList.remove('bad'); }
-    else if (f === 'oversized') {
-      it.oversized = e.target.checked;
-      const order = sizesFor(it.kind).map(([k]) => k);
-      if (it.oversized && order.indexOf(it.size) < order.indexOf('large')) it.size = 'large';
-      itemsChanged(true); return;
-    } else it[f] = e.target.value;
+    else it[f] = e.target.value;
     scheduleQuote(); if (f === 'qty') scheduleAvail(); renderCatalog();
   });
   // delivery fields
-  ['dName', 'dPhone', 'dEmail', 'dStreet', 'dUnit', 'dCity', 'dState', 'dZip', 'dNotes', 'aFlightsN', 'aFloor', 'aHours', 'aTight', 'aElevStepsN'].forEach((id) => $('#' + id).addEventListener('input', (e) => {
+  ['dName', 'dPhone', 'dEmail', 'dStreet', 'dUnit', 'dCity', 'dState', 'dZip', 'dNotes', 'aFlightsN', 'aFloor', 'aHours', 'aElevStepsN', 'c2Name', 'c2Phone', 'c2Email'].forEach((id) => $('#' + id).addEventListener('input', (e) => {
     e.target.classList.remove('bad');
     if (id === 'dName' || id === 'dEmail') { const pl = $('#payerLine'); if (pl) pl.innerHTML = payerLineHtml(); }
     if (id === 'dZip' || id === 'dState') { scheduleQuote(); scheduleAvail(); renderDatesVisibility(); }
@@ -350,7 +366,6 @@ function bind() {
     $('#aFlightsWrap').hidden = m !== 'stairs'; $('#aFlightsNWrap').hidden = !(m === 'stairs' && fl === '4plus'); $('#aFloorWrap').hidden = m !== 'elevator';
     $('#aElevTypeWrap').hidden = m !== 'elevator'; $('#aElevResWrap').hidden = m !== 'elevator'; $('#aMoreWrap').hidden = !m;
     $('#aElevStepsWrap').hidden = m !== 'elevator'; $('#aElevStepsNWrap').hidden = !(m === 'elevator' && $('#aElevSteps').value === 'yes');
-    $('#accessHint').hidden = !(['stairs', 'not_sure'].includes(m) || (m === 'elevator' && ['yes', 'not_sure'].includes($('#aElevSteps').value)));
     scheduleQuote();
   };
   am.addEventListener('change', () => { am.classList.remove('bad'); syncAccess(); });
@@ -358,6 +373,9 @@ function bind() {
   $('#aFlightsN').addEventListener('input', scheduleQuote);
   $('#aElevType').addEventListener('change', (e) => e.target.classList.remove('bad'));
   $('#aElevSteps').addEventListener('change', (e) => { e.target.classList.remove('bad'); syncAccess(); });
+  // second client (optional)
+  $('#addClient').addEventListener('click', () => { $('#client2').hidden = false; $('#addClient').hidden = true; $('#c2Name').focus(); });
+  $('#c2Remove').addEventListener('click', () => { ['c2Name', 'c2Phone', 'c2Email'].forEach((id) => { $('#' + id).value = ''; $('#' + id).classList.remove('bad'); }); $('#client2').hidden = true; $('#addClient').hidden = false; scheduleQuote(); });
   // dates
   $('#puDays').addEventListener('click', (e) => { const b = e.target.closest('[data-pu]'); if (!b) return; S.pickupDate = b.dataset.pu; S.deliveryDate = ''; S.deFrom = ''; S.deMore = false; renderDays(); refreshDelivery(); });
   $('#deDays').addEventListener('click', (e) => { const b = e.target.closest('[data-de]'); if (!b) return; S.deliveryDate = b.dataset.de; renderDays(); });
@@ -378,7 +396,8 @@ function bind() {
   $('#sumBody').addEventListener('change', (e) => { if (e.target.id === 'mc') { S.courtesy = e.target.checked; runQuote(); } });
   $('#sumBody').addEventListener('click', (e) => {
     if (S.submitting) return;
-    if (e.target.closest('#more')) { S.staffOpen = !S.staffOpen; renderSummary(); const m = $('#more'); if (m) m.focus({ preventScroll: true }); return; }
+    if (e.target.closest('#more')) { openChevron('staffOpen'); return; }
+    if (e.target.closest('#payMore')) { openChevron('payOpen'); return; }
     if (e.target.id === 'place') place();
     else if (e.target.id === 'sendLink') place('link');
     else if (e.target.closest('[data-wallet]')) place('now', e.target.closest('[data-wallet]').dataset.wallet);
@@ -386,7 +405,9 @@ function bind() {
   $('#sumBody').addEventListener('change', (e) => {
     if (e.target.name === 'payer') { S.payer = e.target.value; S.payError = ''; renderSummary(); }
   });
+  $('#sumBody').addEventListener('submit', (e) => { if (e.target.id === 'pinForm') submitPin(e); });
   $('#sumBody').addEventListener('input', (e) => {
+    if (e.target.id === 'pinInput') { S.pinVal = e.target.value; e.target.classList.remove('bad'); return; }
     if (e.target.id === 'cardNum') { S.card = e.target.value.replace(/[^\d ]/g, ''); e.target.value = S.card; }
     else if (e.target.id === 'cardExp') S.exp = e.target.value;
     else if (e.target.id === 'cardCvc') S.cvc = e.target.value;

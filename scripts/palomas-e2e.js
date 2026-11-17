@@ -9,6 +9,27 @@ const ok = (c, m) => { if (c) { pass++; console.log('  ✓', m); } else { fail++
 const txt = async (page, sel) => ((await page.locator(sel).first().innerText().catch(() => '')) || '').replace(/\s+/g, ' ');
 (async () => {
   const browser = await chromium.launch({ executablePath: process.env.CHROME || undefined, args: ['--no-sandbox'] });
+  // Header lockup alignment at the sizes that matter: big showroom monitor, laptop, iPhone
+  console.log('\n== header alignment ==');
+  for (const [w, h, mob] of [[1920, 1000, false], [1440, 900, false], [390, 844, true]]) {
+    const hc = await browser.newContext({ viewport: { width: w, height: h }, deviceScaleFactor: mob ? 2 : 1, isMobile: mob, hasTouch: mob });
+    const hp = await hc.newPage();
+    await hp.goto(BASE + '/palomas'); await hp.waitForSelector('.lockup'); await hp.waitForTimeout(600);
+    const g = await hp.evaluate(() => { const r = (e) => { const b = e.getBoundingClientRect(); return { cx: b.x + b.width / 2, top: b.y, h: b.height }; };
+      const cols = [...document.querySelectorAll('.lockup > .lk')];
+      const marks = [document.querySelector('.logo-p'), document.querySelector('.x'), document.querySelector('.logo-c')].map(r);
+      const caps = [cols[0].querySelector('figcaption'), cols[1].querySelector('.collab'), cols[2].querySelector('figcaption')].map(r);
+      const imgsOk = [...document.querySelectorAll('.lockup img')].every((i) => i.complete && i.naturalWidth > 0);
+      return { marks, caps, sw: document.documentElement.scrollWidth, iw: innerWidth, imgsOk, lockupLeft: cols[0].getBoundingClientRect().left, lockupRight: cols[2].getBoundingClientRect().right }; });
+    ok(g.imgsOk, `${w}px: both logos load`);
+    ok(g.marks.every((m, i) => Math.abs(m.cx - g.caps[i].cx) <= 2), `${w}px: each caption is centered directly under its mark`);
+    ok(Math.abs(g.caps[0].top - g.caps[1].top) <= 1 && Math.abs(g.caps[1].top - g.caps[2].top) <= 1, `${w}px: the three captions sit on one line`);
+    ok(Math.abs((g.marks[1].cx - g.marks[0].cx) - (g.marks[2].cx - g.marks[1].cx)) <= 3, `${w}px: columns are evenly spaced`);
+    ok(g.caps.every((c) => c.h < 64) && g.sw <= g.iw, `${w}px: captions wrap at most to two lines, no sideways overflow`);
+    ok(Math.abs((g.lockupLeft + g.lockupRight) / 2 - g.iw / 2) <= 3, `${w}px: the lockup is centered on the page`);
+    await hp.screenshot({ path: `${OUT}/palomas-header-${w}.png`, clip: { x: 0, y: 0, width: w, height: w >= 1400 ? 420 : 400 } });
+    await hc.close();
+  }
   for (const [name, vp, mobile] of [['desktop', { width: 1280, height: 900 }, false], ['iphone', { width: 390, height: 844 }, true]]) {
     console.log(`\n== ${name} ==`);
     const ctx = await browser.newContext({ viewport: vp, deviceScaleFactor: mobile ? 2 : 1, isMobile: mobile, hasTouch: mobile });
@@ -61,24 +82,29 @@ const txt = async (page, sel) => ((await page.locator(sel).first().innerText().c
     ok(/additional 10% off the whole delivery price/.test(sum1), 'plain-language 10% note is shown');
     // custom item
     await page.click('#customToggle');
-    await page.fill('#cName', 'Custom copper bench'); await page.selectOption('#cKind', 'Bench'); await page.fill('#cValue', '2400');
+    await page.fill('#cName', 'Custom copper bench'); await page.selectOption('#cKind', 'Bench');
     await page.click('#cAdd');
     ok((await page.locator('.irow').count()) === 3 && /custom/.test(await txt(page, '.irow:nth-child(3) .ty')), 'custom item added');
     await page.fill('#search', 'arco captiva sofa'); await page.locator('.pcard').first().click(); await page.fill('#search', '');
     ok((await page.locator('.irow').count()) === 4, 'a sofa added to push the order over $1,000 after partnership pricing');
-    // oversized / very heavy
-    const sizeOf = async () => page.locator('.irow').first().locator('[data-f=size]').inputValue();
-    const sz0 = await sizeOf();
-    await page.locator('.irow').nth(2).locator('[data-f=oversized]').check();
-    ok(await page.locator('.irow').nth(2).locator('[data-f=size]').inputValue() === 'large' && /Large tier applied/.test(await txt(page, '.irow:nth-child(3)')), 'ticking "Oversized or very heavy" bumps the item to the large tier and says so');
-    await page.locator('.irow').nth(2).locator('[data-f=oversized]').uncheck();
-    ok(/oversized or very heavy/i.test(await txt(page, '.irow:nth-child(3)')) && /size tier/i.test(await txt(page, '.irow:nth-child(3)')), 'the checkbox and the size tier are visible on every item');
+    // size and handling come from the catalog: no size tier, oversized checkbox or declared value inputs on any item
+    ok((await page.locator('[data-f=size], [data-f=oversized], [data-f=value], #cSize, #cValue').count()) === 0, 'items have no Size tier, Oversized checkbox or Declared value field (also none on the custom item form)');
+    ok(!/declared value|oversized|size tier|\$/i.test(await txt(page, '#items')), 'item rows show only name, type, dimensions and quantity');
+    await page.locator('#sec-items').screenshot({ path: `${OUT}/palomas-${name}-items.png` });
     // delivery
     await page.fill('#dName', 'Pat Client'); await page.fill('#dPhone', '8315550123'); await page.fill('#dEmail', 'pat@example.com');
     await page.fill('#dStreet', '100 Ocean Ave'); await page.fill('#dCity', 'Carmel-by-the-Sea'); await page.fill('#dZip', '93921');
+    // client block: name, phone, email in one column; second client is optional behind "+ Add client"
+    const yOf = async (sel) => (await page.locator(sel).boundingBox()).y;
+    ok((await yOf('#dName')) < (await yOf('#dPhone')) && (await yOf('#dPhone')) < (await yOf('#dEmail')), 'client: name, then phone directly under it, then email under that');
+    ok(await page.locator('#client2').isHidden() && /\+ Add client/.test(await txt(page, '#addClient')), 'second client is hidden behind a "+ Add client" button');
+    await page.click('#addClient');
+    ok(await page.locator('#client2').isVisible() && await page.locator('#c2Name').isVisible() && (await yOf('#c2Name')) < (await yOf('#c2Phone')) && (await yOf('#c2Phone')) < (await yOf('#c2Email')) && (await yOf('#dEmail')) < (await yOf('#c2Name')), '+ Add client shows a grouped second block (name, phone, email) below the first client');
+    await page.fill('#c2Name', 'Sam Spouse'); await page.fill('#c2Phone', '8315550199'); await page.fill('#c2Email', 'sam@example.com');
+    ok((await page.locator('#dStreet').count()) === 1 && (await page.locator('#c2Street, [id^=c2][id*=City]').count()) === 0, 'one delivery address only');
     await page.selectOption('#aMode', 'stairs');
     ok(await page.locator('#aFlightsWrap').isVisible(), 'stairs asks how many flights');
-    ok(await page.locator('#aElevTypeWrap').isHidden() && await page.locator('#aMoreWrap').isVisible(), 'stairs: no elevator questions, but the optional access-hours / tight-fit fields appear');
+    ok(await page.locator('#aElevTypeWrap').isHidden() && await page.locator('#aMoreWrap').isVisible(), 'stairs: no elevator questions, but the optional access-hours field appears');
     await page.selectOption('#aMode', 'elevator');
     ok(await page.locator('#aElevTypeWrap').isVisible() && await page.locator('#aElevResWrap').isVisible() && await page.locator('#aFloorWrap').isVisible() && await page.locator('#aFlightsWrap').isHidden(), 'elevator: asks freight or passenger, whether it must be reserved, and the floor (flights question hidden)');
     ok(await page.locator('#aElevStepsWrap').isVisible() && await page.locator('#aElevStepsNWrap').isHidden(), 'elevator: asks "Any steps before or after the elevator?" (Yes / No / Not sure), count hidden at first');
@@ -89,9 +115,11 @@ const txt = async (page, sel) => ((await page.locator(sel).first().innerText().c
     await page.selectOption('#aElevSteps', 'no');
     ok(await page.locator('#aElevStepsNWrap').isHidden(), 'answering No hides the count');
     await page.selectOption('#aElevType', 'freight'); await page.fill('#aFloor', '3'); await page.locator('#aElevRes').check();
-    await page.fill('#aHours', 'Weekdays 9am-4pm'); await page.fill('#aTight', 'narrow hallway');
+    await page.fill('#aHours', 'Weekdays 9am-4pm');
     await page.selectOption('#aMode', 'stairs');
     await page.selectOption('#aFlights', '1');
+    ok(await page.locator('#aTight').count() === 0 && /anything tight like narrow hallways or doorways/.test(await page.locator('#dNotes').getAttribute('placeholder')) && /gate code, parking, who to call on arrival, where it goes in the home/i.test(await page.locator('#dNotes').getAttribute('placeholder')), 'one notes field; its placeholder covers gate code, parking, who to call, where it goes and anything tight');
+    ok(!/stairs can add a fee|we confirm it/i.test(await page.locator('#sec-delivery').innerText()), 'no "stairs can add a fee…" text under the access questions');
     await page.waitForSelector('#datesBox:not([hidden])');
     await page.waitForSelector('#deDays .day'); await page.waitForSelector('#puCtl [data-later]'); await page.waitForSelector('#deCtl [data-later]'); // live latency: the delivery leg loads after the pickup leg
     ok((await page.locator('#puDays .day').count()) > 0 && (await page.locator('#deDays .day').count()) > 0, 'pickup and delivery days appear, earliest pre-selected');
@@ -107,12 +135,15 @@ const txt = async (page, sel) => ((await page.locator(sel).first().innerText().c
     await page.waitForFunction((d) => { const b = document.querySelector('#puDays .day'); return b && b.dataset.pu < d; }, laterDate);
     ok(true, 'Back to earliest dates returns to the short list');
     await page.waitForTimeout(500);
+    await page.locator('#sec-delivery').screenshot({ path: `${OUT}/palomas-${name}-client.png` });
     await page.screenshot({ path: `${OUT}/palomas-${name}-form.png`, fullPage: true });
     // per-item pricing: standard struck through next to partnership price, all-in price after the extras
     await page.waitForTimeout(600); await page.waitForSelector('.li .li-all');
     const sumNow = await txt(page, '#sumBody');
-    ok((await page.locator('.li').count()) === 4 && (await page.locator('.li .li-p s').count()) === 4, 'each line item shows its standard price struck through next to its partnership price');
-    ok((await page.locator('.li .li-all').count()) === 4 && /After all discounts/.test(sumNow), 'with the 10% applying, each item also shows its price after all discounts');
+    const stairsTxt = await txt(page, '#sumBody');
+    ok(/Stairs — Arco Captiva Sofa, delivery \(1 flight × \$50\)/.test(stairsTxt) && !/Piece \d/.test(stairsTxt), 'stairs fee line appears automatically in the summary for the large piece, named after the item (1 flight × $50)');
+    ok((await page.locator('.li').count()) === 5 && (await page.locator('.li .li-p s').count()) === 4, 'each line item shows its standard price struck through next to its partnership price');
+    ok((await page.locator('.li .li-all').count()) === 5 && /After all discounts/.test(sumNow), 'with the 10% applying, each item also shows its price after all discounts');
     const money = (t) => Number(String(t).replace(/[^0-9.]/g, ''));
     const allIn = async () => (await page.locator('.li .li-all b').allInnerTexts()).map(money);
     const totalNow = async () => money(await page.locator('.sl.big .a').first().evaluate((e) => e.lastChild.textContent));
@@ -120,7 +151,7 @@ const txt = async (page, sel) => ((await page.locator(sel).first().innerText().c
     ok(sumCents(await allIn()) === Math.round((await totalNow()) * 100), `per-item all-in prices add up exactly to the total ($${(await allIn()).join(' + $')} = $${await totalNow()})`);
     ok((await page.locator('.sl.big .a s').count()) === 1, 'the total shows the standard total struck through, then the final total');
     ok(!/protection/i.test(sumNow) && !/Declared value protection/i.test(await page.content()), 'no declared value protection line or terms anywhere');
-    ok(/declared value \(for our records\)/i.test(await txt(page, '.irow')) && /Optional/.test(await page.locator('.irow [data-f=value]').first().getAttribute('placeholder')), 'declared value is optional and labeled "(for our records)"');
+    ok(!/declared value/i.test(await page.content().then((h) => h.replace(/<script[\s\S]*?<\/script>/g, ''))), 'no declared value field or wording anywhere on the page');
     ok(!/cost less than|that's intended|that’s intended/i.test(sumNow) && /Delivery orders of \$1,000 or more \(after partnership pricing\) get an additional 10% off the whole delivery price\./.test(sumNow), 'the $1,000 note is precise ("after partnership pricing") and has no "that\'s intended" sentence');
     // staff options: collapsed, low key, courtesy checkbox
     ok(await page.locator('#more').getAttribute('aria-label') === 'More' && await page.locator('#more').getAttribute('aria-expanded') === 'false' && (await page.locator('#more').innerText()).trim() === '', 'a small unlabeled chevron: aria-label "More", no visible text, collapsed by default');
@@ -130,13 +161,30 @@ const txt = async (page, sel) => ((await page.locator(sel).first().innerText().c
     ok(!/courtesy/i.test(await page.locator('#sumBody').innerText()) && !/courtesy/i.test(await page.locator('#sumBody').innerHTML()), 'nothing about the courtesy is in the summary (text or markup) while it is unchecked and collapsed');
     await page.locator('#summary .sticky').scrollIntoViewIfNeeded(); await page.waitForTimeout(300);
     await page.locator('#summary .sticky').screenshot({ path: `${OUT}/palomas-${name}-checkout-collapsed.png` });
-    ok(/Covers the delivery as quoted/.test(sumNow) && !/Paid in full at booking/i.test(sumNow) && /extra fee \(for example, unexpected stairs\)/.test(await txt(page, '#feeNote')) && /reschedule or adjust/.test(await txt(page, '#feeNote')), 'copy under Due today: price covers the delivery as quoted; extra access fee needs approval first; decline → reschedule or adjust');
+    ok(/Covers the delivery as quoted/.test(sumNow) && !/Paid in full at booking/i.test(sumNow) && (await page.locator('#feeNote').count()) === 0 && !/unexpected stairs|approval before/i.test(sumNow), 'copy under Due today: just "Covers the delivery as quoted", no extra stairs or access-fee text');
+    // payment section: client pays now by default; the second option is hidden behind an unlabeled chevron
+    ok(await page.locator('input[name=payer][value=client]').isChecked() && /Client pays now/.test(await txt(page, '.payer')) && (await page.locator('input[name=payer][value=palomas]').count()) === 0 && !/Paloma's Pay|Paloma's is paying/.test(await page.locator('#sumBody').innerText()), 'payment: "Client pays now" is the default; Paloma\'s Pay is not on the page while collapsed');
+    ok(await page.locator('#payMore').getAttribute('aria-label') === 'More' && await page.locator('#payMore').getAttribute('aria-expanded') === 'false' && (await page.locator('#payMore').innerText()).trim() === '' && !/paloma|pay|courtesy|discount/i.test(await page.locator('#payMore').evaluate((e) => e.outerHTML.replace(/aria-label="More"|id="payMore"/g, ''))), 'second chevron under "Client pays now": aria-label "More", no visible text, collapsed by default');
+    await page.locator('#summary .sticky').scrollIntoViewIfNeeded(); await page.waitForTimeout(200);
+    await page.locator('#summary .sticky').screenshot({ path: `${OUT}/palomas-${name}-pay-collapsed.png` });
+    // staff code: locked prompt on the courtesy chevron
+    ok((await page.locator('#pinInput').count()) === 0, 'no code prompt until a chevron is tapped');
     const before = await txt(page, '.sl.big');
     await page.locator('#more').click();
-    ok(await page.locator('#more').getAttribute('aria-expanded') === 'true' && await page.locator('#morePanel').isVisible(), 'tapping the arrow expands it');
+    ok(await page.locator('#pinInput').isVisible() && await page.locator('#pinInput').getAttribute('type') === 'password' && await page.locator('#pinInput').getAttribute('placeholder') === 'Code', 'tapping the arrow shows a small password field with the placeholder "Code"');
+    ok((await page.locator('#morePanel').count()) === 0 && await page.locator('#more').getAttribute('aria-expanded') === 'false' && !/courtesy|discount|paloma's pay|manager/i.test(await page.locator('#pinForm').evaluate((e) => e.outerHTML.replace(/Palomas/g, ''))) , 'the prompt is neutral (no mention of courtesy, discount or Paloma\'s Pay) and nothing is revealed yet');
+    await page.locator('#summary .sticky').scrollIntoViewIfNeeded(); await page.waitForTimeout(200);
+    await page.locator('#summary .sticky').screenshot({ path: `${OUT}/palomas-${name}-pin-locked.png` });
+    await page.fill('#pinInput', 'nope'); await page.press('#pinInput', 'Enter');
+    await page.waitForFunction(() => document.querySelector('#pinInput') && document.querySelector('#pinInput').classList.contains('bad'));
+    ok((await page.locator('#morePanel').count()) === 0 && (await page.locator('#mc').count()) === 0, 'a wrong code reveals nothing');
+    await page.fill('#pinInput', 'palomas'); await page.press('#pinInput', 'Enter');
+    await page.waitForSelector('#morePanel');
+    ok(await page.locator('#more').getAttribute('aria-expanded') === 'true' && await page.locator('#morePanel').isVisible() && (await page.locator('#pinInput').count()) === 0, 'the right code (any capitalization) expands the options and the prompt goes away');
     ok(!/Your call|no approval needed/i.test(await page.content()), 'the "Your call, no approval needed" text is gone everywhere');
     await page.locator('#summary .sticky').scrollIntoViewIfNeeded(); await page.waitForTimeout(300);
     await page.locator('#summary .sticky').screenshot({ path: `${OUT}/palomas-${name}-checkout-expanded.png` });
+    await page.locator('#summary .sticky').screenshot({ path: `${OUT}/palomas-${name}-pin-unlocked.png` });
     ok(/Manager's courtesy \(−15%\)/.test(await txt(page, '.mc')), 'the checkbox is labeled "Manager\'s courtesy (−15%)"');
     await page.locator('#mc').check();
     await page.waitForFunction(() => /Manager's courtesy/.test(document.querySelector('#sumBody').innerText) && document.querySelector('.sl.disc + .sl.disc, .sl.disc'));
@@ -151,10 +199,8 @@ const txt = async (page, sel) => ((await page.locator(sel).first().innerText().c
     await page.waitForFunction(() => [...document.querySelectorAll('.sl.disc span:first-child')].some((e) => e.innerText === "Manager's courtesy"));
     await page.locator('#more').click();
     ok(await page.locator('#more').getAttribute('aria-expanded') === 'false' && (await page.locator('#mc').count()) === 0, 'staff taps the arrow again to collapse it');
-    await page.locator('.irow').nth(2).locator('[data-f=oversized]').check();
-    await page.waitForTimeout(700);
-    await page.locator('.irow').nth(2).locator('[data-f=oversized]').uncheck();
-    await page.waitForTimeout(700);
+    await page.selectOption('#aFlights', '2'); await page.waitForTimeout(700);
+    await page.selectOption('#aFlights', '1'); await page.waitForTimeout(700);
     await page.waitForSelector('.li .li-all');
     ok(await page.locator('#more').getAttribute('aria-expanded') === 'false' && (await page.locator('#mc').count()) === 0, 'the arrow stays collapsed after the price recalculates');
     ok(/Manager's courtesy/.test(await txt(page, '#sumBody')) && !(await page.locator('#mc').isVisible()), "the applied \"Manager's courtesy\" line stays visible in the summary while the option itself stays tucked away");
@@ -174,8 +220,14 @@ const txt = async (page, sel) => ((await page.locator(sel).first().innerText().c
     ok(/Client can't pay now\? Email them a payment link\./.test(await txt(page, '#sendLink')) && !/Bill|Nothing to pay online/.test(sumTxt), 'small text link for the payment link; no more "billed to partner"');
     const linkBox = await page.locator('#sendLink').boundingBox(), btnBox = await page.locator('#place').boundingBox();
     ok(linkBox.height < btnBox.height * 0.75 && (await page.locator('#sendLink').evaluate((e) => getComputedStyle(e).textDecorationLine)) === 'underline', 'the payment link is a small underlined text link, not a big button');
+    // already unlocked on this page: the payment chevron opens without asking again
+    await page.locator('#payMore').click();
+    ok((await page.locator('#pinInput').count()) === 0 && await page.locator('#payMore').getAttribute('aria-expanded') === 'true' && (await page.locator('input[name=payer][value=palomas]').count()) === 1, 'once unlocked, the payment chevron opens without asking for the code again (same page session)');
+    ok(/Paloma's Pay/.test(await txt(page, '.payer')) && !/Paloma's is paying/.test(await txt(page, '.payer')), 'expanded option reads "Paloma\'s Pay"');
+    await page.locator('#summary .sticky').scrollIntoViewIfNeeded(); await page.waitForTimeout(200);
+    await page.locator('#summary .sticky').screenshot({ path: `${OUT}/palomas-${name}-pay-expanded.png` });
     await page.locator('input[name=payer][value=palomas]').evaluate((e) => e.click());
-    ok(/Payer: Paloma's Home Furnishings · palomas@palomascarmel.com/.test(await txt(page, '#payerLine')), 'choosing "Paloma\'s is paying" switches the payer to palomas@palomascarmel.com');
+    ok(/Payer: Paloma's Home Furnishings · palomas@palomascarmel.com/.test(await txt(page, '#payerLine')), 'choosing Paloma\'s Pay switches the payer to palomas@palomascarmel.com');
     ok((await page.locator('#cardNum').count()) === 1 && (await page.locator('#sendLink').count()) === 0, 'same card checkout stays; the email-a-link option is for the client only');
     await page.locator('input[name=payer][value=client]').evaluate((e) => e.click());
     await page.locator('#summary .sticky').scrollIntoViewIfNeeded();
@@ -211,8 +263,10 @@ const txt = async (page, sel) => ((await page.locator(sel).first().innerText().c
       await page.waitForSelector('#datesBox:not([hidden])');
       await page.waitForFunction(() => /Due today/.test(document.querySelector('#sumBody').innerText));
     };
-    // path 2: Paloma's is paying
+    const unlock = async (chev) => { await page.locator(chev).click(); await page.fill('#pinInput', 'Palomas'); await page.press('#pinInput', 'Enter'); await page.waitForFunction((c) => document.querySelector(c).getAttribute('aria-expanded') === 'true', chev); };
+    // path 2: Paloma's Pay (needs the staff code)
     await quick();
+    await unlock('#payMore');
     await page.locator('input[name=payer][value=palomas]').evaluate((e) => e.click());
     await page.click('#place');
     await page.waitForSelector('.done');
@@ -227,7 +281,7 @@ const txt = async (page, sel) => ((await page.locator(sel).first().innerText().c
       return t;
     };
     await quick();
-    await page.locator('#more').click();
+    await unlock('#more');
     await page.locator('#mc').check();
     await page.waitForFunction(() => [...document.querySelectorAll('.sl.disc span:first-child')].some((e) => e.innerText === "Manager's courtesy"));
     await page.click('#sendLink');
@@ -237,7 +291,7 @@ const txt = async (page, sel) => ((await page.locator(sel).first().innerText().c
     ok(!/Paid today/.test(await txt(page, '.done .box')), 'path 3: nothing is shown as paid');
     const id3 = (d3.match(/CAD-[A-Z0-9]+/) || [])[0];
     const pp = await payPage(id3);
-    ok(/Manager's courtesy/.test(pp) && /extra fee \(for example, unexpected stairs\)/.test(pp) && !/paid in full at booking/i.test(pp), 'payment-link page: the applied "Manager\'s courtesy" line and the access-fee note show; no "paid in full at booking"');
+    ok(/Manager's courtesy/.test(pp) && /Today.s price covers the delivery as quoted/.test(pp) && !/paid in full at booking/i.test(pp) && !/unexpected stairs|reschedule or adjust/.test(pp), 'payment-link page: the applied "Manager\'s courtesy" line and "Today’s price covers the delivery as quoted." (no "paid in full at booking")');
     ok(!/price sensitive/i.test(pp), 'payment-link page: no "price sensitive" wording');
     // path 3b: link with the courtesy left unchecked
     await quick();
@@ -247,6 +301,15 @@ const txt = async (page, sel) => ((await page.locator(sel).first().innerText().c
     const pp2 = await payPage(id3b);
     ok(!/courtesy/i.test(pp2) && /Due today/.test(pp2), 'payment-link page with the courtesy unchecked: no trace of it');
     await page.screenshot({ path: `${OUT}/palomas-${name}-link-sent.png` });
+    // the payment chevron is locked on a fresh page too: prompt first, then Paloma's Pay appears
+    await quick();
+    await page.locator('#payMore').click();
+    ok(await page.locator('#pinInput').isVisible() && (await page.locator('input[name=payer][value=palomas]').count()) === 0, "fresh page: tapping the payment chevron asks for the code and shows nothing else");
+    await page.locator('#summary .sticky').scrollIntoViewIfNeeded(); await page.waitForTimeout(200);
+    await page.locator('#summary .sticky').screenshot({ path: `${OUT}/palomas-${name}-pay-pin-locked.png` });
+    await page.fill('#pinInput', 'Palomas'); await page.press('#pinInput', 'Enter');
+    await page.waitForSelector('input[name=payer][value=palomas]', { state: 'attached' });
+    ok(await page.locator('input[name=payer][value=client]').isChecked(), "after unlocking, Paloma's Pay is offered but \"Client pays now\" stays selected");
     ok(errors.length === 0, 'no console errors' + (errors.length ? ': ' + errors.join(' | ') : ''));
     await ctx.close();
   }

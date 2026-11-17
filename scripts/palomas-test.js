@@ -85,29 +85,46 @@ const it = (kind, size, value, qty = 1, name = kind) => ({ name, kind, size, val
     ok(justStd.standard >= 1000 && justStd.partner < 1000 && !justStd.volumeEligible && justStd.volumeOff === 0, `standard $${justStd.standard} but partnership $${justStd.partner} is under $1,000 → no 10% (basis is after the 25%)`);
   }
 
-  console.log('\n1d. Oversized / very heavy per item');
-  const small1 = PAL.partnerQuote(base([it('Console Table', 'small', 500, 1, 'Console')]));
-  const flagged = PAL.partnerQuote(base([{ ...it('Console Table', 'small', 500, 1, 'Console'), oversized: true }]));
-  const large1 = PAL.partnerQuote(base([it('Console Table', 'large', 500, 1, 'Console')]));
-  ok(flagged.partner > small1.partner && near(flagged.partner, large1.partner), `oversized bumps a small console to the large tier ($${small1.partner} → $${flagged.partner})`);
-  ok(/large/i.test(flagged.engine.lines[0].label) || /large/i.test(JSON.stringify(PAL.engineItems([{ ...it('Console Table', 'small', 500), oversized: true }]))), 'the large tier is visible in the line / item');
-  const alreadyXL = PAL.engineItems([{ ...it('Vases', 'xl', 100), oversized: true }])[0];
-  ok(alreadyXL.sizeClass === 'xl' && alreadyXL.oversized === true, 'an item already above large keeps its tier, still flagged');
-  ok(PAL.engineItems([it('Sofa', 'small', 100)])[0].oversized === false && PAL.engineItems([it('Sofa', 'small', 100)])[0].sizeClass === 'small', 'unchecked items are untouched');
+  console.log('\n1d. Item size and handling come from the catalog (no size, oversized or value inputs)');
+  const C = (name) => PAL.catalog.find((x) => x.name === name);
+  const sofa = C('Arco Captiva Sofa'), lamp = PAL.catalog.find((x) => x.kind === 'Table Lamp'), sect = PAL.catalog.find((x) => /Sectional/.test(x.kind));
+  const ci = (c, qty = 1) => ({ name: c.name, kind: c.kind, catalogId: c.id, qty });
+  ok(PAL.engineItems([ci(sofa)])[0].sizeClass === 'large' && PAL.engineItems([ci(sect)])[0].sizeClass === 'large', 'sofas and sectionals are the large tier, straight from the catalog');
+  ok(PAL.catalog.filter((x) => ['Sofa', 'Loveseat'].includes(x.kind)).every((x) => x.size === 'large'), 'every catalog sofa and loveseat is large');
+  ok(PAL.engineItems([{ name: 'Custom sofa', kind: 'Sofa', qty: 1, custom: true }])[0].sizeClass === 'large' && PAL.engineItems([{ name: 'Custom armoire', kind: 'Armoire', qty: 1, custom: true }])[0].sizeClass === 'large', 'custom sofas and armoires default to large with no size asked');
+  ok(PAL.engineItems([{ ...ci(sofa), size: 'small', oversized: true, value: 99999 }])[0].sizeClass === 'large', 'a client-sent size, oversized flag or value cannot lower or change the catalog tier');
+  ok(PAL.engineItems([{ name: 'Wall mirror', kind: 'Mirror', qty: 1, custom: true }])[0].sizeClass === 'medium', 'other custom pieces default to medium');
+  ok(PAL.engineItems([ci(lamp)]).every((x) => x.value === 0) && PAL.engineItems([ci(sofa)])[0].value === 0, 'no declared value reaches the engine (always 0)');
+  ok(PAL.validate(base([{ name: 'Sofa', kind: 'Sofa', qty: 1 }], { schedule: { date: '2026-12-01', deliveryDate: '2026-12-02' } })).length === 0, 'an item with no size and no value validates');
+  const hvq = PAL.partnerQuote(base([{ ...ci(sofa), value: 90000 }]));
+  ok(!hvq.protection && hvq.protectionAmount === 0 && near(hvq.total, hvq.partner), 'no protection and no >$50,000 high-value handling (value is not collected, so the old rule is gone)');
+  const plain = (a) => PAL.partnerQuote(base([ci(sofa, 2), ci(lamp)], { access: a }));
+  const g = plain({ mode: 'ground' }), st2 = plain({ mode: 'stairs', flights: '2' }), sth = plain({ mode: 'stairs', flights: 'half' }), el = plain({ mode: 'elevator', floor: '3', elevatorType: 'freight', elevSteps: 'no' });
+  const stairLine = (qq) => qq.lines.find((l) => /^Stairs/.test(l.label));
+  ok(!stairLine(g) && !stairLine(el), 'no stairs fee on ground-level or elevator access');
+  ok(stairLine(st2) && stairLine(st2).amount === 200 && stairLine(st2).qty === 2, `2 flights x 2 large sofas = 4 x $50 = $200 (main site rule: per flight, per piece; line "${stairLine(st2) && stairLine(st2).label}")`);
+  ok(stairLine(sth) && stairLine(sth).amount === 50, 'half a flight counts as 0.5 flight');
+  ok(near(st2.partner - g.partner, 200) && near(st2.partner, r2(st2.lines.reduce((x, l) => x + l.amount, 0))), 'the stairs fee adds to the delivery subtotal at full price (not partnership-discounted), and the lines still add up');
+  ok(!st2.lines.some((l) => /^Stairs/.test(l.label) && l.standard !== l.amount), 'stairs line: standard = partnership price (no 25% off on access fees)');
+  ok(near(r2(st2.lines.reduce((x, l) => x + l.after, 0)), st2.total), 'all-in per-line prices (incl. stairs) add up to the total to the cent');
+  const lampOnly = PAL.partnerQuote(base([ci(lamp)], { access: { mode: 'stairs', flights: '3' } }));
+  ok(!stairLine(lampOnly), 'stairs fee applies to large pieces only (a medium lamp pays none)');
+  const longPiece = PAL.catalog.find((x) => PAL.resolveItem({ catalogId: x.id, kind: x.kind }).dim > 80);
+  if (longPiece) { const lq = PAL.partnerQuote(base([ci(longPiece)], { access: { mode: 'stairs', flights: '1' } })); ok(stairLine(lq) && stairLine(lq).amount === 100, `a piece over 80" (${longPiece.name}, ${longPiece.dims}) is $100 per flight`); }
+  const pubq = await post('/api/palomas/quote', base([ci(sofa, 2), ci(lamp)], { access: { mode: 'stairs', flights: '2' } }));
+  ok(pubq.j.lines.some((l) => /^Stairs/.test(l.label)) && !/stairs can add a fee|we confirm it/i.test(JSON.stringify(pubq.j)), 'the live quote shows the stairs line, with no "stairs can add a fee / we confirm it" wording');
+  ok(PAL.ACCESS_FEE_NOTE === 'Today’s price covers the delivery as quoted.' && !/stair|approv|reschedul/i.test(PAL.ACCESS_FEE_NOTE), 'access-fee note is one minimal sentence and does not imply stairs are confirmed later');
 
-  console.log('\n2. Declared value: no protection for Paloma\'s; optional record field');
-  const hv = PAL.partnerQuote(base([it('Sofa', 'medium', 60000)]));
-  ok(!hv.protection && hv.protectionAmount === 0 && hv.lines.every((l) => !PAL.isProtection(l)), 'over $50,000: no protection line');
-  for (const v of [40000, 50000, 1595]) {
-    const qv = PAL.partnerQuote(base([it('Sofa', 'medium', v)]));
-    ok(qv.protectionAmount === 0 && qv.lines.every((l) => !PAL.isProtection(l)) && near(qv.total, qv.partner), `$${v}: no protection charge (total $${qv.total})`);
-  }
-  const hv0 = PAL.partnerQuote(base([it('Sofa', 'medium', 40000)]));
-  ok(hv.partner > hv0.partner, `over $50,000 still carries CAD's high-value handling price inside the piece price ($${hv.partner} vs $${hv0.partner}); unchanged rule`);
-  ok(PAL.validate(base([{ name: 'Sofa', kind: 'Sofa', size: 'medium', qty: 1 }], { schedule: { date: '2026-12-01', deliveryDate: '2026-12-02' } })).every((e) => !/declared value/.test(e)), 'declared value is optional (blank is accepted)');
-  const blank = PAL.partnerQuote(base([{ name: 'Sofa', kind: 'Sofa', size: 'medium', qty: 1 }]));
-  ok(!blank.special && blank.total === blank.partner, 'a blank declared value still prices normally');
-
+  console.log('\n2. Staff code (both hidden controls), checked on the server');
+  const un = (code) => post('/api/palomas/unlock', { code });
+  ok((await un('Palomas')).j.ok === true && (await un('palomas')).j.ok === true && (await un('PALOMAS ')).j.ok === true, 'the code works in any capitalization');
+  ok((await un('')).j.ok === false && (await un('Paloma')).j.ok === false && (await un('nope')).j.ok === false, 'wrong or empty codes are refused');
+  ok(PAL.staffCodeOk('Palomas') && !PAL.staffCodeOk('Paloma\'s') && !PAL.staffCodeOk(undefined) && !PAL.staffCodeOk({ a: 1 }), 'server check: right code only, junk input is refused');
+  const jsAll = ['index.html', 'palomas.js'].map((f) => fs.readFileSync(path.join(__dirname, '..', 'public', 'palomas', f), 'utf8')).join('\n') + (await get('/api/palomas/config')).t;
+  ok(!/["']palomas["']\s*[;,)]\s*\/\/|staff code is|code\s*===?\s*['"]/i.test(jsAll) && !jsAll.includes('a2b6a7') && !jsAll.includes(require('crypto').createHash('sha256').update('palomas').digest('hex')), 'neither the code nor its hash is shipped to the browser');
+  const qNoPin = await post('/api/palomas/quote', base([ci(sofa, 2)], { courtesy: true }));
+  const qPin = await post('/api/palomas/quote', base([ci(sofa, 2)], { courtesy: true, pin: 'Palomas' }));
+  ok(!qNoPin.j.courtesy && qNoPin.j.courtesyOff === 0 && qPin.j.courtesy && qPin.j.courtesyOff > 0, 'a quote applies the courtesy only with the code');
   console.log('\n3. Server validation (HTTP)');
   let r = await post('/api/palomas/orders', base([it('Sofa', 'medium', 3000)], { placedBy: { name: 'Other', other: '' } }));
   ok(r.s === 400 && /name of who/.test(r.j.error), 'Other with no name is refused');
@@ -129,7 +146,7 @@ const it = (kind, size, value, qty = 1, name = kind) => ({ name, kind, size, val
   const de = av2.j.days[0].date;
   ok(av.j.days.length > 0 && av2.j.days.length > 0, `availability returns days (pickup ${pu}, delivery ${de})`);
   const body = base([it('Dining Table', 'large', 6900, 1, 'Carmel 4-Post Copper Dining Table (96" x 44")'), it('Armchair / Accent Chair', 'medium', 1595, 3, 'Arco Captiva Chair')],
-    { placedBy: { name: 'Other', other: 'Dave Test' }, pickupLocation: 'carmel', courtesy: true, schedule: { date: pu, deliveryDate: de } });
+    { placedBy: { name: 'Other', other: 'Dave Test' }, pickupLocation: 'carmel', courtesy: true, pin: 'Palomas', schedule: { date: pu, deliveryDate: de } });
   const quoted = PAL.partnerQuote(body);
   const mailOf = (e) => fetch(BASE + '/outbox/' + e.file + '?key=' + KEY).then((x) => x.text());
   const pay = (id, b2 = { method: 'card', card: '4242 4242 4242 4242' }) => post(`/api/orders/${id}/pay`, b2);
@@ -166,7 +183,7 @@ const it = (kind, size, value, qty = 1, name = kind) => ({ name, kind, size, val
   }
 
   console.log('   4b. Path 2: Paloma\'s is paying (same card flow, payer = Paloma\'s)');
-  const body2 = { ...body, payer: 'palomas', payMode: 'now', courtesy: false };
+  const body2 = { ...body, payer: 'palomas', payMode: 'now', courtesy: false, pin: 'Palomas' };
   r = await post('/api/palomas/orders', body2);
   o = r.j.order || {};
   ok(r.s === 200 && o.status === 'awaiting_payment' && o.payer === 'other' && o.payerOther.email === 'palomas@palomascarmel.com', 'payer is Paloma\'s (palomas@palomascarmel.com), order awaits card payment');
@@ -177,7 +194,7 @@ const it = (kind, size, value, qty = 1, name = kind) => ({ name, kind, size, val
     const rc = pr.j.order.emails.find((e) => e.kind === 'payer_receipt');
     ok(rc && rc.to === 'palomas@palomascarmel.com', 'Paloma\'s gets the payer receipt email');
   }
-  r = await post('/api/palomas/orders', { ...body, payer: 'palomas', payMode: 'link' });
+  r = await post('/api/palomas/orders', { ...body, payer: 'palomas', payMode: 'link', pin: 'Palomas' });
   ok(r.s === 400 && /payment link/.test(r.j.error), 'a payment link is for the client only (not combined with "Paloma\'s is paying")');
   r = await post('/api/palomas/orders', { ...body, payer: 'someone' });
   ok(r.s === 400, 'unknown payer is refused');
@@ -215,10 +232,10 @@ const it = (kind, size, value, qty = 1, name = kind) => ({ name, kind, size, val
   const pg = await get(`/?order=${o.id}&pay=1`);
   ok(pg.s === 200, 'the payment link URL (/?order=ID&pay=1) loads the main site payment page');
 
-  console.log('   4d. Access follow-ups, oversized flag and the schedule notes');
-  const accBody = base([{ ...it('Sofa', 'small', 3000, 1, 'Marble-top Sofa Table'), oversized: true }, it('Table Lamp', 'small', 100, 1, 'Lamp')],
-    { access: { mode: 'elevator', floor: '4', elevatorType: 'freight', elevatorReserve: true, elevSteps: 'yes', elevStepsN: '4', hours: 'Weekdays 9am-4pm via the front desk', tight: 'narrow turn past the lobby' }, schedule: { date: pu, deliveryDate: de },
-      delivery: { ...body.delivery, notes: 'Gate code 1234 ' + RUN } });
+  console.log('   4d. Access follow-ups and the schedule notes');
+  const accBody = base([{ name: 'Marble-top Sofa Table', kind: 'Console Table', qty: 1 }, it('Table Lamp', 'small', 100, 1, 'Lamp')],
+    { access: { mode: 'elevator', floor: '4', elevatorType: 'freight', elevatorReserve: true, elevSteps: 'yes', elevStepsN: '4', hours: 'Weekdays 9am-4pm via the front desk' }, schedule: { date: pu, deliveryDate: de },
+      delivery: { ...body.delivery, notes: 'Gate code 1234, narrow turn past the lobby ' + RUN } });
   let bad = await post('/api/palomas/orders', { ...accBody, access: { mode: 'elevator', floor: '4' } });
   ok(bad.s === 400 && /elevator type/.test(bad.j.error), 'elevator without freight/passenger answer is refused');
   bad = await post('/api/palomas/orders', { ...accBody, access: { mode: 'elevator', floor: '4', elevatorType: 'freight' } });
@@ -228,22 +245,21 @@ const it = (kind, size, value, qty = 1, name = kind) => ({ name, kind, size, val
   r = await post('/api/palomas/orders', accBody);
   o = r.j.order || {};
   ok(r.s === 200 && o.dropoff.serviceElevator === 'yes' && o.dropoff.hours === 'Weekdays 9am-4pm via the front desk', 'freight elevator + building hours saved on the order (same fields as the main site)');
-  ok(/must be reserved in advance/.test(o.dropoff.notes) && /Tight fit: narrow turn/.test(o.dropoff.notes) && /Gate code 1234/.test(o.dropoff.notes), 'reservation, tight-fit note and client notes are all in the delivery notes');
+  ok(/must be reserved in advance/.test(o.dropoff.notes) && /narrow turn past the lobby/.test(o.dropoff.notes) && /Gate code 1234/.test(o.dropoff.notes), 'reservation, and the single notes field (gate code + anything tight) are all in the delivery notes');
   ok(/Steps before\/after the elevator: yes, 4 steps/.test(o.dropoff.notes) && o.dropoff.elevatorStairs === 'not_sure' && o.accessReview === true, 'elevator steps (4) saved in the notes; more than 3 steps is flagged for CAD to confirm');
   for (const [ans, n, want] of [['no', '', 'no'], ['yes', '2', 'steps'], ['not_sure', '', 'not_sure']]) {
     const e = PAL.buildDropoff(base([]).delivery, { mode: 'elevator', floor: '2', elevatorType: 'passenger', elevSteps: ans, elevStepsN: n });
     ok(e.elevatorStairs === want && /Steps before\/after the elevator/.test(e.notes), `elevator steps "${ans}${n ? ' ' + n : ''}" → main-site answer "${want}", noted for the crew`);
   }
-  ok(o.items[0].oversized === true && o.items[0].sizeClass === 'large', 'oversized item saved flagged, bumped to the large tier');
+  ok(!JSON.stringify(PAL.buildDropoff(base([]).delivery, { mode: 'ground', tight: 'x' })).includes('Tight fit'), 'there is no separate tight-fit field any more');
   pr = await pay(r.j.id);
   ok(pr.s === 200 && pr.j.order.status === 'confirmed', 'access order paid and confirmed');
   if (KEY) {
     const csv = await fetch(BASE + '/api/admin/schedule.csv?key=' + KEY).then((x) => x.text());
-    ok(/Hours: Weekdays 9am-4pm/.test(csv) && /must be reserved in advance/.test(csv) && /Tight fit: narrow turn/.test(csv), 'schedule notes (DE Notes) carry hours, elevator reservation and the tight-fit note');
+    ok(/Hours: Weekdays 9am-4pm/.test(csv) && /must be reserved in advance/.test(csv) && /narrow turn past the lobby/.test(csv), 'schedule notes (DE Notes) carry hours, elevator reservation and the notes field');
     ok(/Steps before\/after the elevator: yes, 4 steps/.test(csv), 'schedule notes (DE Notes) carry the steps before/after the elevator');
-    ok(/OVERSIZED \/ VERY HEAVY/.test(csv), 'schedule item text flags the oversized piece for the crew');
   }
-  const pAcc = await post('/api/palomas/orders', { ...accBody, access: { mode: 'stairs', flights: '2', hours: '', tight: '' }, delivery: { ...body.delivery, notes: 'stairs ' + RUN } });
+  const pAcc = await post('/api/palomas/orders', { ...accBody, access: { mode: 'stairs', flights: '2', hours: '' }, delivery: { ...body.delivery, notes: 'stairs ' + RUN } });
   ok(pAcc.s === 200 && pAcc.j.order.dropoff.stairFlights === '2', 'stairs: flights saved');
   const dAv = await post('/api/palomas/availability', { ...base([it('Sofa', 'medium', 3000)]), leg: 'pickup' });
   ok(dAv.j.days.length > 6 && dAv.j.days.length <= 14, `availability returns up to 14 days (${dAv.j.days.length}), the page shows the first 6 then "More dates"`);
@@ -260,10 +276,10 @@ const it = (kind, size, value, qty = 1, name = kind) => ({ name, kind, size, val
 
   console.log('   4e. Access-fee copy and Manager\'s courtesy visibility (summary, receipt, emails)');
   const FEE = PAL.ACCESS_FEE_NOTE;
-  ok(/covers the delivery as quoted/i.test(FEE) && /approval before charging/.test(FEE) && /reschedule or adjust/.test(FEE) && !/\bcrat|\bmov(e|ing)|hoist|\bCOI\b/i.test(FEE), 'access-fee note: price covers the delivery as quoted; extra access fees get approval first; if declined CAD contacts them to reschedule or adjust; copy rules respected');
+  ok(/covers the delivery as quoted/i.test(FEE) && !/\bcrat|\bmov(e|ing)|hoist|\bCOI\b/i.test(FEE), 'access-fee note: one sentence, price covers the delivery as quoted, copy rules respected');
   const qpub = await post('/api/palomas/quote', base([it('Sofa', 'medium', 3000)]));
   ok(qpub.j.accessFeeNote === FEE && qpub.j.payment.paymentSummary === 'Covers the delivery as quoted', 'live quote carries the note and no longer says "Paid in full at booking"');
-  const mkCourt = (court, tag) => ({ ...body, courtesy: court, payer: 'client', payMode: 'link', delivery: { ...body.delivery, notes: `court-${tag} ${RUN}`, email: `court-${tag}@example.com` } });
+  const mkCourt = (court, tag) => ({ ...body, courtesy: court, pin: court ? 'Palomas' : undefined, payer: 'client', payMode: 'link', delivery: { ...body.delivery, notes: `court-${tag} ${RUN}`, email: `court-${tag}@example.com` } });
   const rOff = await post('/api/palomas/orders', mkCourt(false, 'off'));
   const rOn = await post('/api/palomas/orders', mkCourt(true, 'on'));
   ok(rOff.j.order.quote.partnerPricing.courtesyOff === 0 && !rOff.j.order.quote.lines.some((l) => /courtesy/i.test(l.label)) && !(rOff.j.order.quote.notes || []).some((n) => /courtesy/i.test(n)), 'courtesy unchecked: no courtesy line or note on the order quote');
@@ -285,6 +301,58 @@ const it = (kind, size, value, qty = 1, name = kind) => ({ name, kind, size, val
     ok(!/courtesy/i.test(cmo) && /Manager's courtesy<\/b> −\$/.test(cm), "courtesy unchecked: never in the receipt email; checked: the line shows on the receipt");
   } else { await pay(rOn.j.id); await pay(rOff.j.id); }
 
+  console.log('\n4f. Staff code on submit, second client, stairs on an order');
+  const gated = (extra, tag) => ({ ...body, courtesy: false, payer: 'client', payMode: 'now', delivery: { ...body.delivery, notes: `gate-${tag} ${RUN}` }, ...extra });
+  let g1 = await post('/api/palomas/orders', gated({ courtesy: true, pin: undefined }, 'c1'));
+  ok(g1.s === 403, "Manager's courtesy without the code is rejected by the server");
+  g1 = await post('/api/palomas/orders', gated({ courtesy: true, pin: 'wrong' }, 'c2'));
+  ok(g1.s === 403, "Manager's courtesy with a wrong code is rejected");
+  g1 = await post('/api/palomas/orders', gated({ payer: 'palomas', pin: undefined }, 'p1'));
+  ok(g1.s === 403, "Paloma's Pay without the code is rejected");
+  g1 = await post('/api/palomas/orders', gated({ payer: 'palomas', pin: 'wrong' }, 'p2'));
+  ok(g1.s === 403 && !/courtesy|discount|paloma/i.test(g1.j.error || ''), "Paloma's Pay with a wrong code is rejected, and the error says nothing about what it is");
+  g1 = await post('/api/palomas/orders', gated({ payer: 'palomas', pin: 'PALOMAS' }, 'p3'));
+  ok(g1.s === 200 && g1.j.order.payer === 'other' && g1.j.order.partnerInfo.payer === 'palomas', "Paloma's Pay with the code (any capitalization) is accepted");
+  g1 = await post('/api/palomas/orders', gated({ courtesy: true, pin: 'palomas' }, 'c3'));
+  ok(g1.s === 200 && g1.j.order.partnerInfo.courtesy === true, "Manager's courtesy with the code is accepted");
+  g1 = await post('/api/palomas/orders', gated({}, 'plain'));
+  ok(g1.s === 200 && g1.j.order.partnerInfo.courtesy === false && g1.j.order.partnerInfo.payer === 'client', 'the default order (client pays, no courtesy) needs no code');
+  ok(!JSON.stringify(g1.j.order).includes('Palomas') || !('pin' in g1.j.order), 'the code is never stored on the order');
+
+  const c2Body = gated({ delivery: { ...body.delivery, notes: 'two-clients ' + RUN, client2: { name: 'Sam Spouse', phone: '(831) 555-0199', email: 'sam@example.com' } } }, 'x');
+  const c2 = await post('/api/palomas/orders', c2Body);
+  ok(c2.s === 200 && c2.j.order.contact2 && c2.j.order.contact2.name === 'Sam Spouse' && c2.j.order.contact.name === 'Pat Client', 'second client saved on the order next to the first');
+  ok(/Second client: Sam Spouse \(?831|Second client: Sam Spouse \(831\) 555-0199 sam@example.com/.test(c2.j.order.dropoff.notes), 'second client name, phone and email land in the delivery notes (and so in the schedule)');
+  let c2bad = await post('/api/palomas/orders', gated({ delivery: { ...body.delivery, notes: 'c2bad ' + RUN, client2: { name: '', phone: '', email: 'x' } } }, 'y'));
+  ok(c2bad.s === 400 && /second client/.test(c2bad.j.error), 'a started second client needs a name and a phone or email');
+  c2bad = await post('/api/palomas/orders', gated({ delivery: { ...body.delivery, notes: 'c2none ' + RUN, client2: null } }, 'z'));
+  ok(c2bad.s === 200 && !c2bad.j.order.contact2, 'the second client is optional');
+
+  const stAv = await post('/api/palomas/orders', { ...gated({}, 'stairs'), items: [{ name: sofa.name, kind: sofa.kind, catalogId: sofa.id, qty: 1 }], access: { mode: 'stairs', flights: '3' } });
+  ok(stAv.s === 200 && stAv.j.order.quote.lines.some((l) => /^Stairs/.test(l.label) && l.amount === 150), 'a stairs order carries the stairs fee line up front (1 large sofa x 3 flights x $50 = $150)');
+  ok(stAv.j.order.accessReview === false, 'stairs no longer sends the order to access review (it is priced up front)');
+  ok(near(stAv.j.order.quote.dueNow, stAv.j.order.quote.total), 'the stairs fee is part of what is due today');
+
+  console.log('\n4g. Stripe Checkout (full dynamic payment methods) behind env vars');
+  const SC = require('../lib/stripe-checkout');
+  const mkO = (partner) => ({ id: 'CAD-TEST1', partnerOrder: partner, contact: { email: 'a@b.co' }, serviceLabel: 'Delivery', quote: { dueNow: 123.45 } });
+  const sp = SC.sessionParams(mkO(true), { baseUrl: 'https://x.test', currency: 'usd', companyName: 'CAD' });
+  ok(sp.mode === 'payment' && !('payment_method_types' in sp) && !('payment_method_options' in sp), "Paloma's orders: no payment_method_types, so Checkout offers every method enabled on the account (cards, Apple Pay, Google Pay, Link, bank debit...)");
+  ok(sp.line_items[0].price_data.unit_amount === 12345 && sp.metadata.orderId === 'CAD-TEST1' && sp.metadata.partner === '1', 'session carries the exact amount due and the order id');
+  ok(sp.success_url.includes('{CHECKOUT_SESSION_ID}') && sp.cancel_url.includes('CAD-TEST1'), 'success and cancel URLs return to the order');
+  ok(SC.sessionParams(mkO(false), { baseUrl: 'https://x.test', currency: 'usd', companyName: 'CAD' }).payment_method_types.join() === 'card,us_bank_account', 'main-site orders are unchanged (card + bank)');
+  const sess = (st, extra = {}) => ({ id: 'cs_test_1', payment_status: st, amount_total: 12345, payment_method_types: ['card', 'link'], metadata: { orderId: 'CAD-TEST1', partner: '1', saveMethod: '0' }, ...extra });
+  ok(SC.paymentFromSession(sess('paid'), 'CAD-TEST1').status === 'paid' && SC.paymentFromSession(sess('paid'), 'CAD-TEST1').amount === 123.45, 'a paid session becomes a paid payment for the right amount');
+  ok(SC.paymentFromSession(sess('processing'), 'CAD-TEST1').status === 'ach_processing', 'a still-processing bank payment confirms the job and is labeled processing');
+  ok(SC.paymentFromSession(sess('unpaid'), 'CAD-TEST1') === null && SC.paymentFromSession(sess('paid'), 'CAD-OTHER') === null, 'unpaid sessions and sessions for another order are ignored');
+  ok(SC.orderFromEvent({ type: 'checkout.session.completed', data: { object: sess('paid') } }).orderId === 'CAD-TEST1', 'webhook: checkout.session.completed (paid) settles the order');
+  ok(SC.orderFromEvent({ type: 'checkout.session.async_payment_succeeded', data: { object: sess('paid') } }).orderId === 'CAD-TEST1', 'webhook: async_payment_succeeded settles the order');
+  ok(SC.orderFromEvent({ type: 'checkout.session.completed', data: { object: sess('unpaid') } }) === null && SC.orderFromEvent({ type: 'payment_intent.created', data: { object: sess('paid') } }) === null, 'webhook: unpaid or unrelated events do nothing');
+  const wh = await fetch(BASE + '/api/stripe/webhook', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+  ok([400, 503].includes(wh.status), `webhook endpoint exists and refuses unsigned calls (${wh.status}; 503 = Stripe keys not set on this server)`);
+  const cfgj = (await get('/api/palomas/config')); const cj = JSON.parse(cfgj.t);
+  ok(cj.pay && 'stripe' in cj.pay, `config reports Stripe on/off (stripe: ${cj.pay && cj.pay.stripe}); with no key the mock card flow is used in test mode`);
+
   console.log('\n5. Out of state → Shipping quote');
   r = await post('/api/palomas/orders', base([it('Sofa', 'medium', 3000)], { delivery: { ...base([]).delivery, city: 'Phoenix', state: 'AZ', zip: '85001' } }));
   ok(r.s === 200 && r.j.status === 'pending_approval' && r.j.order.service === 'crating_shipping', 'out-of-state delivery becomes a Shipping quote request, no price shown');
@@ -299,6 +367,7 @@ const it = (kind, size, value, qty = 1, name = kind) => ({ name, kind, size, val
   ok(!/price[ -]sensitive/i.test(hay), 'the words "price sensitive" appear nowhere in the page, catalog or email');
   ok(!/Your call|no approval needed|Staff options/i.test(files.join('\n')), 'no "Your call, no approval needed" or "Staff options" text anywhere in the Paloma\'s page');
   ok(!/declared value protection/i.test(files.join('\n')), 'no declared value protection wording on the Paloma\'s page');
+  ok(!/Declared value|Oversized or very heavy|Size tier|Anything tight\?|stairs can add a fee|Paloma's is paying/i.test(files.join('\n')), 'removed wording is gone: declared value, oversized, size tier, anything tight, stairs-can-add-a-fee, "Paloma\'s is paying"');
   console.log(`\n${pass} passed, ${fail} failed`);
   process.exit(fail ? 1 : 0);
 })();
