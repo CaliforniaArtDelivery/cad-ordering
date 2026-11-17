@@ -79,6 +79,7 @@ const txt = async (page, sel) => ((await page.locator(sel).first().innerText().c
     await page.selectOption('#aMode', 'stairs');
     await page.selectOption('#aFlights', '1');
     await page.waitForSelector('#datesBox:not([hidden])');
+    await page.waitForSelector('#deDays .day'); await page.waitForSelector('#puCtl [data-later]'); await page.waitForSelector('#deCtl [data-later]'); // live latency: the delivery leg loads after the pickup leg
     ok((await page.locator('#puDays .day').count()) > 0 && (await page.locator('#deDays .day').count()) > 0, 'pickup and delivery days appear, earliest pre-selected');
     ok((await page.locator('#puDays .day').count()) <= 6 && (await page.locator('#deDays .day').count()) <= 6, 'the date lists are short: first 6 days only');
     ok((await page.locator('#puCtl [data-later]').count()) === 1 && (await page.locator('#deCtl [data-later]').count()) === 1, 'each list has a "Later date" option');
