@@ -50,41 +50,141 @@ const txt = async (page, sel) => ((await page.locator(sel).first().innerText().c
     await page.fill('#cName', 'Custom copper bench'); await page.selectOption('#cKind', 'Bench'); await page.fill('#cValue', '2400');
     await page.click('#cAdd');
     ok((await page.locator('.irow').count()) === 3 && /custom/.test(await txt(page, '.irow:nth-child(3) .ty')), 'custom item added');
+    await page.fill('#search', 'arco captiva sofa'); await page.locator('.pcard').first().click(); await page.fill('#search', '');
+    ok((await page.locator('.irow').count()) === 4, 'a sofa added to push the order over $1,000 after partnership pricing');
+    // oversized / very heavy
+    const sizeOf = async () => page.locator('.irow').first().locator('[data-f=size]').inputValue();
+    const sz0 = await sizeOf();
+    await page.locator('.irow').nth(2).locator('[data-f=oversized]').check();
+    ok(await page.locator('.irow').nth(2).locator('[data-f=size]').inputValue() === 'large' && /Large tier applied/.test(await txt(page, '.irow:nth-child(3)')), 'ticking "Oversized or very heavy" bumps the item to the large tier and says so');
+    await page.locator('.irow').nth(2).locator('[data-f=oversized]').uncheck();
+    ok(/oversized or very heavy/i.test(await txt(page, '.irow:nth-child(3)')) && /size tier/i.test(await txt(page, '.irow:nth-child(3)')), 'the checkbox and the size tier are visible on every item');
     // delivery
     await page.fill('#dName', 'Pat Client'); await page.fill('#dPhone', '8315550123'); await page.fill('#dEmail', 'pat@example.com');
     await page.fill('#dStreet', '100 Ocean Ave'); await page.fill('#dCity', 'Carmel-by-the-Sea'); await page.fill('#dZip', '93921');
     await page.selectOption('#aMode', 'stairs');
     ok(await page.locator('#aFlightsWrap').isVisible(), 'stairs asks how many flights');
+    ok(await page.locator('#aElevTypeWrap').isHidden() && await page.locator('#aMoreWrap').isVisible(), 'stairs: no elevator questions, but the optional access-hours / tight-fit fields appear');
+    await page.selectOption('#aMode', 'elevator');
+    ok(await page.locator('#aElevTypeWrap').isVisible() && await page.locator('#aElevResWrap').isVisible() && await page.locator('#aFloorWrap').isVisible() && await page.locator('#aFlightsWrap').isHidden(), 'elevator: asks freight or passenger, whether it must be reserved, and the floor (flights question hidden)');
+    await page.selectOption('#aElevType', 'freight'); await page.fill('#aFloor', '3'); await page.locator('#aElevRes').check();
+    await page.fill('#aHours', 'Weekdays 9am-4pm'); await page.fill('#aTight', 'narrow hallway');
+    await page.selectOption('#aMode', 'stairs');
     await page.selectOption('#aFlights', '1');
     await page.waitForSelector('#datesBox:not([hidden])');
     ok((await page.locator('#puDays .day').count()) > 0 && (await page.locator('#deDays .day').count()) > 0, 'pickup and delivery days appear, earliest pre-selected');
+    ok((await page.locator('#puDays .day').count()) <= 6 && (await page.locator('#deDays .day').count()) <= 6, 'the date lists are short: first 6 days only');
+    ok((await page.locator('#puCtl [data-later]').count()) === 1 && (await page.locator('#deCtl [data-later]').count()) === 1, 'each list has a "Later date" option');
+    if (await page.locator('#puCtl [data-more]').count()) { await page.locator('#puCtl [data-more]').click(); ok((await page.locator('#puDays .day').count()) > 6 && (await page.locator('#puDays .day').count()) <= 14, 'More dates shows up to 14'); }
+    const lastPu = await page.locator('#puDays .day').last().getAttribute('data-pu');
+    const laterDate = new Date(Date.parse(lastPu + 'T12:00:00Z') + 21 * 864e5).toISOString().slice(0, 10);
+    await page.locator('#puCtl [data-later]').fill(laterDate);
+    await page.waitForFunction((d) => { const b = document.querySelector('#puDays .day'); return b && b.dataset.pu >= d; }, laterDate);
+    ok(true, `"Later date" ${laterDate} loads days from that date`);
+    await page.locator('#puCtl [data-back]').click();
+    await page.waitForFunction((d) => { const b = document.querySelector('#puDays .day'); return b && b.dataset.pu < d; }, laterDate);
+    ok(true, 'Back to earliest dates returns to the short list');
     await page.waitForTimeout(500);
     await page.screenshot({ path: `${OUT}/palomas-${name}-form.png`, fullPage: true });
-    // checkbox
+    // per-item pricing: standard struck through next to partnership price, all-in price after the extras
+    await page.waitForTimeout(600); await page.waitForSelector('.li .li-all');
+    const sumNow = await txt(page, '#sumBody');
+    ok((await page.locator('.li').count()) === 4 && (await page.locator('.li .li-p s').count()) === 4, 'each line item shows its standard price struck through next to its partnership price');
+    ok((await page.locator('.li .li-all').count()) === 4 && /After all discounts/.test(sumNow), 'with the 10% applying, each item also shows its price after all discounts');
+    const money = (t) => Number(String(t).replace(/[^0-9.]/g, ''));
+    const allIn = async () => (await page.locator('.li .li-all b').allInnerTexts()).map(money);
+    const totalNow = async () => money(await page.locator('.sl.big .a').first().evaluate((e) => e.lastChild.textContent));
+    const sumCents = (arr) => Math.round(arr.reduce((x, y) => x + y, 0) * 100);
+    ok(sumCents(await allIn()) === Math.round((await totalNow()) * 100), `per-item all-in prices add up exactly to the total ($${(await allIn()).join(' + $')} = $${await totalNow()})`);
+    ok((await page.locator('.sl.big .a s').count()) === 1, 'the total shows the standard total struck through, then the final total');
+    ok(!/protection/i.test(sumNow) && !/Declared value protection/i.test(await page.content()), 'no declared value protection line or terms anywhere');
+    ok(/declared value \(for our records\)/i.test(await txt(page, '.irow')) && /Optional/.test(await page.locator('.irow [data-f=value]').first().getAttribute('placeholder')), 'declared value is optional and labeled "(for our records)"');
+    ok(!/cost less than|that's intended|that’s intended/i.test(sumNow) && /Delivery orders of \$1,000 or more \(after partnership pricing\) get an additional 10% off the whole delivery price\./.test(sumNow), 'the $1,000 note is precise ("after partnership pricing") and has no "that\'s intended" sentence');
+    // staff options: collapsed, low key, courtesy checkbox
+    ok(!(await page.locator('details.staff').evaluate((d) => d.open)) && !(await page.locator('details.staff p').first().isVisible()), 'Staff options is collapsed and the "Your call" hint is hidden');
+    ok(!/price sensitive/i.test(await page.evaluate(() => document.body.innerText + document.documentElement.innerHTML)), 'the words "price sensitive" appear nowhere in the client-facing page');
     const before = await txt(page, '.sl.big');
-    await page.locator('label.check').click();
-    await page.waitForFunction(() => /Price sensitive client: additional 15% off/.test(document.querySelector('#sumBody').innerText));
+    await page.locator('details.staff summary').click();
+    ok(/Your call, no approval needed/.test(await txt(page, 'details.staff')), 'expanding Staff options shows "Your call, no approval needed."');
+    ok(/Manager's courtesy \(−15%\)/.test(await txt(page, '.mc')), 'the checkbox is labeled "Manager\'s courtesy (−15%)"');
+    await page.locator('#mc').check();
+    await page.waitForFunction(() => /Manager's courtesy/.test(document.querySelector('#sumBody').innerText) && document.querySelector('.sl.disc + .sl.disc, .sl.disc'));
+    await page.waitForFunction(() => [...document.querySelectorAll('.sl.disc span:first-child')].some((e) => e.innerText === "Manager's courtesy"));
     const after = await txt(page, '.sl.big');
-    ok(before !== after, `checking "Price sensitive client" changes the total (${before} → ${after})`);
-    ok(/Price sensitive client: additional 15% off/.test(await txt(page, '#sumBody')), 'the 15% shows as its own line item');
-    await page.locator('label.check').click();
-    await page.waitForFunction(() => !/Price sensitive client: additional 15% off/.test(document.querySelector('#sumBody').innerText));
-    ok(true, 'unchecking removes the 15% line');
-    await page.locator('label.check').click();
-    await page.waitForFunction(() => /15% off/.test(document.querySelector('#sumBody').innerText));
+    ok(before !== after, `checking Manager's courtesy changes the total (${before} → ${after})`);
+    ok(sumCents(await allIn()) === Math.round((await totalNow()) * 100), 'with both extras on, per-item all-in prices still add up exactly to the total');
+    await page.locator('#mc').uncheck();
+    await page.waitForFunction(() => ![...document.querySelectorAll('.sl.disc span:first-child')].some((e) => e.innerText === "Manager's courtesy"));
+    ok(sumCents(await allIn()) === Math.round((await totalNow()) * 100), 'unchecking removes the courtesy line; the lines still add up');
+    await page.locator('#mc').check();
+    await page.waitForFunction(() => [...document.querySelectorAll('.sl.disc span:first-child')].some((e) => e.innerText === "Manager's courtesy"));
     await page.locator('#summary').scrollIntoViewIfNeeded();
     await page.waitForTimeout(300);
     await page.screenshot({ path: `${OUT}/palomas-${name}-summary.png`, fullPage: false });
+    // header copy: the "pick the pieces…" subtext is gone, the partnership pricing line stays
+    ok(!/Pick the pieces|tell us where they go|you're done|you’re done/i.test(await page.content().then((h) => h.replace(/<script[\s\S]*?<\/script>/g, ''))), 'the "Pick the pieces, tell us where they go…" subtext is removed');
+    ok(/Partnership pricing is applied automatically/.test(await txt(page, '.lede')), 'header keeps "Partnership pricing is applied automatically."');
+    // payment block
+    await page.locator('#summary').scrollIntoViewIfNeeded();
+    const sumTxt = await txt(page, '#sumBody');
+    ok(/Pay & lock in delivery/.test(await txt(page, '#place')), 'primary button reads "Pay & lock in delivery"');
+    ok(await page.locator('input[name=payer][value=client]').isChecked(), 'client pays is the default');
+    ok(/Payer: Pat Client · pat@example.com/.test(await txt(page, '#payerLine')), 'payer name and email are prefilled from the delivery info');
+    ok(/Due today/.test(sumTxt) && (await page.locator('#cardNum').count()) === 1, 'checkout shows the amount due today and the card fields');
+    ok(/Client can't pay now\? Email them a payment link\./.test(await txt(page, '#sendLink')) && !/Bill|Nothing to pay online/.test(sumTxt), 'small text link for the payment link; no more "billed to partner"');
+    const linkBox = await page.locator('#sendLink').boundingBox(), btnBox = await page.locator('#place').boundingBox();
+    ok(linkBox.height < btnBox.height * 0.75 && (await page.locator('#sendLink').evaluate((e) => getComputedStyle(e).textDecorationLine)) === 'underline', 'the payment link is a small underlined text link, not a big button');
+    await page.locator('input[name=payer][value=palomas]').evaluate((e) => e.click());
+    ok(/Payer: Paloma's Home Furnishings · palomas@palomascarmel.com/.test(await txt(page, '#payerLine')), 'choosing "Paloma\'s is paying" switches the payer to palomas@palomascarmel.com');
+    ok((await page.locator('#cardNum').count()) === 1 && (await page.locator('#sendLink').count()) === 0, 'same card checkout stays; the email-a-link option is for the client only');
+    await page.locator('input[name=payer][value=client]').evaluate((e) => e.click());
+    await page.locator('#summary .sticky').scrollIntoViewIfNeeded();
+    await page.waitForTimeout(300);
+    await page.locator('#summary .sticky').screenshot({ path: `${OUT}/palomas-${name}-checkout.png` });
     // missing field handling
     await page.fill('#dEmail', '');
     await page.click('#place');
-    ok(/Still needed/.test(await txt(page, '#sumBody')) && /Client email/.test(await txt(page, '#sumBody')), 'missing client email is flagged, order not placed');
+    ok(/Still needed/.test(await txt(page, '#sumBody')) && /Client email/.test(await txt(page, '#sumBody')), 'missing client email is flagged, nothing is charged');
     await page.fill('#dEmail', 'pat@example.com');
+    await page.fill('#cardNum', '12');
+    await page.click('#place');
+    await page.waitForFunction(() => /Enter a card number/.test(document.querySelector('#sumBody').innerText));
+    ok(true, 'a bad card number is flagged');
+    await page.fill('#cardNum', '4242 4242 4242 4242');
+    await page.fill('#dNotes', 'e2e ' + Date.now());
     await page.click('#place');
     await page.waitForSelector('.done');
-    ok(/Order placed/.test(await txt(page, '.done')) && /CAD-/.test(await txt(page, '.done')), 'order placed, confirmation screen with order number');
+    ok(/Delivery locked in/.test(await txt(page, '.done')) && /CAD-/.test(await txt(page, '.done')), 'path 1: card payment goes through, confirmation screen with order number');
+    ok(/Paid today/.test(await txt(page, '.done .box')) && /by Pat Client/.test(await txt(page, '.done .box')), 'confirmation shows what was paid and that the client paid');
     ok(/Dave Tester/.test(await txt(page, '.done .box')), 'confirmation shows the Other name');
     await page.screenshot({ path: `${OUT}/palomas-${name}-done.png` });
+
+    // quick re-fill helper for the other two paths
+    const quick = async () => {
+      await page.goto(BASE + '/palomas'); await page.waitForSelector('.pcard');
+      await page.selectOption('#placedBy', 'Heather');
+      await page.fill('#search', 'coffee table'); await page.locator('.pcard').first().click(); await page.fill('#search', '');
+      await page.fill('#dName', 'Lee Buyer'); await page.fill('#dPhone', '8315550188'); await page.fill('#dEmail', 'lee@example.com');
+      await page.fill('#dStreet', '5 Dolores St'); await page.fill('#dCity', 'Carmel-by-the-Sea'); await page.fill('#dZip', '93921');
+      await page.selectOption('#aMode', 'ground');
+      await page.fill('#dNotes', name + ' ' + Date.now() + Math.random());
+      await page.waitForSelector('#datesBox:not([hidden])');
+      await page.waitForFunction(() => /Due today/.test(document.querySelector('#sumBody').innerText));
+    };
+    // path 2: Paloma's is paying
+    await quick();
+    await page.locator('input[name=payer][value=palomas]').evaluate((e) => e.click());
+    await page.click('#place');
+    await page.waitForSelector('.done');
+    ok(/Delivery locked in/.test(await txt(page, '.done')) && /by Paloma's Home Furnishings/.test(await txt(page, '.done .box')), 'path 2: Paloma\'s pays by card in the same checkout, billed to Paloma\'s');
+    // path 3: email a payment link
+    await quick();
+    await page.click('#sendLink');
+    await page.waitForSelector('.done');
+    const d3 = await txt(page, '.done');
+    ok(/Payment link sent/.test(d3) && /lee@example.com/.test(d3) && /Awaiting payment — not scheduled until paid/.test(d3), 'path 3: payment link emailed, order shows "Awaiting payment — not scheduled until paid"');
+    ok(!/Paid today/.test(await txt(page, '.done .box')), 'path 3: nothing is shown as paid');
+    await page.screenshot({ path: `${OUT}/palomas-${name}-link-sent.png` });
     ok(errors.length === 0, 'no console errors' + (errors.length ? ': ' + errors.join(' | ') : ''));
     await ctx.close();
   }

@@ -287,7 +287,7 @@ app.get('/api/orders/:id', (req, res) => {
 });
 
 function finalize(id, payment) {
-  const o = update(id, (ord) => { if (ord.status === 'confirmed') return; ord.status = 'confirmed'; ord.payment = payment; });
+  const o = update(id, (ord) => { if (ord.status === 'confirmed') return; ord.status = 'confirmed'; ord.payment = payment; delete ord.statusNote; });
   if (!o) return null;
   if (!o.emails.find((e) => e.kind === 'confirmation')) {
     const sent = email.send('confirmation', o);
@@ -444,7 +444,7 @@ const PAL = require('./lib/palomas');
 app.get('/palomas', (_, res) => res.sendFile(path.join(__dirname, 'public', 'palomas', 'index.html')));
 app.get('/api/palomas/config', (_, res) => res.json({
   partner: PAL.PARTNER_NAME, placedBy: PAL.PLACED_BY, pickups: Object.values(PAL.PICKUPS).map(({ key, label, detail }) => ({ key, label, detail })),
-  rules: PAL.RULES, catalog: PAL.catalog,
+  rules: PAL.RULES, catalog: PAL.catalog, pay: { stripe: !!stripe, testMode: !stripe && TEST_MODE, partnerEmail: PAL.PARTNER_EMAIL },
   kinds: {
     furniture: FURNITURE_KINDS, groups: config.pricing.furniture.decorKindGroups,
     accents: config.pricing.furniture.accents.kinds, sizeLabels: config.pricing.furniture.sizeLabels,
@@ -467,11 +467,15 @@ app.post('/api/palomas/availability', (req, res) => {
   const zip = String(o.dropoff.zip || '');
   if (!/^\d{5}/.test(zip)) return res.json({ days: [] });
   const dateOk = /^\d{4}-\d{2}-\d{2}$/.test(String(b.pickupDate || ''));
+  const COUNT = 14; // next 14 available days; "Later date" asks for days from a chosen date (same scheduling rules)
+  const laterOk = /^\d{4}-\d{2}-\d{2}$/.test(String(b.from || '')) && b.from >= sched.ptYmd();
   if (b.leg === 'dropoff' && dateOk) {
-    const from = new Date(b.pickupDate + 'T12:00:00Z');
-    return res.json({ days: sched.availableDays(o.dropoff, { from, count: config.scheduling.showDays, order: o, leadTime: 0 }) });
+    const start = laterOk && b.from > b.pickupDate ? b.from : b.pickupDate;
+    return res.json({ days: sched.availableDays(o.dropoff, { from: new Date(start + 'T12:00:00Z'), count: COUNT, order: o, leadTime: 0 }) });
   }
-  res.json({ days: sched.availableDays(o.pickup, { order: o }) });
+  const earliest = sched.availableDays(o.pickup, { order: o, count: COUNT });
+  if (laterOk && earliest.length && b.from > earliest[0].date) return res.json({ days: sched.availableDays(o.pickup, { from: new Date(b.from + 'T12:00:00Z'), count: COUNT, order: o, leadTime: 0 }), earliest: earliest[0].date });
+  res.json({ days: earliest, earliest: (earliest[0] || {}).date });
 });
 app.post('/api/palomas/orders', (req, res) => {
   const b = req.body || {};
@@ -493,9 +497,11 @@ app.post('/api/palomas/orders', (req, res) => {
   const dropoff = eo.dropoff;
   const items = eo.items.map(routeDecorMirror);
   const outOfState = isOutOfState({ service: 'pickup_delivery', pickup, dropoff });
+  const palomasPays = b.payer === 'palomas';
   const partnerInfo = {
-    placedBy: placedName, pickupLocation: PAL.PICKUPS[b.pickupLocation].label, priceSensitive: !!b.priceSensitive,
-    standard: q.standard, partnerPrice: q.partner, volumeOff: q.volumeOff, sensitiveOff: q.sensitiveOff,
+    payer: palomasPays ? 'palomas' : 'client', payMode: b.payMode === 'link' ? 'link' : 'now',
+    placedBy: placedName, pickupLocation: PAL.PICKUPS[b.pickupLocation].label, courtesy: !!b.courtesy,
+    standard: q.standard, partnerPrice: q.partner, volumeOff: q.volumeOff, courtesyOff: q.courtesyOff,
   };
   const base = {
     id: newOrderId(load()), createdAt: new Date().toISOString(), fingerprint: fp,
@@ -503,11 +509,12 @@ app.post('/api/palomas/orders', (req, res) => {
     // Stairs or "Not sure": CAD confirms access (and any stairs fee) with the client before the job.
     accessReview: ['not_sure', 'stairs'].includes(dropoff.accessMode),
     member: true, memberCode: PAL.PARTNER_CODE, memberCompany: PAL.PARTNER_NAME, heard: { repeatClient: true }, referral: false,
-    declaredValueProtection: !q.special && q.protectionAmount > 0,
+    declaredValueProtection: false, // Paloma's pays no declared value protection
     items, pickup, dropoff,
-    contact: { name: placedName, email: PAL.PARTNER_EMAIL, phone: PAL.PARTNER_PHONE, company: PAL.PARTNER_NAME, clientType: `Partner: ${PAL.PARTNER_NAME}` },
+    // The client is the booker (confirmation and payment link go to them). The payer is the client, or Paloma's when they choose to pay.
+    contact: { name: b.delivery.name.trim(), email: b.delivery.email.trim(), phone: b.delivery.phone.trim(), company: '', clientType: `Partner: ${PAL.PARTNER_NAME}` },
     partner: { type: 'Partner', name: PAL.PARTNER_NAME, email: PAL.PARTNER_EMAIL, phone: PAL.PARTNER_PHONE },
-    partnerOrder: true, partnerInfo, payer: 'other', payerOther: { name: PAL.PARTNER_NAME, email: PAL.PARTNER_EMAIL, phone: PAL.PARTNER_PHONE },
+    partnerOrder: true, partnerInfo, payer: palomasPays ? 'other' : 'me', payerOther: palomasPays ? { name: PAL.PARTNER_NAME, email: PAL.PARTNER_EMAIL, phone: PAL.PARTNER_PHONE } : {},
     notes: [`Partner order placed by ${placedName} (${PAL.PARTNER_NAME}); pickup: ${partnerInfo.pickupLocation}.`, String(b.delivery.notes || '').trim()].filter(Boolean).join(' '),
     emails: [],
   };
@@ -530,19 +537,42 @@ app.post('/api/palomas/orders', (req, res) => {
   };
   const lines = [
     ...q.lines.map(({ label, amount }) => ({ label, amount })),
-    ...(q.volumeOff ? [{ label: `Partnership volume discount: additional ${PAL.RULES.volumePct}% off (orders of $${PAL.RULES.volumeThreshold.toLocaleString('en-US')}+)`, amount: -q.volumeOff }] : []),
-    ...(q.sensitiveOff ? [{ label: `Price sensitive client: additional ${PAL.RULES.sensitivePct}% off`, amount: -q.sensitiveOff }] : []),
-    ...(q.protection ? [{ label: protectionLabel(q.protection.eligibleValue), amount: q.protectionAmount }] : []),
+    ...(q.volumeOff ? [{ label: `Partnership volume discount: additional ${PAL.RULES.volumePct}% off (delivery orders of $${PAL.RULES.volumeThreshold.toLocaleString('en-US')}+ after partnership pricing)`, amount: -q.volumeOff }] : []),
+    ...(q.courtesyOff ? [{ label: "Manager's courtesy", amount: -q.courtesyOff }] : []),
   ];
   order.quote = {
-    ...q.engine, lines, total: q.total, regularTotal: q.total, protection: q.protection, member: true, memberCompany: PAL.PARTNER_NAME,
-    paymentPlan: 'full', dueNow: 0, balanceDue: 0, balanceWhen: null, paymentSummary: `Billed to ${PAL.PARTNER_NAME}`,
-    partnerPricing: { standard: q.standard, partnerPrice: q.partner, partnerSavings: q.partnerSavings, volumeOff: q.volumeOff, sensitiveOff: q.sensitiveOff, delivery: q.delivery, protection: q.protectionAmount },
+    ...q.engine, lines, total: q.total, regularTotal: q.total, protection: null, member: true, memberCompany: PAL.PARTNER_NAME,
+    ...q.payment, // same payment plan as the main site (paid in full; 50% at booking from $3,000)
+    partnerPricing: { standard: q.standard, partnerPrice: q.partner, partnerSavings: q.partnerSavings, volumeOff: q.volumeOff, courtesyOff: q.courtesyOff, delivery: q.delivery, items: q.lines.map(({ label, standard, amount, after, qty }) => ({ label, standard, partner: amount, allIn: after, qty })) },
   };
+  // Pay-by-link: the client can't pay at the showroom. Nothing is scheduled (no CSV row) until the link is paid.
+  if (b.payMode === 'link') {
+    order.statusNote = 'Awaiting payment — not scheduled until paid';
+    order.paymentLink = { sentAt: new Date().toISOString(), lastEmailAt: new Date().toISOString(), reminders: 0 };
+  }
   const all = load(); all.unshift(order); save(all);
-  const done = finalize(order.id, { method: 'partner_billing', status: 'billed', amount: q.total, ref: `partner_${PAL.PARTNER_CODE.toLowerCase()}` });
-  res.json({ id: order.id, status: done.status, quote: { total: q.total }, order: done });
+  if (b.payMode === 'link') {
+    const sent = email.send('payment_link', order);
+    update(order.id, (x) => x.emails.push(sent));
+  }
+  res.json({ id: order.id, status: order.status, quote: { total: q.total, dueNow: q.payment.dueNow }, order: findOrder(order.id) });
 });
+
+// One payment reminder per day until a payment-link order is paid (simple in-process timer; Render restarts clear test data anyway).
+const REMINDER_MS = 24 * 3600 * 1000, REMINDER_MAX = 30;
+function runPaymentReminders(now = Date.now()) {
+  const sent = [];
+  load().filter((o) => o.status === 'awaiting_payment' && o.paymentLink && (o.paymentLink.reminders || 0) < REMINDER_MAX).forEach((o) => {
+    if (now - Date.parse(o.paymentLink.lastEmailAt) < REMINDER_MS) return;
+    const e = email.send('payment_reminder', o);
+    update(o.id, (x) => { x.emails.push(e); x.paymentLink.reminders = (x.paymentLink.reminders || 0) + 1; x.paymentLink.lastEmailAt = new Date(now).toISOString(); });
+    sent.push(o.id);
+  });
+  return sent;
+}
+setInterval(() => { try { runPaymentReminders(); } catch (e) { console.error('reminder run failed', e.message); } }, 15 * 60 * 1000).unref();
+app.post('/api/admin/payment-reminders/run', (req, res, next) => (ADMIN_ON && adminKeyOk(req.query.key || req.get('x-admin-key')) ? next() : res.status(401).json({ error: 'admin key required' })),
+  (req, res) => { const t = Date.parse((req.body || {}).asOf); res.json({ sent: runPaymentReminders(Number.isFinite(t) ? t : Date.now()) }); });
 
 // ---------- Admin (prototype: simple shared key) ----------
 const adminKeyOk = (k) => ADMIN_ON && typeof k === 'string' && k.length === ADMIN_KEY.length && crypto.timingSafeEqual(Buffer.from(k), Buffer.from(ADMIN_KEY));

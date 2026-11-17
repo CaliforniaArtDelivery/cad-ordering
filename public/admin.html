@@ -65,7 +65,7 @@ function draw() {
     <td>${esc(o.contact.name)}<br><span class="muted">${esc(o.contact.clientType)}${o.partner?.name ? ' · via ' + esc(o.partner.name) : ''}</span></td>
     <td>${esc(o.dropoff.city || o.pickup.city)}${o.dropoff.country && !/^(us|usa|united states)/i.test(o.dropoff.country) ? ', ' + esc(o.dropoff.country) : o.dropoff.state && !/^ca$/i.test(o.dropoff.state) ? ', ' + esc(o.dropoff.state) : ''}</td><td>${estimateCell(o)}</td>
     <td>${o.payment ? esc(o.payment.method) + (o.payment.status === 'paid' ? ' · paid' : o.payment.status === 'ach_processing' ? ' · ACH processing' : ' · ' + o.payment.status) : (o.status === 'awaiting_payment' ? 'awaiting pay' : '—')}</td>
-    <td><span class="pill ${o.status}">${o.status.replace(/_/g, ' ')}</span></td></tr>
+    <td><span class="pill ${o.status}">${esc(o.statusNote || o.status.replace(/_/g, ' '))}</span></td></tr>
     ${open === o.id ? `<tr class="detail"><td colspan=8 id="detail">Loading…</td></tr>` : ''}`).join('') || '<tr><td colspan=8 class="muted">No orders yet.</td></tr>';
   if (open) detail(open);
 }

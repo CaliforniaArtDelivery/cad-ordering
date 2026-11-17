@@ -119,7 +119,7 @@ const laTrip = async (page, name, email) => {
 const readOrders = () => JSON.parse(fs.readFileSync(path.join(DATA_ROOT, 'data', 'orders.json'), 'utf8'));
 
 (async () => {
-  const browser = await engine.launch();
+  const browser = await engine.launch(process.env.CHROME ? { executablePath: process.env.CHROME, args: ['--no-sandbox'] } : {});
   const errors = [];
   const ctx = await browser.newContext({ viewport: { width: VIEW_W || 390, height: VIEW_H || 844 }, deviceScaleFactor: 2, isMobile: process.env.E2E_BROWSER !== 'firefox' && process.env.E2E_BROWSER !== 'webkit' ? true : undefined, hasTouch: true });
   const page = await ctx.newPage();

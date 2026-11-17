@@ -4,12 +4,11 @@ const $ = (s, r = document) => r.querySelector(s);
 const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const usd = (n) => '$' + Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const num = (v) => { const n = Number(String(v ?? '').replace(/[,$\s]/g, '')); return Number.isFinite(n) ? n : 0; };
-const PROTECTION_HINT = 'Its current value. Pieces valued up to $50,000 carry required declared value protection: 1.5% of their declared value.';
-const PROTECTION_TERMS = 'Declared value protection applies to pieces with a declared value up to $50,000.';
 
 let CFG = null;
 const S = {
-  placedBy: '', placedOther: '', pickup: 'salinas', items: [], priceSensitive: false,
+  placedBy: '', placedOther: '', pickup: 'salinas', items: [], courtesy: false, staffOpen: false, puMore: false, deMore: false, puFrom: '', deFrom: '',
+  payer: 'client', card: '', exp: '', cvc: '', payError: '',
   pickupDate: '', deliveryDate: '', puDays: [], deDays: [], quote: null, submitting: false, errors: [], showErrors: false,
 };
 let uid = 1, cat = 'All', quoteTok = 0, availTok = 0, qTimer = 0, aTimer = 0;
@@ -23,11 +22,12 @@ const delivery = () => ({
   name: $('#dName').value.trim(), phone: $('#dPhone').value.trim(), email: $('#dEmail').value.trim(), street: $('#dStreet').value.trim(),
   unit: $('#dUnit').value.trim(), city: $('#dCity').value.trim(), state: ($('#dState').value.trim() || 'CA').toUpperCase(), zip: $('#dZip').value.trim(), notes: $('#dNotes').value.trim(),
 });
-const access = () => ({ mode: $('#aMode').value, flights: $('#aFlights').value, flightsCount: $('#aFlightsN').value.trim(), floor: $('#aFloor').value.trim() });
+const access = () => ({ mode: $('#aMode').value, flights: $('#aFlights').value, flightsCount: $('#aFlightsN').value.trim(), floor: $('#aFloor').value.trim(), elevatorType: $('#aElevType').value, elevatorReserve: $('#aElevRes').checked, hours: $('#aHours').value.trim(), tight: $('#aTight').value.trim() });
 const outOfState = () => { const d = delivery(); const z = parseInt(d.zip.slice(0, 3), 10); return (d.state && d.state !== 'CA') || (/^\d{5}/.test(d.zip) && !(z >= 900 && z <= 961)); };
-const payload = () => ({
-  placedBy: { name: S.placedBy, other: S.placedOther }, pickupLocation: S.pickup, priceSensitive: S.priceSensitive,
-  items: S.items.map((i) => ({ name: i.name, kind: i.kind, size: i.size, value: num(i.value), qty: i.qty, catalogId: i.catalogId, custom: !!i.custom, w: i.w, h: i.h })),
+const payload = (payMode = 'now') => ({
+  payer: S.payer, payMode,
+  placedBy: { name: S.placedBy, other: S.placedOther }, pickupLocation: S.pickup, courtesy: S.courtesy,
+  items: S.items.map((i) => ({ name: i.name, kind: i.kind, size: i.size, value: num(i.value), qty: i.qty, catalogId: i.catalogId, custom: !!i.custom, oversized: !!i.oversized, w: i.w, h: i.h })),
   delivery: delivery(), access: access(), schedule: { date: S.pickupDate, deliveryDate: S.deliveryDate },
 });
 async function api(url, body) {
@@ -71,9 +71,10 @@ function renderItems() {
       <div><div class="nm">${esc(i.name)}</div><div class="ty">${esc(i.kind)}${i.dims ? ' · ' + esc(i.dims) : ''}${i.custom ? ' · custom' : ''}</div>
         <div class="ctl">
           <div><span class="lbl">Qty</span><div class="qty"><button type="button" data-q="-1" aria-label="Fewer">−</button><input data-f="qty" value="${i.qty}" inputmode="numeric" aria-label="Quantity"><button type="button" data-q="1" aria-label="More">+</button></div></div>
-          <div><span class="lbl">Size</span><select data-f="size" aria-label="Size">${sz.map(([k, l]) => `<option value="${k}" ${k === i.size ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select></div>
-          <div class="v"><span class="lbl">Declared value</span><div class="money"><i>$</i><input data-f="value" value="${esc(i.value)}" inputmode="decimal" placeholder="0" aria-label="Declared value" class="${S.showErrors && !(num(i.value) > 0) ? 'bad' : ''}"></div></div>
+          <div><span class="lbl">Size tier</span><select data-f="size" aria-label="Size tier">${sz.map(([k, l]) => `<option value="${k}" ${k === i.size ? 'selected' : ''} ${i.oversized && sz.findIndex(([x]) => x === k) < sz.findIndex(([x]) => x === 'large') ? 'disabled' : ''}>${esc(l)}</option>`).join('')}</select></div>
+          <div class="v"><span class="lbl">Declared value (for our records)</span><div class="money"><i>$</i><input data-f="value" value="${esc(i.value)}" inputmode="decimal" placeholder="Optional" aria-label="Declared value (for our records), optional"></div></div>
         </div>
+        <label class="check-sm"><input type="checkbox" data-f="oversized" ${i.oversized ? 'checked' : ''}><span>Oversized or very heavy <small>(e.g., 150+ lbs, marble, armoire)</small>${i.oversized ? '<em> Large tier applied, crew is told to bring extra help.</em>' : ''}</span></label>
         ${isMirror(i.kind) ? `<div class="dims">Face size, optional: <input data-f="w" value="${esc(i.w)}" inputmode="numeric" placeholder="W"> × <input data-f="h" value="${esc(i.h)}" inputmode="numeric" placeholder="H"> in</div>` : ''}
       </div><button type="button" class="rm" data-rm="1" aria-label="Remove ${esc(i.name)}">×</button></div>`;
   }).join('');
@@ -100,7 +101,6 @@ function problems() {
   if (!S.placedBy) add('Choose who is placing the order', '#placedBy');
   else if (S.placedBy === 'Other' && !S.placedOther.trim()) add('Type the name of who is placing the order', '#placedOther');
   if (!S.items.length) add('Add at least one item', '#sec-items');
-  S.items.forEach((i) => { if (!(num(i.value) > 0)) add(`Declared value for ${i.name}`, `[data-uid="${i.uid}"] [data-f=value]`); });
   const d = delivery();
   if (!d.name) add('Client name', '#dName');
   if (d.phone.replace(/\D/g, '').length < 7) add('Client phone', '#dPhone');
@@ -113,8 +113,40 @@ function problems() {
   if (a.mode === 'stairs' && !a.flights) add('Flights of stairs', '#aFlights');
   if (a.mode === 'stairs' && a.flights === '4plus' && !(parseInt(a.flightsCount, 10) >= 4)) add('How many flights (4 or more)', '#aFlightsN');
   if (a.mode === 'elevator' && !a.floor) add('Elevator floor', '#aFloor');
+  if (a.mode === 'elevator' && !a.elevatorType) add('Which elevator (freight or passenger)', '#aElevType');
   if (!q.special && !outOfState() && /^\d{5}/.test(d.zip) && (!S.pickupDate || !S.deliveryDate)) add('Pickup and delivery days', '#sec-dates');
   return out;
+}
+
+const payerInfo = () => (S.payer === 'palomas' ? { name: "Paloma's Home Furnishings", email: CFG.pay.partnerEmail } : { name: delivery().name, email: delivery().email });
+function payerLineHtml() { const p = payerInfo(); return p.name || p.email ? `Payer: <b>${esc(p.name || '—')}</b>${p.email ? ' · ' + esc(p.email) : ''}` : 'Payer: fill in the client name and email above.'; }
+function shippingButton() {
+  return `<button type="button" class="btn primary wide" id="place" ${S.submitting ? 'disabled' : ''}>${S.submitting ? 'Sending…' : 'Request shipping quote'}</button><p class="billing">No payment is taken online.</p>`;
+}
+function payBlock(q) {
+  const pay = q.payment || {}; const deposit = pay.paymentPlan === 'deposit';
+  const mock = !CFG.pay.stripe && CFG.pay.testMode, offline = !CFG.pay.stripe && !CFG.pay.testMode;
+  let h = `<div class="payer" role="radiogroup" aria-label="Who is paying">
+    <label class="prow ${S.payer === 'client' ? 'on' : ''}"><input type="radio" name="payer" value="client" ${S.payer === 'client' ? 'checked' : ''}><span><b>Client pays now</b><small>Card payment at checkout</small></span></label>
+    <label class="prow ${S.payer === 'palomas' ? 'on' : ''}"><input type="radio" name="payer" value="palomas" ${S.payer === 'palomas' ? 'checked' : ''}><span><b>Paloma's is paying</b><small>Same card checkout, billed to Paloma's</small></span></label>
+  </div>
+  <p class="mini payerline" id="payerLine">${payerLineHtml()}</p>`;
+  h += deposit
+    ? `<div class="sl big rule due"><span>Due today<small>${esc(pay.paymentSummary || '')}</small></span><span class="a">${usd(pay.dueNow)}</span></div>`
+    : `<div class="sl big rule due"><span>Due today<small>Paid in full at booking</small></span><span class="a">${usd(pay.dueNow || q.total)}</span></div>`;
+  if (mock) {
+    h += `<div class="cardbox"><div class="wallets"><button type="button" class="btn ghost wal" data-wallet="apple_pay">Apple Pay</button><button type="button" class="btn ghost wal" data-wallet="google_pay">Google Pay</button></div>
+      <div class="or">or pay by card <em>test mode, no real charge</em></div>
+      <label class="field"><span class="lbl">Card number</span><input id="cardNum" type="text" inputmode="numeric" autocomplete="cc-number" maxlength="23" value="${esc(S.card)}" placeholder="4242 4242 4242 4242"></label>
+      <div class="two"><label class="field"><span class="lbl">Expiry</span><input id="cardExp" type="text" inputmode="numeric" autocomplete="cc-exp" maxlength="7" value="${esc(S.exp)}" placeholder="MM / YY"></label>
+      <label class="field"><span class="lbl">CVC</span><input id="cardCvc" type="text" inputmode="numeric" autocomplete="cc-csc" maxlength="4" value="${esc(S.cvc)}" placeholder="123"></label></div></div>`;
+  } else if (!offline) h += `<p class="mini" style="margin:8px 0">You'll finish on our secure Stripe checkout page (card or bank).</p>`;
+  else h += `<p class="mini" style="margin:8px 0">Online payment isn't available right now. Please call us.</p>`;
+  if (S.payError) h += `<div class="errs" role="alert"><b>Payment didn't go through.</b>${esc(S.payError)}</div>`;
+  h += `<button type="button" class="btn primary wide" id="place" ${S.submitting || offline ? 'disabled' : ''}>${S.submitting ? 'Processing…' : 'Pay &amp; lock in delivery'}</button>`;
+  if (S.payer === 'client') h += `<p class="linkrow"><button type="button" class="linkbtn" id="sendLink" ${S.submitting ? 'disabled' : ''}>Client can't pay now? Email them a payment link.</button></p>
+    <p class="mini linknote">We email the client a link. The delivery isn't scheduled until it's paid.</p>`;
+  return h;
 }
 function renderSummary() {
   const box = $('#sumBody'); const q = S.quote;
@@ -128,22 +160,26 @@ function renderSummary() {
     html = `<div class="special"><b>Delivery outside California is quoted as Shipping.</b><br>${esc(q.quoteNote || 'Samantha prices it and emails you a quote. Nothing is charged until it is approved.')}</div>`;
     barTotal.textContent = 'Quote'; 
   } else {
-    html += q.lines.map((l) => `<div class="sl"><span>${esc(l.label)}</span><span class="a">${usd(l.amount)}</span></div>`).join('');
+    const extras = q.volumeOff > 0 || q.courtesyOff > 0;
+    const each = (l) => (l.qty > 1 ? ` · ${Math.round(l.after * 100) % l.qty === 0 ? '' : 'about '}${usd(l.each)} each` : '');
+    html += q.lines.map((l) => `<div class="li"><div class="li-l">${esc(l.label)}</div>
+      <div class="li-p">${l.standard != null && l.standard !== l.amount ? `<s>${usd(l.standard)}</s> ` : ''}<b>${usd(l.amount)}</b><small> partnership price</small></div>
+      ${extras ? `<div class="li-all"><span>After all discounts${esc(each(l))}</span><b>${usd(l.after)}</b></div>` : ''}</div>`).join('');
     html += `<div class="sl partner"><span>Paloma's Home Furnishings partnership pricing<small>25% off our standard rates</small></span><span class="a"><s>${usd(q.standard)}</s>${usd(q.partner)}</span></div>`;
-    if (q.volumeEligible) html += `<div class="sl disc"><span>Additional ${q.rules.volumePct}% off (delivery orders of $${q.rules.volumeThreshold.toLocaleString('en-US')}+)</span><span class="a">−${usd(q.volumeOff)}</span></div>`;
-    html += `<div class="sum-note">${q.volumeEligible ? '✓ ' : ''}Any delivery order of $${q.rules.volumeThreshold.toLocaleString('en-US')} or more gets an additional ${q.rules.volumePct}% off the whole delivery price. That means an order just over $${q.rules.volumeThreshold.toLocaleString('en-US')} can cost less than one just under it. That's intended.</div>`;
-    html += `<label class="check ${S.priceSensitive ? 'on' : ''}"><input type="checkbox" id="sens" ${S.priceSensitive ? 'checked' : ''}><span><b>Price sensitive client</b><span>Take an additional ${q.rules.sensitivePct}% off. Your call, no approval needed.</span></span></label>`;
-    if (q.sensitive) html += `<div class="sl disc"><span>Price sensitive client: additional ${q.rules.sensitivePct}% off</span><span class="a">−${usd(q.sensitiveOff)}</span></div>`;
-    if (q.protection && q.protectionAmount > 0) html += `<div class="sl"><span>Required declared value protection: 1.5% of ${usd(q.protection.eligibleValue).replace('.00', '')}</span><span class="a">${usd(q.protectionAmount)}</span></div>`;
-    html += `<div class="sl big rule"><span>Total</span><span class="a">${usd(q.total)}</span></div>`;
+    if (q.volumeEligible) html += `<div class="sl disc"><span>Additional ${q.rules.volumePct}% off (delivery orders of $${q.rules.volumeThreshold.toLocaleString('en-US')}+ after partnership pricing)</span><span class="a">−${usd(q.volumeOff)}</span></div>`;
+    html += `<div class="sum-note">${q.volumeEligible ? '✓ ' : ''}Delivery orders of $${q.rules.volumeThreshold.toLocaleString('en-US')} or more (after partnership pricing) get an additional ${q.rules.volumePct}% off the whole delivery price.</div>`;
+    if (q.courtesy) html += `<div class="sl disc"><span>Manager's courtesy</span><span class="a">−${usd(q.courtesyOff)}</span></div>`;
+    html += `<div class="sl big rule"><span>Total</span><span class="a">${q.standard !== q.total ? `<s>${usd(q.standard)}</s>` : ''}${usd(q.total)}</span></div>`;
+    html += `<details class="staff" id="staff" ${S.courtesy || S.staffOpen ? 'open' : ''}><summary>Staff options</summary>
+      <label class="mc"><input type="checkbox" id="mc" ${S.courtesy ? 'checked' : ''}><span>Manager's courtesy (−${q.rules.courtesyPct}%)</span></label>
+      <p class="mini">Your call, no approval needed.</p></details>`;
     if (q.notes && q.notes.length) html += q.notes.filter((n) => !/access/i.test(n)).map((n) => `<p class="mini">${esc(n)}</p>`).join('');
     barTotal.textContent = usd(q.total);
   }
   $('#bar').hidden = false;
   const errs = S.showErrors ? problems() : [];
   if (errs.length) html += `<div class="errs" role="alert"><b>Still needed:</b>${errs.map((e) => esc(e.msg)).join(' · ')}</div>`;
-  html += `<button type="button" class="btn primary wide" id="place" ${S.submitting ? 'disabled' : ''}>${S.submitting ? 'Placing order…' : q.special ? 'Request shipping quote' : 'Place order'}</button>`;
-  html += `<p class="billing">${q.special ? 'No payment is taken online.' : `Billed to Paloma's Home Furnishings. Nothing to pay online.`}</p><p class="mini" style="text-align:center">${PROTECTION_TERMS}</p>`;
+  html += q.special ? shippingButton() : payBlock(q);
   box.innerHTML = html;
 }
 
@@ -157,9 +193,26 @@ function renderDatesVisibility() {
     : /^\d{5}/.test(d.zip) ? 'Pick a pickup day, then a delivery day. We pre-selected the earliest.' : 'Enter the delivery ZIP above and the available days appear here. We pre-select the earliest.';
 }
 const dayCard = (d, on, i, kind) => { const [w, m, n] = String(d.label).replace(',', '').split(' '); return `<button type="button" class="day ${on ? 'on' : ''} ${i === 0 ? 'early' : ''}" data-${kind}="${d.date}"><div class="dw">${esc(w)}</div><div class="dd">${esc(m)} ${esc(n)}</div><div class="rg">${esc(d.shortLabel || d.region || '')}</div></button>`; };
+const SHOW_FIRST = 6; // the first few days, then "More dates" (up to 14) and "Later date"
+function dayList(days, sel, kind, more) {
+  const selIdx = days.findIndex((d) => d.date === sel);
+  const all = more || selIdx >= SHOW_FIRST;
+  return (all ? days : days.slice(0, SHOW_FIRST)).map((d, i) => dayCard(d, d.date === sel, i, kind)).join('');
+}
+function dayCtl(days, sel, kind) {
+  const more = kind === 'pu' ? S.puMore : S.deMore, from = kind === 'pu' ? S.puFrom : S.deFrom;
+  const selIdx = days.findIndex((d) => d.date === sel);
+  const hidden = days.length > SHOW_FIRST && !(more || selIdx >= SHOW_FIRST);
+  const min = (days[0] || {}).date || '';
+  return `${hidden ? `<button type="button" class="linkbtn" data-more="${kind}">More dates (${days.length - SHOW_FIRST} more)</button>` : ''}
+    <label class="later">Later date <input type="date" data-later="${kind}" min="${esc(from ? '' : min)}" value="${esc(from)}" aria-label="Choose a later ${kind === 'pu' ? 'pickup' : 'delivery'} date"></label>
+    ${from ? `<button type="button" class="linkbtn" data-back="${kind}">Back to earliest dates</button>` : ''}`;
+}
 function renderDays() {
-  $('#puDays').innerHTML = S.puDays.map((d, i) => dayCard(d, d.date === S.pickupDate, i, 'pu')).join('');
-  $('#deDays').innerHTML = S.deDays.map((d, i) => dayCard(d, d.date === S.deliveryDate, i, 'de')).join('');
+  $('#puDays').innerHTML = dayList(S.puDays, S.pickupDate, 'pu', S.puMore);
+  $('#deDays').innerHTML = dayList(S.deDays, S.deliveryDate, 'de', S.deMore);
+  $('#puCtl').innerHTML = S.puDays.length ? dayCtl(S.puDays, S.pickupDate, 'pu') : '';
+  $('#deCtl').innerHTML = S.deDays.length ? dayCtl(S.deDays, S.deliveryDate, 'de') : '';
   const lab = (arr, v) => (arr.find((x) => x.date === v) || {}).label;
   $('#dateSummary').textContent = S.pickupDate && S.deliveryDate ? `Pickup ${lab(S.puDays, S.pickupDate) || S.pickupDate} · Delivery ${lab(S.deDays, S.deliveryDate) || S.deliveryDate}` : '';
   renderDatesVisibility();
@@ -168,7 +221,7 @@ function scheduleAvail() { clearTimeout(aTimer); aTimer = setTimeout(refreshDate
 async function refreshDates() {
   const tok = ++availTok; const d = delivery();
   if (!/^\d{5}/.test(d.zip) || outOfState()) { S.puDays = []; S.deDays = []; S.pickupDate = ''; S.deliveryDate = ''; renderDays(); return; }
-  const { ok, j } = await api('/api/palomas/availability', { ...payload(), leg: 'pickup' });
+  const { ok, j } = await api('/api/palomas/availability', { ...payload(), leg: 'pickup', from: S.puFrom });
   if (tok !== availTok) return;
   S.puDays = ok ? (j.days || []) : [];
   if (!S.puDays.some((x) => x.date === S.pickupDate)) S.pickupDate = (S.puDays[0] || {}).date || '';
@@ -176,7 +229,7 @@ async function refreshDates() {
 }
 async function refreshDelivery(tok = availTok) {
   if (!S.pickupDate) { S.deDays = []; S.deliveryDate = ''; renderDays(); return; }
-  const { ok, j } = await api('/api/palomas/availability', { ...payload(), leg: 'dropoff', pickupDate: S.pickupDate });
+  const { ok, j } = await api('/api/palomas/availability', { ...payload(), leg: 'dropoff', pickupDate: S.pickupDate, from: S.deFrom });
   if (tok !== availTok) return;
   S.deDays = ok ? (j.days || []) : [];
   if (!S.deDays.some((x) => x.date === S.deliveryDate)) S.deliveryDate = (S.deDays[0] || {}).date || '';
@@ -184,34 +237,45 @@ async function refreshDelivery(tok = availTok) {
 }
 
 /* ---------- submit ---------- */
-async function place() {
-  S.showErrors = true;
+async function place(mode = 'now', wallet = '') {
+  S.showErrors = true; S.payError = '';
   const errs = problems();
   if (errs.length) {
     renderSummary(); renderItems();
     const el = $(errs[0].sel); if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); if (el.focus && el.tagName !== 'SECTION') el.focus({ preventScroll: true }); }
     markBad(errs); return;
   }
+  const special = !!(S.quote && S.quote.special);
+  const card = S.card.replace(/\s/g, '');
+  if (!special && mode === 'now' && !wallet && !CFG.pay.stripe && CFG.pay.testMode && !/^\d{15,16}$/.test(card)) { S.payError = 'Enter a card number (test: 4242 4242 4242 4242), or use Apple Pay / Google Pay.'; renderSummary(); return; }
   S.submitting = true; renderSummary();
-  const { ok, j } = await api('/api/palomas/orders', payload());
-  S.submitting = false;
-  if (!ok) { S.showErrors = true; renderSummary(); const e = $('#sumBody'); e.insertAdjacentHTML('afterbegin', `<div class="errs" role="alert"><b>We couldn't place that order.</b>${esc(j.error || 'Please try again.')}</div>`); return; }
-  showDone(j);
+  const fail = (msg, title) => { S.submitting = false; renderSummary(); $('#sumBody').insertAdjacentHTML('afterbegin', `<div class="errs" role="alert"><b>${title}</b>${esc(msg || 'Please try again.')}</div>`); };
+  const created = await api('/api/palomas/orders', payload(special ? 'now' : mode));
+  if (!created.ok) return fail(created.j.error, "We couldn't place that order.");
+  const j = created.j;
+  if (special) { S.submitting = false; return showDone(j); }
+  if (mode === 'link') { S.submitting = false; return showDone(j, 'link'); }
+  if (j.order && j.order.status === 'confirmed') { S.submitting = false; return showDone(j, 'paid'); }
+  const paid = await api(`/api/orders/${encodeURIComponent(j.id)}/pay`, wallet ? { method: wallet } : { method: 'card', card });
+  if (!paid.ok) { S.submitting = false; S.payError = paid.j.error || 'Please check the card and try again.'; renderSummary(); return; }
+  if (paid.j.redirect) { location.href = paid.j.redirect; return; }
+  S.submitting = false; showDone({ id: j.id, quote: j.quote, order: paid.j.order }, 'paid');
 }
 function markBad(errs) { document.querySelectorAll('.bad').forEach((e) => e.classList.remove('bad')); errs.forEach((e) => { const el = $(e.sel); if (el && /^(INPUT|SELECT|TEXTAREA)$/.test(el.tagName)) el.classList.add('bad'); }); }
-function showDone(j) {
+function showDone(j, how) {
   const o = j.order || {}; const q = j.quote || {}; const d = delivery();
   const shipping = o.status === 'pending_approval';
   const day = (s) => (s ? new Date(s + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' }) : '');
   $('#main').innerHTML = `<div class="done"><div class="ck">✓</div>
-    <h2>${shipping ? 'Shipping quote requested' : 'Order placed'}</h2>
-    <p class="sub">Order <b>${esc(o.id || j.id)}</b>${shipping ? ' · Samantha will price it and email a quote.' : ' · we have it from here.'}</p>
+    <h2>${shipping ? 'Shipping quote requested' : how === 'link' ? 'Payment link sent' : 'Delivery locked in'}</h2>
+    <p class="sub">Order <b>${esc(o.id || j.id)}</b>${shipping ? ' · Samantha will price it and email a quote.' : how === 'link' ? ` · we emailed ${esc(d.email)} a payment link. <b>Awaiting payment — not scheduled until paid.</b> We'll send a reminder each day until it's paid.` : ' · paid, and we have it from here.'}</p>
     <div class="box">
       <p><b>Placed by</b> ${esc(S.placedBy === 'Other' ? S.placedOther : S.placedBy)}</p>
       <p><b>Pickup</b> ${esc(S.pickup === 'salinas' ? 'Salinas warehouse, 329 Rianda St' : 'Carmel-by-the-Sea showroom, Ocean Ave at Mission St')}${S.pickupDate && !shipping ? ' · ' + esc(day(S.pickupDate)) : ''}</p>
       <p><b>Deliver to</b> ${esc(d.name)} · ${esc(d.street)}${d.unit ? ', ' + esc(d.unit) : ''}, ${esc(d.city)} ${esc(d.state)} ${esc(d.zip)}${S.deliveryDate && !shipping ? ' · ' + esc(day(S.deliveryDate)) : ''}</p>
       <p><b>Items</b> ${S.items.map((i) => `${i.qty} × ${esc(i.name)}`).join('; ')}</p>
-      ${shipping ? '' : `<p><b>Total</b> ${usd(q.total)}${S.priceSensitive ? ' (price sensitive client)' : ''}</p>`}
+      ${shipping ? '' : `<p><b>Total</b> ${usd(q.total)}${S.courtesy ? " (Manager's courtesy)" : ''}</p>`}
+      ${shipping || how === 'link' ? '' : `<p><b>Paid today</b> ${usd(q.dueNow || q.total)}${o.quote && o.quote.balanceDue ? ' · balance ' + usd(o.quote.balanceDue) + ' due ' + esc(o.quote.balanceWhen || '') : ''} · by ${S.payer === 'palomas' ? "Paloma's Home Furnishings" : esc(d.name)}</p>`}
     </div>
     <button class="btn primary" id="again" type="button">Place another order</button></div>`;
   $('#bar').hidden = true; window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -243,9 +307,9 @@ function bind() {
   kind.addEventListener('change', fillSize); fillSize();
   $('#cAdd').addEventListener('click', () => {
     const n = $('#cName').value.trim(), v = num($('#cValue').value);
-    $('#cName').classList.toggle('bad', !n); $('#cValue').classList.toggle('bad', !(v > 0));
-    if (!n || !(v > 0)) return;
-    S.items.push({ uid: uid++, name: n, kind: kind.value, size: $('#cSize').value, value: String(v), qty: 1, catalogId: 'custom-' + uid, custom: true, thumb: '', dims: '', w: '', h: '' });
+    $('#cName').classList.toggle('bad', !n);
+    if (!n) return;
+    S.items.push({ uid: uid++, name: n, kind: kind.value, size: $('#cSize').value, value: v > 0 ? String(v) : '', qty: 1, catalogId: 'custom-' + uid, custom: true, thumb: '', dims: '', w: '', h: '' });
     $('#cName').value = ''; $('#cValue').value = ''; itemsChanged(true);
   });
   // item rows
@@ -259,12 +323,18 @@ function bind() {
     const it = rowOf(e.target); const f = e.target.dataset.f; if (!it || !f) return;
     if (f === 'qty') { it.qty = Math.max(1, Math.min(99, parseInt(e.target.value, 10) || 1)); }
     else if (f === 'value') { it.value = e.target.value.replace(/[^0-9.,]/g, ''); e.target.value = it.value; e.target.classList.remove('bad'); }
-    else it[f] = e.target.value;
+    else if (f === 'oversized') {
+      it.oversized = e.target.checked;
+      const order = sizesFor(it.kind).map(([k]) => k);
+      if (it.oversized && order.indexOf(it.size) < order.indexOf('large')) it.size = 'large';
+      itemsChanged(true); return;
+    } else it[f] = e.target.value;
     scheduleQuote(); if (f === 'qty') scheduleAvail(); renderCatalog();
   });
   // delivery fields
-  ['dName', 'dPhone', 'dEmail', 'dStreet', 'dUnit', 'dCity', 'dState', 'dZip', 'dNotes', 'aFlightsN', 'aFloor'].forEach((id) => $('#' + id).addEventListener('input', (e) => {
+  ['dName', 'dPhone', 'dEmail', 'dStreet', 'dUnit', 'dCity', 'dState', 'dZip', 'dNotes', 'aFlightsN', 'aFloor', 'aHours', 'aTight'].forEach((id) => $('#' + id).addEventListener('input', (e) => {
     e.target.classList.remove('bad');
+    if (id === 'dName' || id === 'dEmail') { const pl = $('#payerLine'); if (pl) pl.innerHTML = payerLineHtml(); }
     if (id === 'dZip' || id === 'dState') { scheduleQuote(); scheduleAvail(); renderDatesVisibility(); }
   }));
   const am = $('#aMode');
@@ -273,18 +343,47 @@ function bind() {
   const syncAccess = () => {
     const m = am.value; const fl = $('#aFlights').value;
     $('#aFlightsWrap').hidden = m !== 'stairs'; $('#aFlightsNWrap').hidden = !(m === 'stairs' && fl === '4plus'); $('#aFloorWrap').hidden = m !== 'elevator';
+    $('#aElevTypeWrap').hidden = m !== 'elevator'; $('#aElevResWrap').hidden = m !== 'elevator'; $('#aMoreWrap').hidden = !m;
     $('#accessHint').hidden = !['stairs', 'not_sure'].includes(m);
     scheduleQuote();
   };
   am.addEventListener('change', () => { am.classList.remove('bad'); syncAccess(); });
   $('#aFlights').addEventListener('change', (e) => { e.target.classList.remove('bad'); syncAccess(); });
   $('#aFlightsN').addEventListener('input', scheduleQuote);
+  $('#aElevType').addEventListener('change', (e) => e.target.classList.remove('bad'));
   // dates
-  $('#puDays').addEventListener('click', (e) => { const b = e.target.closest('[data-pu]'); if (!b) return; S.pickupDate = b.dataset.pu; S.deliveryDate = ''; renderDays(); refreshDelivery(); });
+  $('#puDays').addEventListener('click', (e) => { const b = e.target.closest('[data-pu]'); if (!b) return; S.pickupDate = b.dataset.pu; S.deliveryDate = ''; S.deFrom = ''; S.deMore = false; renderDays(); refreshDelivery(); });
   $('#deDays').addEventListener('click', (e) => { const b = e.target.closest('[data-de]'); if (!b) return; S.deliveryDate = b.dataset.de; renderDays(); });
+  // date list controls: more dates / later date / back
+  ['pu', 'de'].forEach((k) => {
+    const ctl = $('#' + k + 'Ctl');
+    ctl.addEventListener('click', (e) => {
+      if (e.target.closest('[data-more]')) { S[k + 'More'] = true; renderDays(); }
+      else if (e.target.closest('[data-back]')) { S[k + 'From'] = ''; S[k + 'More'] = false; if (k === 'pu') { S.pickupDate = ''; refreshDates(); } else { S.deliveryDate = ''; refreshDelivery(); } }
+    });
+    ctl.addEventListener('change', (e) => {
+      if (!e.target.matches('[data-later]') || !e.target.value) return;
+      S[k + 'From'] = e.target.value; S[k + 'More'] = false;
+      if (k === 'pu') { S.pickupDate = ''; S.deliveryDate = ''; S.deFrom = ''; refreshDates(); } else { S.deliveryDate = ''; refreshDelivery(); }
+    });
+  });
   // summary
-  $('#sumBody').addEventListener('change', (e) => { if (e.target.id === 'sens') { S.priceSensitive = e.target.checked; runQuote(); } });
-  $('#sumBody').addEventListener('click', (e) => { if (e.target.id === 'place') place(); });
+  $('#sumBody').addEventListener('change', (e) => { if (e.target.id === 'mc') { S.courtesy = e.target.checked; runQuote(); } });
+  $('#sumBody').addEventListener('toggle', (e) => { if (e.target.id === 'staff') S.staffOpen = e.target.open; }, true);
+  $('#sumBody').addEventListener('click', (e) => {
+    if (S.submitting) return;
+    if (e.target.id === 'place') place();
+    else if (e.target.id === 'sendLink') place('link');
+    else if (e.target.closest('[data-wallet]')) place('now', e.target.closest('[data-wallet]').dataset.wallet);
+  });
+  $('#sumBody').addEventListener('change', (e) => {
+    if (e.target.name === 'payer') { S.payer = e.target.value; S.payError = ''; renderSummary(); }
+  });
+  $('#sumBody').addEventListener('input', (e) => {
+    if (e.target.id === 'cardNum') { S.card = e.target.value.replace(/[^\d ]/g, ''); e.target.value = S.card; }
+    else if (e.target.id === 'cardExp') S.exp = e.target.value;
+    else if (e.target.id === 'cardCvc') S.cvc = e.target.value;
+  });
   $('#barBtn').addEventListener('click', (e) => { e.preventDefault(); $('#summary').scrollIntoView({ behavior: 'smooth', block: 'start' }); });
   $('#form').addEventListener('submit', (e) => e.preventDefault());
   $('#form').addEventListener('keydown', (e) => { if (e.key === 'Enter' && e.target.tagName === 'INPUT') e.preventDefault(); });
@@ -292,6 +391,7 @@ function bind() {
 
 (async function init() {
   const r = await fetch('/api/palomas/config'); CFG = await r.json();
+  if (CFG.pay.testMode) { S.card = '4242 4242 4242 4242'; S.exp = '12 / 34'; S.cvc = '123'; }
   bind(); renderCats(); renderCatalog(); renderItems(); renderSummary();
 })();
 })();
