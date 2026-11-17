@@ -6,6 +6,14 @@ const OUT = require('path').join(__dirname, '..', 'screenshots');
 require('fs').mkdirSync(OUT, { recursive: true });
 let pass = 0, fail = 0;
 const ok = (c, m) => { if (c) { pass++; console.log('  ✓', m); } else { fail++; console.log('  ✗ FAIL:', m); } };
+// The server allows 10 code attempts a minute per IP (behind Render's proxy that is shared), so pace the code entries instead of tripping the limit.
+const pinTimes = [];
+const pressPin = async (pg) => {
+  const now = () => Date.now();
+  while (pinTimes.filter((t) => now() - t < 61000).length >= 7) await new Promise((r) => setTimeout(r, 2000));
+  pinTimes.push(now());
+  await pg.press('#pinInput', 'Enter');
+};
 const txt = async (page, sel) => ((await page.locator(sel).first().innerText().catch(() => '')) || '').replace(/\s+/g, ' ');
 (async () => {
   const browser = await chromium.launch({ executablePath: process.env.CHROME || undefined, args: ['--no-sandbox'] });
@@ -175,10 +183,10 @@ const txt = async (page, sel) => ((await page.locator(sel).first().innerText().c
     ok((await page.locator('#morePanel').count()) === 0 && await page.locator('#more').getAttribute('aria-expanded') === 'false' && !/courtesy|discount|paloma's pay|manager/i.test(await page.locator('#pinForm').evaluate((e) => e.outerHTML.replace(/Palomas/g, ''))) , 'the prompt is neutral (no mention of courtesy, discount or Paloma\'s Pay) and nothing is revealed yet');
     await page.locator('#summary .sticky').scrollIntoViewIfNeeded(); await page.waitForTimeout(200);
     await page.locator('#summary .sticky').screenshot({ path: `${OUT}/palomas-${name}-pin-locked.png` });
-    await page.fill('#pinInput', 'nope'); await page.press('#pinInput', 'Enter');
+    await page.fill('#pinInput', 'nope'); await pressPin(page);
     await page.waitForFunction(() => document.querySelector('#pinInput') && document.querySelector('#pinInput').classList.contains('bad'));
     ok((await page.locator('#morePanel').count()) === 0 && (await page.locator('#mc').count()) === 0, 'a wrong code reveals nothing');
-    await page.fill('#pinInput', 'palomas'); await page.press('#pinInput', 'Enter');
+    await page.fill('#pinInput', 'palomas'); await pressPin(page);
     await page.waitForSelector('#morePanel');
     ok(await page.locator('#more').getAttribute('aria-expanded') === 'true' && await page.locator('#morePanel').isVisible() && (await page.locator('#pinInput').count()) === 0, 'the right code (any capitalization) expands the options and the prompt goes away');
     ok(!/Your call|no approval needed/i.test(await page.content()), 'the "Your call, no approval needed" text is gone everywhere');
@@ -263,7 +271,7 @@ const txt = async (page, sel) => ((await page.locator(sel).first().innerText().c
       await page.waitForSelector('#datesBox:not([hidden])');
       await page.waitForFunction(() => /Due today/.test(document.querySelector('#sumBody').innerText));
     };
-    const unlock = async (chev) => { await page.locator(chev).click(); await page.fill('#pinInput', 'Palomas'); await page.press('#pinInput', 'Enter'); await page.waitForFunction((c) => document.querySelector(c).getAttribute('aria-expanded') === 'true', chev); };
+    const unlock = async (chev) => { await page.locator(chev).click(); await page.fill('#pinInput', 'Palomas'); await pressPin(page); await page.waitForFunction((c) => document.querySelector(c).getAttribute('aria-expanded') === 'true', chev); };
     // path 2: Paloma's Pay (needs the staff code)
     await quick();
     await unlock('#payMore');
@@ -307,7 +315,7 @@ const txt = async (page, sel) => ((await page.locator(sel).first().innerText().c
     ok(await page.locator('#pinInput').isVisible() && (await page.locator('input[name=payer][value=palomas]').count()) === 0, "fresh page: tapping the payment chevron asks for the code and shows nothing else");
     await page.locator('#summary .sticky').scrollIntoViewIfNeeded(); await page.waitForTimeout(200);
     await page.locator('#summary .sticky').screenshot({ path: `${OUT}/palomas-${name}-pay-pin-locked.png` });
-    await page.fill('#pinInput', 'Palomas'); await page.press('#pinInput', 'Enter');
+    await page.fill('#pinInput', 'Palomas'); await pressPin(page);
     await page.waitForSelector('input[name=payer][value=palomas]', { state: 'attached' });
     ok(await page.locator('input[name=payer][value=client]').isChecked(), "after unlocking, Paloma's Pay is offered but \"Client pays now\" stays selected");
     ok(errors.length === 0, 'no console errors' + (errors.length ? ': ' + errors.join(' | ') : ''));
