@@ -89,10 +89,25 @@ const it = (kind, size, value, qty = 1, name = kind) => ({ name, kind, size, val
   const C = (name) => PAL.catalog.find((x) => x.name === name);
   const sofa = C('Arco Captiva Sofa'), lamp = PAL.catalog.find((x) => x.kind === 'Table Lamp'), sect = PAL.catalog.find((x) => /Sectional/.test(x.kind));
   const ci = (c, qty = 1) => ({ name: c.name, kind: c.kind, catalogId: c.id, qty });
-  ok(PAL.engineItems([ci(sofa)])[0].sizeClass === 'large' && PAL.engineItems([ci(sect)])[0].sizeClass === 'large', 'sofas and sectionals are the large tier, straight from the catalog');
-  ok(PAL.catalog.filter((x) => ['Sofa', 'Loveseat'].includes(x.kind)).every((x) => x.size === 'large'), 'every catalog sofa and loveseat is large');
-  ok(PAL.engineItems([{ name: 'Custom sofa', kind: 'Sofa', qty: 1, custom: true }])[0].sizeClass === 'large' && PAL.engineItems([{ name: 'Custom armoire', kind: 'Armoire', qty: 1, custom: true }])[0].sizeClass === 'large', 'custom sofas and armoires default to large with no size asked');
-  ok(PAL.engineItems([{ ...ci(sofa), size: 'small', oversized: true, value: 99999 }])[0].sizeClass === 'large', 'a client-sent size, oversized flag or value cannot lower or change the catalog tier');
+  const TJ = require('../lib/palomas-tiers.json').items, byName = (n) => PAL.catalog.find((x) => x.name === n);
+  const tierOf = (n) => PAL.resolveItem({ catalogId: String(byName(n).id || byName(n).name), kind: byName(n).kind }).size;
+  ok(TJ.length === PAL.catalog.length && PAL.catalog.every((c) => TJ.some((e) => e.id === String(c.id || c.name))), 'the audit file lib/palomas-tiers.json covers every one of the 182 catalog pieces');
+  ok(TJ.every((e) => e.reason && e.reason.length > 10 && e.dims && e.basis && 'weight' in e), 'every piece has a one-line reason, its dimensions (or "not listed"), a weight note and the basis for the call');
+  ok(PAL.catalog.every((c) => PAL.resolveItem({ catalogId: String(c.id || c.name), kind: c.kind }).size === c.size && PAL.sizesFor(c.kind).includes(c.size)), 'every catalog piece resolves to a valid tier for its type, and it matches the catalog file');
+  ok(['Arco Captiva Sofa', 'Beraldi Captiva II Sofa', 'Beraldi Regatta Blue Leather Sofa', 'Arco Captiva II Loveseat', 'Arco Captiva Love Seat'].every((n) => tierOf(n) === 'medium'), 'standard-size sofas and loveseats are medium/average');
+  ok(tierOf('Yezi Captiva Sectional') === 'large', 'the big 3-piece sectional is large/heavy');
+  ok(tierOf('Alma Copper Executive Desk') === 'large', 'the Alma Copper Executive Desk is large/heavy');
+  ok(tierOf('Arco Captiva Chair') === 'large' && tierOf('Vita Gris Swivel Chair') === 'medium' && tierOf('Cubo Captiva Ottoman') === 'small', 'chairs by size: the oversized 48" club chair is large, a normal swivel chair medium, the 16" cube ottoman small');
+  ok(['Austin Copper Coffee Table', 'Bixby Copper Coffee Table', 'Carmel 6-Drawer Coffee Table', 'Molera Oval Copper Coffee Table'].every((n) => tierOf(n) === 'large') && tierOf('Carmel 1-Drawer Coffee Table') === 'small', 'the heavy copper coffee tables are large; the small 40" one is small');
+  const fam = (re) => new Set(PAL.catalog.filter((c) => re.test(c.name)).map((c) => tierOf(c.name))).size === 1;
+  ok(fam(/^Egipcia .* Table Lamp$/) && fam(/^Lamp De Earl /) && fam(/^Camelot (Amber|Azul|Garnet|Natural) Crush$/) && fam(/^Camelot .* Crush Pendant$/) && fam(/^Sura (Amber|Azul|Garnet|Natural) Chandelier$/) && fam(/^Sura Grande /), 'color variants of the same model always share a tier');
+  const perType = {}; for (const c of PAL.catalog) { const t = (perType[c.kind] = perType[c.kind] || {}); const z = tierOf(c.name); t[z] = (t[z] || 0) + 1; }
+  console.log('   tiers by type:', JSON.stringify(perType));
+  const cT = PAL.resolveItem({ name: 'Custom teak root coffee table', kind: 'Coffee Table', custom: true });
+  ok(PAL.engineItems([{ name: 'Custom sofa', kind: 'Sofa', qty: 1, custom: true }])[0].sizeClass === 'medium' && cT.size === 'large' && PAL.engineItems([{ name: 'Custom armoire', kind: 'Armoire', qty: 1, custom: true }])[0].sizeClass === 'large', 'custom items: a sofa defaults to medium; coffee tables (teak root with glass etc.) and armoires default to large');
+  ok(PAL.engineItems([{ ...ci(sofa), size: 'large', oversized: true, value: 99999 }])[0].sizeClass === 'medium' && PAL.engineItems([{ ...ci(byName('Alma Copper Executive Desk')), size: 'small' }])[0].sizeClass === 'large', 'a client-sent size, oversized flag or value cannot change the tier decided for a catalog piece');
+  const alma = PAL.partnerQuote(base([ci(byName('Alma Copper Executive Desk'))]));
+  ok(alma.standard === 430 && alma.partner === 322.5 && /\(large\)/.test(alma.lines[0].label), `Alma Copper Executive Desk is priced at the Desk large/heavy rate: $430 standard, $322.50 partnership (medium would be $281.25), got $${alma.standard} / $${alma.partner}`);
   ok(PAL.engineItems([{ name: 'Wall mirror', kind: 'Mirror', qty: 1, custom: true }])[0].sizeClass === 'medium', 'other custom pieces default to medium');
   ok(PAL.engineItems([ci(lamp)]).every((x) => x.value === 0) && PAL.engineItems([ci(sofa)])[0].value === 0, 'no declared value reaches the engine (always 0)');
   ok(PAL.validate(base([{ name: 'Sofa', kind: 'Sofa', qty: 1 }], { schedule: { date: '2026-12-01', deliveryDate: '2026-12-02' } })).length === 0, 'an item with no size and no value validates');
@@ -102,13 +117,15 @@ const it = (kind, size, value, qty = 1, name = kind) => ({ name, kind, size, val
   const g = plain({ mode: 'ground' }), st2 = plain({ mode: 'stairs', flights: '2' }), sth = plain({ mode: 'stairs', flights: 'half' }), el = plain({ mode: 'elevator', floor: '3', elevatorType: 'freight', elevSteps: 'no' });
   const stairLine = (qq) => qq.lines.find((l) => /^Stairs/.test(l.label));
   ok(!stairLine(g) && !stairLine(el), 'no stairs fee on ground-level or elevator access');
-  ok(stairLine(st2) && stairLine(st2).amount === 200 && stairLine(st2).qty === 2, `2 flights x 2 large sofas = 4 x $50 = $200 (main site rule: per flight, per piece; line "${stairLine(st2) && stairLine(st2).label}")`);
-  ok(stairLine(sth) && stairLine(sth).amount === 50, 'half a flight counts as 0.5 flight');
-  ok(near(st2.partner - g.partner, 200) && near(st2.partner, r2(st2.lines.reduce((x, l) => x + l.amount, 0))), 'the stairs fee adds to the delivery subtotal at full price (not partnership-discounted), and the lines still add up');
+  ok(stairLine(st2) && stairLine(st2).amount === 400 && stairLine(st2).qty === 2, `2 flights x 2 sofas (85" each, over 80" = $100) = 4 x $100 = $400 (main site rule: per flight, per piece, by largest dimension; line "${stairLine(st2) && stairLine(st2).label}")`);
+  ok(stairLine(sth) && stairLine(sth).amount === 100, 'half a flight counts as 0.5 flight (0.5 x 2 sofas x $100)');
+  ok(near(st2.partner - g.partner, 400) && near(st2.partner, r2(st2.lines.reduce((x, l) => x + l.amount, 0))), 'the stairs fee adds to the delivery subtotal at full price (not partnership-discounted), and the lines still add up');
   ok(!st2.lines.some((l) => /^Stairs/.test(l.label) && l.standard !== l.amount), 'stairs line: standard = partnership price (no 25% off on access fees)');
   ok(near(r2(st2.lines.reduce((x, l) => x + l.after, 0)), st2.total), 'all-in per-line prices (incl. stairs) add up to the total to the cent');
   const lampOnly = PAL.partnerQuote(base([ci(lamp)], { access: { mode: 'stairs', flights: '3' } }));
-  ok(!stairLine(lampOnly), 'stairs fee applies to large pieces only (a medium lamp pays none)');
+  ok(!stairLine(lampOnly), 'stairs fee follows the piece size: a 28" lamp pays none');
+  const deskSt = PAL.partnerQuote(base([ci(byName('Alma Copper Executive Desk'))], { access: { mode: 'stairs', flights: '1' } }));
+  ok(stairLine(deskSt) && stairLine(deskSt).amount === 50, 'a 72" piece (the Alma desk) is $50 per flight');
   const longPiece = PAL.catalog.find((x) => PAL.resolveItem({ catalogId: x.id, kind: x.kind }).dim > 80);
   if (longPiece) { const lq = PAL.partnerQuote(base([ci(longPiece)], { access: { mode: 'stairs', flights: '1' } })); ok(stairLine(lq) && stairLine(lq).amount === 100, `a piece over 80" (${longPiece.name}, ${longPiece.dims}) is $100 per flight`); }
   const pubq = await post('/api/palomas/quote', base([ci(sofa, 2), ci(lamp)], { access: { mode: 'stairs', flights: '2' } }));
@@ -329,7 +346,7 @@ const it = (kind, size, value, qty = 1, name = kind) => ({ name, kind, size, val
   ok(c2bad.s === 200 && !c2bad.j.order.contact2, 'the second client is optional');
 
   const stAv = await post('/api/palomas/orders', { ...gated({}, 'stairs'), items: [{ name: sofa.name, kind: sofa.kind, catalogId: sofa.id, qty: 1 }], access: { mode: 'stairs', flights: '3' } });
-  ok(stAv.s === 200 && stAv.j.order.quote.lines.some((l) => /^Stairs/.test(l.label) && l.amount === 150), 'a stairs order carries the stairs fee line up front (1 large sofa x 3 flights x $50 = $150)');
+  ok(stAv.s === 200 && stAv.j.order.quote.lines.some((l) => /^Stairs/.test(l.label) && l.amount === 300), 'a stairs order carries the stairs fee line up front (1 sofa, 85", x 3 flights x $100 = $300)');
   ok(stAv.j.order.accessReview === false, 'stairs no longer sends the order to access review (it is priced up front)');
   ok(near(stAv.j.order.quote.dueNow, stAv.j.order.quote.total), 'the stairs fee is part of what is due today');
 

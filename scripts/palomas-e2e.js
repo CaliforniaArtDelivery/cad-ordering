@@ -149,7 +149,7 @@ const txt = async (page, sel) => ((await page.locator(sel).first().innerText().c
     await page.waitForTimeout(600); await page.waitForSelector('.li .li-all');
     const sumNow = await txt(page, '#sumBody');
     const stairsTxt = await txt(page, '#sumBody');
-    ok(/Stairs — Arco Captiva Sofa, delivery \(1 flight × \$50\)/.test(stairsTxt) && !/Piece \d/.test(stairsTxt), 'stairs fee line appears automatically in the summary for the large piece, named after the item (1 flight × $50)');
+    ok(/Stairs — Arco Captiva Sofa, delivery \(1 flight × \$100\)/.test(stairsTxt) && !/Piece \d/.test(stairsTxt), 'stairs fee line appears automatically in the summary for the large piece, named after the item (1 flight × $100)');
     ok((await page.locator('.li').count()) === 5 && (await page.locator('.li .li-p s').count()) === 4, 'each line item shows its standard price struck through next to its partnership price');
     ok((await page.locator('.li .li-all').count()) === 5 && /After all discounts/.test(sumNow), 'with the 10% applying, each item also shows its price after all discounts');
     const money = (t) => Number(String(t).replace(/[^0-9.]/g, ''));
