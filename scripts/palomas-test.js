@@ -297,6 +297,7 @@ const it = (kind, size, value, qty = 1, name = kind) => ({ name, kind, size, val
   const hay = files.join('\n') + cfg + (fs.existsSync('/tmp/paltest/last-email.html') ? fs.readFileSync('/tmp/paltest/last-email.html', 'utf8') : '');
   ok(!/\bcrat(e|ing|ed)\b|\bmov(e|ing|ers?)\b|\bhoist(ing|ed)?\b/i.test(hay.replace(/(user-)?select|remove/gi, '')) && !/\bCOI\b/.test(hay), 'none of the banned words appear in the page, catalog or email');
   ok(!/price[ -]sensitive/i.test(hay), 'the words "price sensitive" appear nowhere in the page, catalog or email');
+  ok(!/Your call|no approval needed|Staff options/i.test(files.join('\n')), 'no "Your call, no approval needed" or "Staff options" text anywhere in the Paloma\'s page');
   ok(!/declared value protection/i.test(files.join('\n')), 'no declared value protection wording on the Paloma\'s page');
   console.log(`\n${pass} passed, ${fail} failed`);
   process.exit(fail ? 1 : 0);

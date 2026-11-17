@@ -173,9 +173,9 @@ function renderSummary() {
     html += `<div class="sum-note">${q.volumeEligible ? '✓ ' : ''}Delivery orders of $${q.rules.volumeThreshold.toLocaleString('en-US')} or more (after partnership pricing) get an additional ${q.rules.volumePct}% off the whole delivery price.</div>`;
     if (q.courtesy) html += `<div class="sl disc"><span>Manager's courtesy</span><span class="a">−${usd(q.courtesyOff)}</span></div>`;
     html += `<div class="sl big rule"><span>Total</span><span class="a">${q.standard !== q.total ? `<s>${usd(q.standard)}</s>` : ''}${usd(q.total)}</span></div>`;
-    html += `<details class="staff" id="staff" ${S.staffOpen ? 'open' : ''}><summary>Staff options</summary>
-      <label class="mc"><input type="checkbox" id="mc" ${S.courtesy ? 'checked' : ''}><span>Manager's courtesy (−${q.rules.courtesyPct}%)</span></label>
-      <p class="mini">Your call, no approval needed.</p></details>`;
+    // Discreet control: a small unlabeled chevron (aria-label "More"); the checkbox only exists in the page while it is expanded.
+    html += `<div class="more"><button type="button" class="chev ${S.staffOpen ? 'open' : ''}" id="more" aria-label="More" aria-expanded="${S.staffOpen ? 'true' : 'false'}" aria-controls="morePanel"><svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false"><path d="M3.5 6l4.5 4.5L12.5 6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button></div>`;
+    if (S.staffOpen) html += `<div id="morePanel" class="morepanel"><label class="mc"><input type="checkbox" id="mc" ${S.courtesy ? 'checked' : ''}><span>Manager's courtesy (−${q.rules.courtesyPct}%)</span></label></div>`;
     if (q.notes && q.notes.length) html += q.notes.filter((n) => !/access/i.test(n)).map((n) => `<p class="mini">${esc(n)}</p>`).join('');
     barTotal.textContent = usd(q.total);
   }
@@ -376,9 +376,9 @@ function bind() {
   });
   // summary
   $('#sumBody').addEventListener('change', (e) => { if (e.target.id === 'mc') { S.courtesy = e.target.checked; runQuote(); } });
-  $('#sumBody').addEventListener('toggle', (e) => { if (e.target.id === 'staff') S.staffOpen = e.target.open; }, true);
   $('#sumBody').addEventListener('click', (e) => {
     if (S.submitting) return;
+    if (e.target.closest('#more')) { S.staffOpen = !S.staffOpen; renderSummary(); const m = $('#more'); if (m) m.focus({ preventScroll: true }); return; }
     if (e.target.id === 'place') place();
     else if (e.target.id === 'sendLink') place('link');
     else if (e.target.closest('[data-wallet]')) place('now', e.target.closest('[data-wallet]').dataset.wallet);

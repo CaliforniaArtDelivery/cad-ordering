@@ -17,7 +17,21 @@ const txt = async (page, sel) => ((await page.locator(sel).first().innerText().c
     await page.goto(BASE + '/palomas');
     await page.waitForSelector('.pcard');
     ok(await page.locator('.logo-p').isVisible() && await page.locator('.logo-c').isVisible(), 'both logos show in the header');
-    ok(/in collaboration with/.test(await txt(page, '.collab')), 'header says "Paloma\'s Home Furnishings in collaboration with California Art Delivery"');
+    ok(/^in collaboration with$/.test(await txt(page, '.collab')) && /^Paloma's Home Furnishings$/.test(await txt(page, '.lk:nth-child(1) figcaption')) && /^California Art Delivery$/.test(await txt(page, '.lk:nth-child(3) figcaption')), 'header lockup: Paloma\'s caption, "in collaboration with", California Art Delivery caption');
+    ok(await page.locator('.collab em').evaluate((e) => getComputedStyle(e).fontStyle) === 'italic', '"in collaboration with" is italic');
+    { // 3 even columns, each caption centered directly under its mark, captions aligned on one line
+      const g = await page.evaluate(() => { const r = (e) => { const b = e.getBoundingClientRect(); return { cx: b.x + b.width / 2, top: b.y, bottom: b.y + b.height, h: b.height, w: b.width }; };
+        const cols = [...document.querySelectorAll('.lockup > .lk')];
+        const marks = [document.querySelector('.logo-p'), document.querySelector('.x'), document.querySelector('.logo-c')].map(r);
+        const caps = [cols[0].querySelector('figcaption'), cols[1].querySelector('.collab'), cols[2].querySelector('figcaption')].map(r);
+        return { marks, caps, cols: cols.map(r), sw: document.documentElement.scrollWidth, iw: innerWidth }; });
+      ok(g.marks.every((m, i) => Math.abs(m.cx - g.caps[i].cx) <= 2), `each caption is centered directly under its mark (offsets ${g.marks.map((m, i) => Math.abs(m.cx - g.caps[i].cx).toFixed(1)).join(', ')} px)`);
+      ok(Math.abs(g.caps[0].top - g.caps[1].top) <= 1 && Math.abs(g.caps[1].top - g.caps[2].top) <= 1, 'the three captions sit on the same line');
+      ok(Math.abs((g.marks[1].cx - g.marks[0].cx) - (g.marks[2].cx - g.marks[1].cx)) <= 3, 'columns are evenly spaced (symmetric)');
+      ok(g.caps[0].h < 60 && g.caps[2].h < 60 && g.sw <= g.iw, 'captions do not wrap awkwardly (two lines at most) and nothing overflows sideways');
+      await page.locator('.hero').screenshot({ path: `${OUT}/palomas-${name}-header.png` });
+    }
+    ok(/Place a delivery order/.test(await txt(page, 'h1')) && /Partnership pricing is applied automatically/.test(await txt(page, '.lede')), '"Place a delivery order" and the partnership pricing line stay below the lockup');
     // pickup: Salinas first + default, exactly one
     const radios = await page.locator('input[name=pickup]').evaluateAll((els) => els.map((e) => ({ v: e.value, c: e.checked })));
     ok(radios[0].v === 'salinas' && radios[0].c && !radios[1].c, 'Salinas warehouse is first and selected by default');
@@ -109,13 +123,20 @@ const txt = async (page, sel) => ((await page.locator(sel).first().innerText().c
     ok(/declared value \(for our records\)/i.test(await txt(page, '.irow')) && /Optional/.test(await page.locator('.irow [data-f=value]').first().getAttribute('placeholder')), 'declared value is optional and labeled "(for our records)"');
     ok(!/cost less than|that's intended|that’s intended/i.test(sumNow) && /Delivery orders of \$1,000 or more \(after partnership pricing\) get an additional 10% off the whole delivery price\./.test(sumNow), 'the $1,000 note is precise ("after partnership pricing") and has no "that\'s intended" sentence');
     // staff options: collapsed, low key, courtesy checkbox
-    ok(!(await page.locator('details.staff').evaluate((d) => d.open)) && !(await page.locator('details.staff p').first().isVisible()), 'Staff options is collapsed and the "Your call" hint is hidden');
+    ok(await page.locator('#more').getAttribute('aria-label') === 'More' && await page.locator('#more').getAttribute('aria-expanded') === 'false' && (await page.locator('#more').innerText()).trim() === '', 'a small unlabeled chevron: aria-label "More", no visible text, collapsed by default');
+    ok((await page.locator('#morePanel').count()) === 0 && (await page.locator('#mc').count()) === 0, 'collapsed: the checkbox is not on the page at all');
+    ok(!/courtesy|staff options|your call|discount/i.test(await page.locator('#more').evaluate((e) => e.outerHTML)), 'nothing in or around the arrow hints at a discount');
     ok(!/price sensitive/i.test(await page.evaluate(() => document.body.innerText + document.documentElement.innerHTML)), 'the words "price sensitive" appear nowhere in the client-facing page');
-    ok(!/courtesy/i.test(await page.locator('#sumBody').innerText()), 'nothing about the courtesy is visible in the summary while it is unchecked and Staff options is collapsed');
+    ok(!/courtesy/i.test(await page.locator('#sumBody').innerText()) && !/courtesy/i.test(await page.locator('#sumBody').innerHTML()), 'nothing about the courtesy is in the summary (text or markup) while it is unchecked and collapsed');
+    await page.locator('#summary .sticky').scrollIntoViewIfNeeded(); await page.waitForTimeout(300);
+    await page.locator('#summary .sticky').screenshot({ path: `${OUT}/palomas-${name}-checkout-collapsed.png` });
     ok(/Covers the delivery as quoted/.test(sumNow) && !/Paid in full at booking/i.test(sumNow) && /extra fee \(for example, unexpected stairs\)/.test(await txt(page, '#feeNote')) && /reschedule or adjust/.test(await txt(page, '#feeNote')), 'copy under Due today: price covers the delivery as quoted; extra access fee needs approval first; decline → reschedule or adjust');
     const before = await txt(page, '.sl.big');
-    await page.locator('details.staff summary').click();
-    ok(/Your call, no approval needed/.test(await txt(page, 'details.staff')), 'expanding Staff options shows "Your call, no approval needed."');
+    await page.locator('#more').click();
+    ok(await page.locator('#more').getAttribute('aria-expanded') === 'true' && await page.locator('#morePanel').isVisible(), 'tapping the arrow expands it');
+    ok(!/Your call|no approval needed/i.test(await page.content()), 'the "Your call, no approval needed" text is gone everywhere');
+    await page.locator('#summary .sticky').scrollIntoViewIfNeeded(); await page.waitForTimeout(300);
+    await page.locator('#summary .sticky').screenshot({ path: `${OUT}/palomas-${name}-checkout-expanded.png` });
     ok(/Manager's courtesy \(−15%\)/.test(await txt(page, '.mc')), 'the checkbox is labeled "Manager\'s courtesy (−15%)"');
     await page.locator('#mc').check();
     await page.waitForFunction(() => /Manager's courtesy/.test(document.querySelector('#sumBody').innerText) && document.querySelector('.sl.disc + .sl.disc, .sl.disc'));
@@ -128,14 +149,14 @@ const txt = async (page, sel) => ((await page.locator(sel).first().innerText().c
     ok(sumCents(await allIn()) === Math.round((await totalNow()) * 100), 'unchecking removes the courtesy line; the lines still add up');
     await page.locator('#mc').check();
     await page.waitForFunction(() => [...document.querySelectorAll('.sl.disc span:first-child')].some((e) => e.innerText === "Manager's courtesy"));
-    await page.locator('details.staff summary').click();
-    ok(!(await page.locator('details.staff').evaluate((d) => d.open)), 'staff closes Staff options');
+    await page.locator('#more').click();
+    ok(await page.locator('#more').getAttribute('aria-expanded') === 'false' && (await page.locator('#mc').count()) === 0, 'staff taps the arrow again to collapse it');
     await page.locator('.irow').nth(2).locator('[data-f=oversized]').check();
     await page.waitForTimeout(700);
     await page.locator('.irow').nth(2).locator('[data-f=oversized]').uncheck();
     await page.waitForTimeout(700);
     await page.waitForSelector('.li .li-all');
-    ok(!(await page.locator('details.staff').evaluate((d) => d.open)), 'Staff options stays collapsed after the price recalculates');
+    ok(await page.locator('#more').getAttribute('aria-expanded') === 'false' && (await page.locator('#mc').count()) === 0, 'the arrow stays collapsed after the price recalculates');
     ok(/Manager's courtesy/.test(await txt(page, '#sumBody')) && !(await page.locator('#mc').isVisible()), "the applied \"Manager's courtesy\" line stays visible in the summary while the option itself stays tucked away");
     await page.locator('#summary').scrollIntoViewIfNeeded();
     await page.waitForTimeout(300);
@@ -206,7 +227,7 @@ const txt = async (page, sel) => ((await page.locator(sel).first().innerText().c
       return t;
     };
     await quick();
-    await page.locator('details.staff summary').click();
+    await page.locator('#more').click();
     await page.locator('#mc').check();
     await page.waitForFunction(() => [...document.querySelectorAll('.sl.disc span:first-child')].some((e) => e.innerText === "Manager's courtesy"));
     await page.click('#sendLink');
