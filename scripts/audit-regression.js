@@ -284,7 +284,18 @@ async function run(BASE, errors, { dataRoot = process.env.STORAGE_DIR || ROOT, a
     const bookPay = async (name, it, dropoff = {}) => {
       const r = await ok(name, order(it, dropoff));
       if (!r.j.id) return null;
-      if (r.j.status !== 'awaiting_payment' || r.j.quote.paymentPlan === 'quote') errors.push(`decision 2: ${name} must book for payment now, got ${r.j.status} / ${r.j.quote.paymentPlan}`);
+      // Samantha, Nov 18 2026: a piece over 150 lb needs a helper, so the date is HELD for the team (pending request, nothing charged).
+      // Chad's price rule still holds: it is priced from the card (no CAD-priced quote). Approving confirms the shown price; then it pays like any order.
+      if (/^(600|750) lb|^80"/.test(name) && !/72"/.test(name)) {
+        const q0 = r.j.quote || {};
+        if (r.j.status !== 'pending_approval' || !q0.reviewOnly || !(q0.total > 0) || !(r.j.order.review && r.j.order.review.helper)) errors.push(`helper rule: ${name} must be held for NEED HELPER review at its card price, got ${r.j.status} reviewOnly=${q0.reviewOnly}`);
+        const early = await post(`/api/orders/${r.j.id}/pay`, { method: 'card', card: '4242424242424242' });
+        if (early.s !== 400) errors.push(`helper rule: ${name} must not be payable before the team approves (got ${early.s})`);
+        if (adminKey) {
+          const ap = await post(`/api/admin/orders/${r.j.id}/approve?key=${encodeURIComponent(adminKey)}`, {});
+          if (ap.s !== 200 || (ap.j.order || {}).status !== 'awaiting_payment' || Math.abs((ap.j.order.quote.total) - q0.total) > 0.01) errors.push(`helper rule: ${name} approve without a price should confirm the shown price (got ${ap.s} ${ap.j.error || ''})`);
+        } else return r;
+      } else if (r.j.status !== 'awaiting_payment' || r.j.quote.paymentPlan === 'quote') errors.push(`decision 2: ${name} must book for payment now, got ${r.j.status} / ${r.j.quote.paymentPlan}`);
       for (const n of r.j.quote.notes || []) if (/confirm|may apply|review|adjust|starting rate/i.test(n)) errors.push(`decision 2: ${name} note implies a later price review: ${n}`);
       const pay = await post(`/api/orders/${r.j.id}/pay`, { method: 'card', card: '4242424242424242' });
       if (pay.s !== 200) errors.push(`decision 2: ${name} payment should go through (got ${pay.s} ${pay.j.error || ''})`);

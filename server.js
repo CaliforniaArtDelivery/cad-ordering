@@ -154,6 +154,16 @@ function holdSlots(order, link) {
   return require('./lib/holds').reserve(order.id, need, (iso, heldOthers) => require('./lib/sheet-days').capacityLeft(iso, heldOthers), { link });
 }
 
+const RULES = require('./lib/date-guard-rules');
+// Instant heads-up to the CAD inbox (through the schedule bridge). Never blocks or fails an order.
+const teamAlert = (subject, body) => { try { sheetSync.alert((TEST_MODE ? '[TEST SITE] ' : '') + subject, body).catch(() => {}); } catch {} };
+const reviewAlert = (o) => teamAlert(`REVIEW NEEDED: online request ${o.id} (${((o.review || {}).kinds || []).join(', ') || 'quote'})`,
+  `Order ${o.id} is a pending request, not a confirmed job. Nothing has been charged.\n`
+  + `Client: ${(o.contact || {}).name || ''} ${(o.contact || {}).phone || ''} ${(o.contact || {}).email || ''}\n`
+  + `Date(s) held: ${(o.schedule || {}).date || 'none'}${(o.schedule || {}).deliveryDate ? ' / delivery ' + o.schedule.deliveryDate : ''}\n`
+  + `Why: ${((o.review || {}).reasons || []).map((r) => r.text).join(' | ') || (o.rush ? 'rush' : o.dedicated ? 'dedicated trip' : 'team quote')}\n`
+  + `Confirm within 1 business day, then approve it in the admin page so the client gets the payment link.`);
+
 function validate(o) {
   const errs = [];
   if (!Array.isArray(o.items)) o.items = [];
@@ -294,6 +304,7 @@ app.post('/api/orders', (req, res) => {
   const outOfState = !SERVICES[b.service].shipping && isOutOfState(b);
   const shipping = !!SERVICES[b.service].shipping || outOfState;
   const svcKey = shipping ? 'crating_shipping' : b.service;
+  const rv = shipping ? { needed: false, kinds: [], reasons: [] } : RULES.review(b);
   const order = {
     id: newOrderId(load()),
     createdAt: new Date().toISOString(),
@@ -318,12 +329,15 @@ app.post('/api/orders', (req, res) => {
       ? { date: '', region: 'Shipping', deliveryLater: false, deliveryDate: '', timePref: 'none', timeNote: '', deliveryTimePref: 'none', deliveryTimeNote: '' }
       : { ...b.schedule, region: sched.regionForDate(new Date(b.schedule.date + 'T12:00:00Z')) },
     notes: b.notes || '',
+    ...(rv.kinds.length ? { review: rv } : {}),
     emails: [],
   };
   order.quote = quote(order);  // server-side price is authoritative
-  if (!special) { const held = holdSlots(order, false); if (!held.ok) return res.status(409).json({ error: 'That date just filled up. Please go back and pick another date.', full: held.full }); }
+  // Normal orders hold their date while the client pays. Review orders (pencil-in, helper, Monday OC) hold it while the team decides.
+  if (!special || (rv.needed && !order.rush && !order.dedicated)) { const held = holdSlots(order, special); if (!held.ok) return res.status(409).json({ error: 'That date just filled up. Please go back and pick another date.', full: held.full }); }
   const all = load(); all.unshift(order); save(all);
   if (special) {
+    reviewAlert(order);
     sheetSync.enqueue(order.id, 'quote_request'); // raw log only: not scheduled until approved and paid
     const sent = email.send('quote_received', order);
     update(order.id, (x) => x.emails.push(sent));
@@ -624,6 +638,20 @@ app.post('/api/palomas/orders', (req, res) => {
     order.statusNote = 'Awaiting payment — not scheduled until paid';
     order.paymentLink = { sentAt: new Date().toISOString(), lastEmailAt: new Date().toISOString(), reminders: 0 };
   }
+  // Date Guard review rules (remote-area pencil-in, NEED HELPER such as any sofa, Monday OC): a pending request, never auto-confirmed.
+  const rvp = RULES.review(order);
+  if (rvp.needed) {
+    order.status = 'pending_approval'; order.review = rvp; delete order.paymentLink; delete order.statusNote;
+    order.quote = { ...order.quote, reviewOnly: true, reviewKinds: rvp.kinds, reviewReasons: rvp.reasons.map((r) => r.text), quoteNote: RULES.customerNote(rvp) };
+    const heldR = holdSlots(order, true);
+    if (!heldR.ok) return res.status(409).json({ error: 'That date just filled up. Please go back and pick another date.', full: heldR.full });
+    const allR = load(); allR.unshift(order); save(allR);
+    reviewAlert(order);
+    sheetSync.enqueue(order.id, 'quote_request');
+    const sentR = email.send('quote_received', order);
+    update(order.id, (x) => x.emails.push(sentR));
+    return res.json({ id: order.id, status: order.status, quote: { total: q.total, dueNow: 0, review: true }, order: findOrder(order.id) });
+  }
   { const held = holdSlots(order, b.payMode === 'link'); if (!held.ok) return res.status(409).json({ error: 'That date just filled up. Please go back and pick another date.', full: held.full }); }
   const all = load(); all.unshift(order); save(all);
   if (b.payMode === 'link') {
@@ -674,8 +702,15 @@ app.post('/api/admin/orders/:id/approve', admin, (req, res) => {
   const o = findOrder(req.params.id);
   if (!o) return res.status(404).json({ error: 'not found' });
   if (o.status !== 'pending_approval') return res.status(400).json({ error: 'Only pending quote requests can be approved.' });
-  const price = Number(req.body.price);
+  // A date-review request (pencil-in, helper, Monday OC) is regular-rate priced: approving without a price confirms the shown total.
+  const reviewOnly = !!(o.quote && o.quote.reviewOnly);
+  const price = Number(req.body.price != null && req.body.price !== '' ? req.body.price : (reviewOnly ? o.quote.total : NaN));
   if (!Number.isFinite(price) || price <= 0) return res.status(400).json({ error: 'Enter a final price greater than 0.' });
+  // Re-check the held date(s) before the client gets a payment link: the hold may have expired while the team decided.
+  if (o.review && o.review.needed && o.schedule && o.schedule.date && !o.rush && !o.dedicated) {
+    const held = holdSlots(o, true);
+    if (!held.ok) return res.status(409).json({ error: 'That date is no longer free (full or held). Pick another date with the client before approving.', full: held.full });
+  }
   const low = o.quote.quoteRange && o.quote.quoteRange.low;
   const high = o.quote.quoteRange && o.quote.quoteRange.high;
   const updated = update(o.id, (ord) => {
@@ -709,7 +744,9 @@ app.use((err, req, res, next) => {
 app.get('/api/sync-status', (_, res) => res.json({ ...sheetSync.status(), dayCheck: (({ fetchedAt, stale, error }) => ({ fetchedAt, stale, error }))(require('./lib/sheet-days').snapshot()) }));
 sheetSync.start({
   orders: () => load(), find: (id) => findOrder(id),
-  saved: (id, result) => { try { require('./lib/sheet-days').bump(findOrder(id)); } catch {} update(id, (x) => { x.scheduleStatus = 'saved'; x.scheduleSavedAt = new Date().toISOString(); x.scheduleRef = result; }); if (sheetSync.configured()) sendConfirmationEmails(id); },
+  saved: (id, result) => { try { require('./lib/sheet-days').bump(findOrder(id)); } catch {} update(id, (x) => { x.scheduleStatus = 'saved'; x.scheduleSavedAt = new Date().toISOString(); x.scheduleRef = result; }); if (sheetSync.configured()) sendConfirmationEmails(id);
+    try { const o = findOrder(id); if (o && !(result && /TEST/i.test(String(result.tab || '')))) teamAlert(`NEW ONLINE ORDER on the schedule: ${id}`, `Order ${id} was paid and its rows are saved in the ${(result && result.tab) || 'ONLINE ORDERS'} tab (first row ${(result && result.firstRow) || '?'}).\nClient: ${(o.contact || {}).name || ''} ${(o.contact || {}).phone || ''}\nDate(s): ${(o.schedule || {}).date || ''}${(o.schedule || {}).deliveryDate ? ' / delivery ' + o.schedule.deliveryDate : ''}\nService: ${o.serviceLabel || o.service}\nThe independent checker re-reads the rows every 30 minutes and alerts on any mismatch.`); } catch {}
+  },
   exception: (id) => update(id, (x) => { x.scheduleStatus = 'exception'; }),
 });
 // Two-way reconciliation every 30 min: paid orders missing from the schedule tab, and schedule rows without an order.

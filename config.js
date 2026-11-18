@@ -266,6 +266,21 @@ module.exports = {
     anchorWeekStart: '2026-11-16',
     anchorRegion: 'NorCal',
     leadTimeDays: 2,
+    // Samantha, Nov 18 2026 (KB thread 1a1f0399ecb6ebd1): a 10-hour day holds 8 job rows (PU and DEL rows each count).
+    // Hard ceiling: the ROUTE CALENDAR capacity column can only LOWER it for a day. At flagAtRows the team gets an alert.
+    dailyJobCap: 8,
+    flagAtRows: 6,
+    // Remote areas: pencil-in, confirmed by the team within 1 business day (never auto-confirmed). Far north has no zone, so no dates are offered.
+    remoteZones: ['Sacramento', 'Tahoe', 'SD', 'Coachella'],
+    preferredPartners: ['paloma', 'aerena', 'ærena', 'caldwell snyder'],
+    // NEED HELPER rules: over 150 lb, any sofa / heavy furniture regardless of weight, installs needing a ladder, stairwell or custom hang
+    // (the site has no "Level" question, so these stand in for install Level 2/3 until Samantha defines them).
+    helperRules: {
+      holdOrders: true, // true: NEED HELPER orders are held for the team (date on hold until a helper is booked). false: only label NEED HELPER on the sheet.
+      overLb: 150,
+      heavyFurnitureKinds: ['Sofa', 'Loveseat', '2-Piece Sectional', '3-Piece Sectional', '4-Piece Sectional', 'Armoire', 'Buffet / Hutch', 'Credenza / Sideboard', 'Dresser', 'Desk', 'Dining Table', 'Headboard / Bed Frame', 'Storage Trunk / Chest', 'Vanity'],
+      installProxy: { hangWhere: ['high', 'stairwell', 'other'], quoteHangKinds: ['Chandelier', 'Sconces'] },
+    },
     showDays: 12,
     rushEnabled: true,
     // No regular route days on federal and major holidays, plus Thanksgiving Friday, Christmas Eve and New Year's Eve.
@@ -309,7 +324,8 @@ module.exports = {
     socalZipMax: 935,
     // Simple OC Monday stop: 1–2 standard items only (not 1–3). Oversize paintings (72"+),
     // oversize wall décor (48"+), and sculpture over 700 lb are not booked as a simple stop.
-    simpleOcMonday: { maxStandardItems: 2 },
+    // Monday OC stops are NOT offered automatically (Samantha); an order that lands on one goes to team review. Set autoOffer true to bring the old offer back.
+    simpleOcMonday: { maxStandardItems: 2, autoOffer: false },
     // Zone ids referenced by the weekly day catalog below.
     // Monday includes 'LA' in BOTH week types so LA customers can book either Monday.
     //

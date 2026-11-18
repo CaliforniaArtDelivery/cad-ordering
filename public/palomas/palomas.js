@@ -287,6 +287,7 @@ async function place(mode = 'now', wallet = '') {
   if (!created.ok) return fail(created.j.error, "We couldn't place that order.");
   const j = created.j;
   if (special) { S.submitting = false; return showDone(j); }
+  if (j.order && j.order.status === 'pending_approval') { S.submitting = false; return showDone(j, 'review'); }
   if (mode === 'link') { S.submitting = false; return showDone(j, 'link'); }
   if (j.order && j.order.status === 'confirmed') { S.submitting = false; return showDone(j, 'paid'); }
   const paid = await api(`/api/orders/${encodeURIComponent(j.id)}/pay`, wallet ? { method: wallet } : { method: 'card', card });
@@ -298,21 +299,22 @@ function markBad(errs) { document.querySelectorAll('.bad').forEach((e) => e.clas
 function showDone(j, how) {
   clearTimeout(draftTimer); try { sessionStorage.removeItem(DRAFT_KEY); } catch (_) { /* ignore */ }
   const o = j.order || {}; const q = j.quote || {}; const d = delivery();
-  const shipping = o.status === 'pending_approval';
+  const reviewHold = o.status === 'pending_approval' && !!(o.review && o.review.needed);
+  const shipping = o.status === 'pending_approval' && !reviewHold;
   const heavy = o.reviewReason === 'heavy';
   const day = (s) => (s ? new Date(s + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' }) : '');
   $('#main').innerHTML = `<div class="done"><div class="ck">✓</div>
-    <h2>${shipping ? (heavy ? 'Sent for team review' : 'Shipping quote requested') : how === 'link' ? 'Payment link sent' : 'Delivery locked in'}</h2>
-    <p class="sub">Order <b>${esc(o.id || j.id)}</b>${shipping ? (heavy ? ' · Our team reviews the heavy piece and will email your quote. No charge until you approve it.' : ' · Our team will email your shipping quote. No charge until you approve it.') : how === 'link' ? ` · we emailed ${esc(d.email)} a payment link. <b>Awaiting payment — not scheduled until paid.</b> We'll send a reminder each day until it's paid.` : ' · paid, and we have it from here.'}</p>
+    <h2>${reviewHold ? 'Date held, team confirming' : shipping ? (heavy ? 'Sent for team review' : 'Shipping quote requested') : how === 'link' ? 'Payment link sent' : 'Delivery locked in'}</h2>
+    <p class="sub">Order <b>${esc(o.id || j.id)}</b>${reviewHold ? ` · ${esc((o.quote || {}).quoteNote || 'Our team confirms the date within 1 business day.')} We’ll email ${esc(d.email)} a payment link once confirmed. No charge until then.` : shipping ? (heavy ? ' · Our team reviews the heavy piece and will email your quote. No charge until you approve it.' : ' · Our team will email your shipping quote. No charge until you approve it.') : how === 'link' ? ` · we emailed ${esc(d.email)} a payment link. <b>Awaiting payment — not scheduled until paid.</b> We'll send a reminder each day until it's paid.` : ' · paid, and we have it from here.'}</p>
     <div class="box">
       <p><b>Placed by</b> ${esc(S.placedBy === 'Other' ? S.placedOther : S.placedBy)}</p>
       <p><b>Pickup</b> ${esc(S.pickup === 'salinas' ? 'Salinas warehouse, 329 Rianda St' : 'Carmel-by-the-Sea showroom, Ocean Ave at Mission St')}${S.pickupDate && !shipping ? ' · ' + esc(day(S.pickupDate)) : ''}</p>
       <p><b>Deliver to</b> ${esc(d.name)} · ${esc(d.street)}${d.unit ? ', ' + esc(d.unit) : ''}, ${esc(d.city)} ${esc(d.state)} ${esc(d.zip)}${S.deliveryDate && !shipping ? ' · ' + esc(day(S.deliveryDate)) : ''}</p>
       <p><b>Items</b> ${S.items.map((i) => `${i.qty} × ${esc(i.name)}`).join('; ')}</p>
       ${shipping ? '' : (((j.order || {}).quote || {}).lines || []).filter((l) => l.label === "Manager's courtesy").map((l) => `<p><b>Manager's courtesy</b> −${usd(Math.abs(l.amount))}</p>`).join('')}
-      ${shipping ? '' : `<p><b>Total</b> ${usd(q.total)}${S.courtesy ? " (Manager's courtesy)" : ''}</p>`}
+      ${shipping ? '' : `<p><b>${reviewHold ? 'Estimated total' : 'Total'}</b> ${usd(q.total)}${S.courtesy ? " (Manager's courtesy)" : ''}</p>`}
       ${shipping ? '' : `<p class="mini">${esc(q.accessFeeNote || (j.order && j.order.quote && j.order.quote.accessFeeNote) || '')}</p>`}
-      ${shipping || how === 'link' ? '' : `<p><b>Paid today</b> ${usd(q.dueNow || q.total)}${o.quote && o.quote.balanceDue ? ' · balance ' + usd(o.quote.balanceDue) + ' due ' + esc(o.quote.balanceWhen || '') : ''} · by ${S.payer === 'palomas' ? "Paloma's Home Furnishings" : esc(d.name)}</p>`}
+      ${shipping || reviewHold || how === 'link' ? '' : `<p><b>Paid today</b> ${usd(q.dueNow || q.total)}${o.quote && o.quote.balanceDue ? ' · balance ' + usd(o.quote.balanceDue) + ' due ' + esc(o.quote.balanceWhen || '') : ''} · by ${S.payer === 'palomas' ? "Paloma's Home Furnishings" : esc(d.name)}</p>`}
     </div>
     <button class="btn primary" id="again" type="button">Place another order</button></div>`;
   $('#bar').hidden = true; window.scrollTo({ top: 0, behavior: 'smooth' });

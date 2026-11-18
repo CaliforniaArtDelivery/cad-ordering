@@ -1,5 +1,6 @@
 /* Paloma's partner flow: price math, validation, order pipeline, copy rules. Run against a local server:
- *   ADMIN_KEY=<16+ chars> TEST_MODE=1 STORAGE_DIR=/tmp/paltest PORT=3111 node server.js &   then   BASE=http://localhost:3111 ADMIN_KEY=<same> node scripts/palomas-test.js */
+ *   (HELPER_HOLD_ORDERS=0: the order pipeline below books Paloma's large furniture straight to payment; with the Nov 18 helper rule ON those orders are held for a helper, see scripts/date-guard-rules-test.js)
+ *   ADMIN_KEY=<16+ chars> HELPER_HOLD_ORDERS=0 TEST_MODE=1 STORAGE_DIR=/tmp/paltest PORT=3111 node server.js &   then   BASE=http://localhost:3111 ADMIN_KEY=<same> node scripts/palomas-test.js */
 const fs = require('fs');
 const path = require('path');
 const PAL = require('../lib/palomas');

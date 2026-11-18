@@ -224,8 +224,8 @@ const snapshotMain = (bridge) => JSON.stringify(bridge.sheet('SCHEDULE 2026').ce
   const variants = [
     ['cross-region + stairs', baseOrder(DB, { dropoff: addr('500 Embarcadero', 'San Francisco', '94111', { accessMode: 'stairs', stairFlights: 2, stairDir: 'up', stairTurns: 'no', stairPhotos: [], contactName: 'Sam SF', contactPhone: '415-555-0100', floor: '2', hours: 'after 10am' }) })],
     ['Not sure access', baseOrder(DB, { pickup: addr('1 Not Sure Way', 'Pasadena', '91101', { accessMode: 'not_sure', fits: 'not_sure' }) })],
-    ['heavy piece', baseOrder(DB, { items: [{ qty: 2, type: 'sculpture', weight: 226, w: 16, h: 52, d: 15, value: 30000, description: 'Bronze on plinth' }] })],
-    ['custom furniture', baseOrder(DB, { items: [{ qty: 1, type: 'furniture', furnitureKind: 'Sofa', sizeClass: 'large', value: 2000, description: 'Custom sofa (sectional)' }] })],
+    ['heavy piece', baseOrder(a1.days[5].date, { items: [{ qty: 2, type: 'sculpture', weight: 226, w: 16, h: 52, d: 15, value: 30000, description: 'Bronze on plinth' }] })],
+    ['custom furniture', baseOrder(a1.days[6].date, { items: [{ qty: 1, type: 'furniture', furnitureKind: 'Sofa', sizeClass: 'large', value: 2000, description: 'Custom sofa (sectional)' }] })],
   ];
   for (const [name, b] of variants) {
     if (name.startsWith('cross-region')) {
@@ -233,7 +233,15 @@ const snapshotMain = (bridge) => JSON.stringify(bridge.sheet('SCHEDULE 2026').ce
       const dd = (await post('/api/availability', { ...b, leg: 'dropoff', schedule: { date: pd } })).j.days[0].date;
       b.schedule = { date: pd, deliveryDate: dd, timePref: 'midday' };
     }
-    const r = await placeAndPay(b);
+    let r = await placeAndPay(b);
+    // NEED HELPER orders (Samantha, Nov 18 2026) are held for the team first: the date is held, nothing is charged; approving sends the payment link.
+    if (r.create && r.create.status === 200 && r.create.j.status === 'pending_approval' && r.create.j.order.review && r.create.j.order.review.helper) {
+      ok(name === 'heavy piece' || name === 'custom furniture', `${name}: held for NEED HELPER (pending, nothing charged)`);
+      const ap = await post(`/api/admin/orders/${r.create.j.id}/approve?key=${ADMIN}`, {});
+      ok(ap.status === 200 && ap.j.order.status === 'awaiting_payment', `${name}: team approval confirms the shown price and opens payment`);
+      const pay = await post(`/api/orders/${r.create.j.id}/pay`, { method: 'card', card: '4242424242424242' });
+      r = { create: r.create, pay, id: r.create.j.id };
+    }
     if (!r.pay || r.pay.status !== 200) { ok(false, `${name}: could not place (${JSON.stringify(r.create && r.create.j && r.create.j.error)})`); continue; }
     await waitFor(async () => orderRows(bridge, r.id).length >= 1, 8000);
     const fo = (await get('/api/orders/' + r.id)).order;

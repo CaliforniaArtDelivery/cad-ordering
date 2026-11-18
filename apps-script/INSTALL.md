@@ -28,4 +28,6 @@ ROUTE CALENDAR, ONLINE ORDERS, TEST ORDERS, ONLINE ORDERS RAW LOG.
 ## What the owner has to know
 - Orders are confirmed to the customer only after the sheet read-back matches. Until then the order shows "pending".
 - 3 failed attempts = "exception": an alert email goes to CAD and the bot inbox, and the order stays queued and keeps retrying.
-- Capacity for a date = ROUTE CALENDAR capacity minus job rows on SCHEDULE 2026 and ONLINE ORDERS minus live holds.
+- Capacity for a date = 8 job rows (Samantha, Nov 18 2026; the ROUTE CALENDAR capacity column can only lower it for a day) minus job rows on SCHEDULE 2026 and ONLINE ORDERS minus live holds. At 6 rows the CAD inbox is alerted, at 8 the date is full.
+- Review rules (lib/date-guard-rules.js): remote areas (Sacramento/Tahoe, San Diego, Palm Springs & desert) are pencil-in requests; an Orange County Monday is never offered and goes to review; NEED HELPER (over 150 lb, any sofa or heavy furniture, ladder/stairwell/custom installs) holds the date; rush and dedicated trips are quoted. These orders are saved as pending requests (nothing charged, date held 72 h, CAD inbox alerted); approving one in the admin page confirms the shown price and sends the payment link. Switches: `HELPER_HOLD_ORDERS=0`, config.scheduling.helperRules.
+- Alerts to the CAD inbox: REVIEW NEEDED (new pending request), NEW ONLINE ORDER (rows saved), Getting busy / FULL (a date at 6 / 8 rows), plus the existing failure, mismatch and exception alerts.

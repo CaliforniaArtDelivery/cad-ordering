@@ -6,6 +6,8 @@
   "scripts": {
     "start": "node server.js",
     "test": "node scripts/pricing-test.js",
+    "test:rules": "node scripts/date-guard-rules-test.js",
+    "test:bridge": "node scripts/bridge-test.js",
     "e2e": "node scripts/e2e.js"
   },
   "keywords": [],

@@ -516,7 +516,7 @@ const feeNoteHtml = (q) => (q && q.accessFeeNote ? `<p class="mini access-fee-no
 const payPlan = (q) => {
   if (isQuote(q)) {
     return `<div class="plan"><div class="plan-head">Quote request · no payment due yet</div>
-      ${q.tripPremium ? `<div class="sum-row"><span>Regular rate</span><span class="amt">${fmt(q.regularTotal || q.total)}</span></div>
+      ${q.reviewOnly ? `<div class="sum-row"><span>Estimated price</span><span class="amt"><b>${fmt(q.total)}</b></span></div>` : q.tripPremium ? `<div class="sum-row"><span>Regular rate</span><span class="amt">${fmt(q.regularTotal || q.total)}</span></div>
       <div class="sum-row"><span>Estimated range</span><span class="amt"><b>${fmt(q.quoteRange.low)}–${fmt(q.quoteRange.high)}</b></span></div>` : '<div class="sum-row"><span>Price</span><span>Priced by CAD</span></div>'}
       ${q.extraQuoted ? `<div class="sum-row"><span>${esc(q.extraQuoted)}</span><span>Quoted by CAD</span></div>` : ''}
       <p class="mini" style="margin:4px 0 10px">${esc(q.quoteNote || 'CAD sets a final price in this range. Nothing is charged until you approve it and pay.')}</p></div>`;
@@ -533,7 +533,7 @@ const accessTbc = (q) => !!(q && (q.notes || []).includes(CADAccess.PRICE_NOTE))
 const priceCard = (q, withProtection) => `<div class="card price-card">
   ${q ? q.lines.map((l) => `<div class="sum-row"><span>${esc(l.label)}</span><span class="amt">${l.included ? 'Included' : fmt(l.amount)}</span></div>`).join('') : '<div class="sum-row"><span>Calculating…</span><span class="amt"></span></div>'}
   ${withProtection && protectionNote(q) ? `<p class="mini" style="margin:6px 0 0" data-protection-note>${protectionNote(q)}</p>` : ''}
-  ${q ? `${accessTbc(q) ? `<p class="mini access-tbc" data-access-tbc><b>${esc(CADAccess.PRICE_NOTE)}</b></p>` : ''}${isQuote(q) && !q.tripPremium ? '' : `<div class="total"><span>${isQuote(q) ? 'Regular rate' : accessTbc(q) ? CADAccess.TBC_TOTAL : 'Total'}</span><span class="amt">${fmt(q.regularTotal || q.total)}</span></div>`}${payPlan(q)}` : ''}
+  ${q ? `${accessTbc(q) ? `<p class="mini access-tbc" data-access-tbc><b>${esc(CADAccess.PRICE_NOTE)}</b></p>` : ''}${isQuote(q) && !q.tripPremium && !q.reviewOnly ? '' : `<div class="total"><span>${q.reviewOnly ? 'Estimated price' : isQuote(q) ? 'Regular rate' : accessTbc(q) ? CADAccess.TBC_TOTAL : 'Total'}</span><span class="amt">${fmt(q.regularTotal || q.total)}</span></div>`}${payPlan(q)}` : ''}
 </div>`;
 
 // ---------- payment block (shared by new orders and payment links) ----------
@@ -1033,12 +1033,13 @@ const views = {
     }
     if (o.status === 'pending_approval') {
       const q = o.quote || quoteData;
-      return `<div class="done"><div class="check">✓</div><h1>Quote request received</h1>
-        <p class="sub">Request <b>${esc(o.id)}</b> is with Samantha. We’ll email ${esc(o.contact.email)} a final price and a payment link. Nothing has been charged.</p></div>
+      const rvw = !!(q && q.reviewOnly);
+      return `<div class="done"><div class="check">✓</div><h1>${rvw ? 'Date request received' : 'Quote request received'}</h1>
+        <p class="sub">Request <b>${esc(o.id)}</b> is with Samantha. ${rvw ? `${esc(q.quoteNote || '')} We’ll email ${esc(o.contact.email)} within 1 business day to confirm your date and send a payment link.` : `We’ll email ${esc(o.contact.email)} a final price and a payment link. Nothing has been charged.`}</p></div>
         <div class="card">
           <div class="sum-row"><span>Service</span><span>${esc(o.serviceLabel)}${o.rush ? ' · rush' : ''}${o.dedicated ? ' · dedicated trip' : ''}</span></div>
           <div class="sum-row"><span>Preferred date</span><span>${esc(longDate(o.schedule.date))}${o.schedule.deliveryDate ? '<br>Delivery ' + esc(longDate(o.schedule.deliveryDate)) : ''}${timePrefSummary(o.schedule.timePref, o.schedule.timeNote) ? '<br><span class="muted">' + esc(timePrefSummary(o.schedule.timePref, o.schedule.timeNote)) + '</span>' : ''}</span></div>
-          ${q.tripPremium ? `<div class="sum-row"><span>Regular rate</span><span class="amt">${fmt(q.regularTotal || q.total)}</span></div>
+          ${q.reviewOnly ? `<div class="sum-row"><span>Estimated price</span><span class="amt"><b>${fmt(q.total)}</b></span></div>` : q.tripPremium ? `<div class="sum-row"><span>Regular rate</span><span class="amt">${fmt(q.regularTotal || q.total)}</span></div>
           <div class="sum-row"><span>Estimated range</span><span class="amt"><b>${fmt(q.quoteRange.low)}–${fmt(q.quoteRange.high)}</b></span></div>` : '<div class="sum-row"><span>Price</span><span>Priced by CAD</span></div>'}
         </div>
         <button type="button" class="btn ghost full" id="newOrder">Start a new booking</button>`;
@@ -1303,7 +1304,8 @@ function paintEstimate() {
   if (!S.service && !existing) { el.textContent = '—'; lbl.textContent = 'Estimate'; return; }
   if ((!existing && isShip()) || (q && q.shipping && !q.approvedPrice)) { el.textContent = 'Quote'; lbl.textContent = 'Shipping'; paintButton(); return; }
   if (!q) return;
-  if (isQuote(q) && !q.tripPremium) { el.textContent = 'Quote'; lbl.textContent = 'Priced by CAD'; }
+  if (q.reviewOnly) { el.textContent = fmt(q.total); lbl.textContent = 'Estimate · date to be confirmed'; }
+  else if (isQuote(q) && !q.tripPremium) { el.textContent = 'Quote'; lbl.textContent = 'Priced by CAD'; }
   else if (isQuote(q) && q.quoteRange) { el.textContent = `${fmt(q.quoteRange.low)}–${fmt(q.quoteRange.high)}`; lbl.textContent = 'Estimated range'; }
   else if (name === 'Pay') { el.textContent = fmt(q.dueNow); lbl.textContent = accessTbc(q) ? 'Estimate · access to confirm' : q.paymentPlan === 'deposit' ? 'Due today (50%)' : 'Due today'; }
   else { el.textContent = fmt(q.total); lbl.textContent = name === 'What' ? 'Estimate · before access' : accessTbc(q) ? 'Estimate · access to confirm' : 'Estimate'; }
@@ -1336,7 +1338,7 @@ function paintButton() {
     // Access "Not sure": the customer pays the base price now (Dot round 4).
     const payWhat = q && accessTbc(q) ? (q.paymentPlan === 'deposit' ? '50% of base price ' : 'base price ') : '';
     if (existing || !special()) btn.textContent = CFG.stripe ? `Pay ${payWhat}${q ? fmt(q.dueNow) : ''} on Stripe` : `Pay ${payWhat}${q ? fmt(q.dueNow) : ''}`;
-    else btn.textContent = isShip() ? 'Request quote' : S.rush ? 'Request a rush quote' : 'Request a quote';
+    else btn.textContent = isShip() ? 'Request quote' : S.rush ? 'Request a rush quote' : (quoteData && quoteData.reviewOnly) ? 'Request this date' : 'Request a quote';
   } else btn.textContent = 'Next';
   const wait = missingNow().length > 0;
   const hold = busy || (quotePending && name === 'Pay' && isLastPanel());

@@ -236,16 +236,22 @@ const noGate = (name, r) => {
   check(r.paymentPlan !== 'quote' && r.total > 0 && r.dueNow > 0, `${name}: should be bookable and payable now`, { plan: r.paymentPlan, total: r.total });
   for (const n of r.notes || []) check(!/confirm|may apply|review|adjust|starting rate|quote/i.test(n), `${name}: note implies a later price review: ${n}`);
 };
-noGate('501 lb sculpture', q('pickup_delivery', [{ qty: 1, type: 'sculpture', weight: 501, w: 30, h: 40, d: 30, value: 5000, description: 's' }]));
+// Samantha, Nov 18 2026: NEED HELPER (over 150 lb, any sofa / heavy furniture) keeps Chad's price rule (priced from the card, never a CAD-priced quote)
+// but the order is a pending request: the date is held until a helper is booked, and nothing is charged until the team confirms.
+const helperHold = (name, r) => {
+  check(r.reviewOnly === true && r.total > 0 && /NEED HELPER/.test((r.reviewReasons || []).join(' ')) && r.reviewKinds.includes('helper'), `${name}: priced from the card, held for NEED HELPER review`, { plan: r.paymentPlan, total: r.total, why: r.reviewReasons });
+  check(r.quoteRange && r.quoteRange.low === r.total && r.quoteRange.high === r.total, `${name}: no 1.5x-2x range, the regular price is the price`, r.quoteRange);
+};
+helperHold('501 lb sculpture', q('pickup_delivery', [{ qty: 1, type: 'sculpture', weight: 501, w: 30, h: 40, d: 30, value: 5000, description: 's' }]));
 const s750 = q('pickup_delivery', [{ qty: 1, type: 'sculpture', weight: 750, w: 30, h: 40, d: 30, value: 5000, description: 's' }]);
-noGate('750 lb sculpture', s750);
+helperHold('750 lb sculpture', s750);
 check(line(s750, /Sculpture/) && line(s750, /Sculpture/).amount === 1000, '750 lb sculpture keeps the $1,000 over-700 rate', s750.lines);
-noGate('80" sculpture', q('pickup_delivery', [{ qty: 1, type: 'sculpture', weight: 200, w: 20, h: 80, d: 20, value: 5000, description: 's' }]));
+helperHold('80" sculpture (200 lb)', q('pickup_delivery', [{ qty: 1, type: 'sculpture', weight: 200, w: 20, h: 80, d: 20, value: 5000, description: 's' }]));
 const p72 = q('delivery_install', [{ qty: 1, type: 'painting', framed: 'no', w: 72, h: 40, value: 5000, description: 'p' }]);
 noGate('72" painting', p72);
 check(line(p72, /Oversize painting \(72"\+\) delivery/) && line(p72, /Oversize painting \(72"\+\) install/), '72" painting keeps the oversize lines', p72.lines);
-noGate('600 lb, 90" other item', q('pickup_delivery', [{ qty: 1, type: 'other', weight: 600, w: 90, h: 30, d: 30, value: 5000, description: 'o' }]));
-noGate('large 96" sofa', q('pickup_delivery', [{ qty: 1, type: 'furniture', furnitureKind: 'Sofa', sizeClass: 'large', w: 96, h: 36, d: 40, value: 3000, description: 'f' }]));
+helperHold('600 lb, 90" other item', q('pickup_delivery', [{ qty: 1, type: 'other', weight: 600, w: 90, h: 30, d: 30, value: 5000, description: 'o' }]));
+helperHold('large 96" sofa', q('pickup_delivery', [{ qty: 1, type: 'furniture', furnitureKind: 'Sofa', sizeClass: 'large', w: 96, h: 36, d: 40, value: 3000, description: 'f' }]));
 // Unknown weight is not "heavy": it still can't be priced from the weight card, so it stays a CAD-priced request.
 check(q('pickup_delivery', [{ qty: 1, type: 'sculpture', weightUnsure: true, value: 5000, description: 's' }]).paymentPlan === 'quote', 'unknown sculpture weight stays priced by CAD (no weight to price from)');
 

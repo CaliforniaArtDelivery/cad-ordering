@@ -85,6 +85,7 @@ function approveBox(o) {
   </div>`;
   return `<div class="approve" id="approveBox">
     <h3>Samantha — approve and set a price</h3>
+    ${o.review && o.review.reasons && o.review.reasons.length ? `<p style="margin:0 0 12px;padding:10px 12px;background:#fff7e0;border-radius:10px"><b>Held for team review:</b> ${o.review.reasons.map((r) => esc(r.text)).join(' · ')}.${q.reviewOnly ? ' This is a regular-rate job: approving confirms the shown price and sends the payment link. The date is held until you approve (72 h).' : ''}</p>` : ''}
     <p class="muted" style="margin:0 0 12px">Samantha sets the final price on rush, dedicated-trip and custom quotes (she may consult Chad). Regular rate ${fmt(q.regularTotal || q.total)}. ${q.tripPremium === false ? 'Crating only: transport at the regular rate. Add the crating partner’s price.' : `Suggested range ${q.quoteRange ? fmt(q.quoteRange.low) + '–' + fmt(q.quoteRange.high) : '—'} (1.5× to 2×), based on how far out of the way and how large the job is.${o.crating ? ' Add the crating partner’s price.' : ''}`} Approving writes a payment-link email to the outbox (not sent). The customer is not charged until they pay.</p>
     <div class="row">
       <div class="field" style="margin:0"><label class="f">Final price ($)</label><input type="number" id="approvePrice" min="1" step="1" value="${mid}"></div>
