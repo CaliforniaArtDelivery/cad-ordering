@@ -273,6 +273,12 @@ module.exports = {
     blackoutDates: [
       // 2026
       '2026-11-26', '2026-11-27', '2026-12-24', '2026-12-25', '2026-12-31',
+      // Days the real SCHEDULE 2026 sheet shows as off or re-routed (checked against the sheet Nov 18, 2026). Held closed until
+      // Samantha confirms (see lib/sheet-days.js, which also closes any day the live sheet marks off):
+      '2026-11-23', '2026-11-24', '2026-11-25', // Thanksgiving week: Newport Beach/Palm Springs, San Diego, "Max drives North"
+      '2026-11-30', // "Off day"
+      '2026-12-28', '2026-12-29', '2026-12-30', // "Christmas day off"
+
       // 2027
       '2027-01-01', // New Year's Day
       '2027-01-18', // Martin Luther King Jr. Day

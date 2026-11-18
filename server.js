@@ -7,6 +7,7 @@ const config = require('./config');
 const { quote, isOutOfState, applyApprovedPrice, protectionLabel, SERVICES, OFFERED_SERVICES, displayFrom, FURNITURE_KINDS, DECOR_KINDS, needsStairwellFit, numVal } = require('./lib/pricing');
 const sched = require('./lib/scheduling');
 const schedule = require('./lib/schedule');
+const sheetSync = require('./lib/sheets-sync');
 const email = require('./lib/email');
 
 const PORT = process.env.PORT || 3000;
@@ -142,6 +143,17 @@ app.post('/api/availability', (req, res) => {
   });
 });
 
+// Atomic slot hold (lib/holds.js): the date(s) are reserved while the client pays; an uncertain/full date refuses cleanly.
+function holdSlots(order, link) {
+  const svc = SERVICES[order.service] || {};
+  const need = {};
+  const add = (iso) => { if (iso) need[iso] = (need[iso] || 0) + 1; };
+  if (svc.shipping || !order.schedule || !order.schedule.date) return { ok: true };
+  add(order.schedule.date);
+  if (svc.needsPickup && svc.needsDropoff) add(order.schedule.deliveryDate || order.schedule.date);
+  return require('./lib/holds').reserve(order.id, need, (iso, heldOthers) => require('./lib/sheet-days').capacityLeft(iso, heldOthers), { link });
+}
+
 function validate(o) {
   const errs = [];
   if (!Array.isArray(o.items)) o.items = [];
@@ -234,15 +246,21 @@ function scheduleErrors(o) {
   const d = String((o.schedule && o.schedule.date) || '');
   if (!d) return [];
   if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return ['a date'];
-  const blackout = config.scheduling.blackoutDates || [];
+  const blackout = { includes: (x) => sched.isClosed(x) };
   if (d < sched.ptYmd()) return ['a date in the future (that date has passed)'];
-  if (blackout.includes(d)) return ['another date (we don’t run routes on that holiday)'];
+  if (blackout.includes(d)) {
+    const why = require('./lib/sheet-days').reason(d, null, 1) || '';
+    return [/^full/.test(why) ? 'FULL: that date just filled up' : 'another date (we don’t run routes on that holiday)'];
+  }
   const first = svc.needsPickup ? o.pickup : o.dropoff;
   const addr = first && (first.zip || first.city) ? first : o.dropoff;
   const ok = o.rush
     ? sched.rushDays(addr, new Date(), 7, o).some((x) => x.date === d) || sched.availableDays(addr, { order: o, count: 400 }).some((x) => x.date === d)
     : sched.availableDays(addr, { order: o, count: 400 }).some((x) => x.date === d);
-  if (!ok) errs.push('an available route day for that address (please go back and pick a date from the list)');
+  if (!ok) {
+    const why = require('./lib/sheet-days').reason(d, sched.zoneFor(addr), 1) || '';
+    errs.push(/^full/.test(why) ? 'FULL: that date just filled up' : 'an available route day for that address (please go back and pick a date from the list)');
+  }
   const dd = String((o.schedule && o.schedule.deliveryDate) || '');
   if (ok && svc.needsPickup && svc.needsDropoff && dd) {
     if (blackout.includes(dd)) errs.push('another delivery date (we don’t run routes on that holiday)');
@@ -267,6 +285,7 @@ const payerCopy = (o) => (o.payer === 'other' && o.payerOther && /\S+@\S+\.\S+/.
 app.post('/api/orders', (req, res) => {
   const b = req.body;
   const errs = validate(b);
+  if (errs.some((e) => /^FULL:/.test(e))) return res.status(409).json({ error: 'That date just filled up. Please go back and pick another date.', full: [String((b.schedule || {}).date || '')] });
   if (errs.length) return res.status(400).json({ error: 'Missing: ' + errs.join(', ') });
   const fp = fingerprint(b);
   const dup = load().find((x) => x.fingerprint === fp && Date.now() - Date.parse(x.createdAt) < DEDUPE_MS);
@@ -302,8 +321,10 @@ app.post('/api/orders', (req, res) => {
     emails: [],
   };
   order.quote = quote(order);  // server-side price is authoritative
+  if (!special) { const held = holdSlots(order, false); if (!held.ok) return res.status(409).json({ error: 'That date just filled up. Please go back and pick another date.', full: held.full }); }
   const all = load(); all.unshift(order); save(all);
   if (special) {
+    sheetSync.enqueue(order.id, 'quote_request'); // raw log only: not scheduled until approved and paid
     const sent = email.send('quote_received', order);
     update(order.id, (x) => x.emails.push(sent));
     const pc = payerCopy(order);
@@ -318,16 +339,30 @@ app.get('/api/orders/:id', (req, res) => {
   res.json({ order: o });
 });
 
+function sendConfirmationEmails(id) {
+  const o = findOrder(id);
+  if (!o || o.emails.find((e) => e.kind === 'confirmation')) return;
+  const sent = email.send('confirmation', o);
+  update(id, (x) => x.emails.push(sent));
+  const pc = payerCopy(o);
+  if (pc) { const s2 = email.send('payer_receipt', findOrder(id), pc); update(id, (x) => x.emails.push(s2)); }
+}
+// Payment is confirmed server-side (webhook or pay call). The booking is only CONFIRMED to the customer once the schedule row is
+// durably saved: until then the order shows scheduleStatus "pending" (exception queue + alert to Samantha if it keeps failing).
 function finalize(id, payment) {
-  const o = update(id, (ord) => { if (ord.status === 'confirmed') return; ord.status = 'confirmed'; ord.payment = payment; delete ord.statusNote; });
+  const o = update(id, (ord) => { if (ord.status === 'confirmed') return; ord.status = 'confirmed'; ord.payment = payment; delete ord.statusNote; ord.scheduleStatus = sheetSync.configured() ? 'pending' : 'not_configured'; });
   if (!o) return null;
-  if (!o.emails.find((e) => e.kind === 'confirmation')) {
-    const sent = email.send('confirmation', o);
-    update(id, (x) => x.emails.push(sent));
-    const pc = payerCopy(o);
-    if (pc) { const s2 = email.send('payer_receipt', findOrder(id), pc); update(id, (x) => x.emails.push(s2)); }
+  const cur = findOrder(id);
+  if (!cur.emails.find((e) => e.kind === 'confirmation' || e.kind === 'payment_received')) {
+    if (sheetSync.configured()) {
+      const sent = email.send('payment_received', cur);
+      update(id, (x) => x.emails.push(sent));
+    } else sendConfirmationEmails(id);
     schedule.appendOrder(findOrder(id));
   }
+  require('./lib/holds').extend(id, 24 * 3600 * 1000); // keep the slots reserved until the sheet row exists
+  if (findOrder(id).status === 'confirmed') sheetSync.enqueue(id, 'confirmed'); // idempotent by order id; retried until saved
+  if (!sheetSync.configured()) require('./lib/holds').release(id);
   return findOrder(id);
 }
 
@@ -464,7 +499,7 @@ app.get('/api/palomas/config', (_, res) => res.json({
   access: ACCESS.MODES, flights: ACCESS.FLIGHTS,
 }));
 function palomasPublicQuote(q) {
-  if (q.special) return { special: true, shipping: q.shipping, quoteNote: q.quoteNote, notes: q.notes };
+  if (q.special) return { special: true, shipping: q.shipping, review: q.review || '', quoteNote: q.quoteNote, notes: q.notes };
   const { engine, ...rest } = q;
   return rest;
 }
@@ -543,7 +578,7 @@ app.post('/api/palomas/orders', (req, res) => {
     id: newOrderId(load()), createdAt: new Date().toISOString(), fingerprint: fp,
     crating: false, rush: false, dedicated: false,
     // "Not sure": CAD confirms access with the client before the job. Stairs are priced up front (per flight, large pieces).
-    accessReview: dropoff.accessMode === 'not_sure' || ACCESS_PAL.needsReview(dropoff),
+    accessReview: dropoff.accessMode === 'not_sure' || ACCESS_PAL.needsReview(dropoff) || PAL.accessUnsure(b.access),
     member: true, memberCode: PAL.PARTNER_CODE, memberCompany: PAL.PARTNER_NAME, heard: { repeatClient: true }, referral: false,
     declaredValueProtection: false, // Paloma's pays no declared value protection
     items, pickup, dropoff,
@@ -552,17 +587,19 @@ app.post('/api/palomas/orders', (req, res) => {
     partner: { type: 'Partner', name: PAL.PARTNER_NAME, email: PAL.PARTNER_EMAIL, phone: PAL.PARTNER_PHONE },
     contact2: (b.delivery.client2 && String(b.delivery.client2.name || '').trim()) ? { name: String(b.delivery.client2.name).trim(), phone: String(b.delivery.client2.phone || '').trim(), email: String(b.delivery.client2.email || '').trim() } : null,
     partnerOrder: true, partnerInfo, payer: palomasPays ? 'other' : 'me', payerOther: palomasPays ? { name: PAL.PARTNER_NAME, email: PAL.PARTNER_EMAIL, phone: PAL.PARTNER_PHONE } : {},
-    notes: [`Partner order placed by ${placedName} (${PAL.PARTNER_NAME}); pickup: ${partnerInfo.pickupLocation}.`, String(b.delivery.notes || '').trim()].filter(Boolean).join(' '),
+    notes: [`Partner order placed by ${placedName} (${PAL.PARTNER_NAME}); pickup: ${partnerInfo.pickupLocation}.`, (dropoff.accessMode === 'not_sure' || PAL.accessUnsure(b.access)) ? 'TEAM REVIEW: access is NOT CONFIRMED (customer was not sure). Confirm access with the client before the job; any extra fee needs their approval first.' : '', String(b.delivery.notes || '').trim()].filter(Boolean).join(' '),
     emails: [],
   };
   if (q.special || outOfState) {
     const order = {
-      ...base, status: 'pending_approval', service: 'crating_shipping', serviceLabel: SERVICES.crating_shipping.label, requestedService: 'pickup_delivery', outOfState: true,
+      ...base, status: 'pending_approval', service: 'crating_shipping', serviceLabel: q.review === 'heavy' ? 'Heavy-item review (pickup + delivery)' : SERVICES.crating_shipping.label, requestedService: 'pickup_delivery', outOfState: q.review !== 'heavy',
+      ...(q.review === 'heavy' ? { reviewReason: 'heavy', notes: `TEAM REVIEW: a piece over ${PAL.HEAVY_REVIEW_LB} lb (weight given or stated in the item name). Confirm weight, dimensions, crew and price before quoting. ` + base.notes } : {}),
       shipping: { flexible: true, notes: 'Partner order from the Paloma’s flow; Samantha to confirm destination service level and dates.' },
       schedule: { date: '', region: 'Shipping', deliveryLater: false, deliveryDate: '', timePref: 'none', timeNote: '', deliveryTimePref: 'none', deliveryTimeNote: '' },
     };
     order.quote = quote({ ...order, memberCode: PAL.PARTNER_CODE });
     const all = load(); all.unshift(order); save(all);
+    sheetSync.enqueue(order.id, 'quote_request');
     const sent = email.send('quote_received', order);
     update(order.id, (x) => x.emails.push(sent));
     return res.json({ id: order.id, status: order.status, quote: { special: true }, order: findOrder(order.id) });
@@ -587,6 +624,7 @@ app.post('/api/palomas/orders', (req, res) => {
     order.statusNote = 'Awaiting payment — not scheduled until paid';
     order.paymentLink = { sentAt: new Date().toISOString(), lastEmailAt: new Date().toISOString(), reminders: 0 };
   }
+  { const held = holdSlots(order, b.payMode === 'link'); if (!held.ok) return res.status(409).json({ error: 'That date just filled up. Please go back and pick another date.', full: held.full }); }
   const all = load(); all.unshift(order); save(all);
   if (b.payMode === 'link') {
     const sent = email.send('payment_link', order);
@@ -656,6 +694,8 @@ app.post('/api/admin/orders/:id/approve', admin, (req, res) => {
   res.json({ order: findOrder(o.id), paymentUrl: email.payUrl(updated), email: sent });
 });
 
+app.get('/api/admin/date-guard', admin, (_, res) => res.json({ guard: require('./lib/sheet-days').snapshot(), holds: require('./lib/holds').snapshot(), sync: sheetSync.status() }));
+app.post('/api/admin/date-guard/refresh', admin, async (_, res) => res.json(await require('./lib/sheet-days').refresh()));
 app.use('/outbox', (req, res, next) => (adminKeyOk(req.query.key) ? next() : res.status(401).end()), express.static(storage.dir('outbox')));
 app.get('/admin', (_, res) => res.sendFile(path.join(__dirname, 'public', 'admin.html')));
 
@@ -665,4 +705,14 @@ app.use((err, req, res, next) => {
   if (err && err.type === 'entity.too.large') return res.status(413).json({ error: 'That request is too large. Please shorten the notes or remove photos and try again.' });
   console.error(err); res.status(500).json({ error: 'Something went wrong on our side. Please try again, or call us.' });
 });
+// Schedule-sheet hand-off: status (no personal data) and the start-up reconcile.
+app.get('/api/sync-status', (_, res) => res.json({ ...sheetSync.status(), dayCheck: (({ fetchedAt, stale, error }) => ({ fetchedAt, stale, error }))(require('./lib/sheet-days').snapshot()) }));
+sheetSync.start({
+  orders: () => load(), find: (id) => findOrder(id),
+  saved: (id, result) => { try { require('./lib/sheet-days').bump(findOrder(id)); } catch {} update(id, (x) => { x.scheduleStatus = 'saved'; x.scheduleSavedAt = new Date().toISOString(); x.scheduleRef = result; }); if (sheetSync.configured()) sendConfirmationEmails(id); },
+  exception: (id) => update(id, (x) => { x.scheduleStatus = 'exception'; }),
+});
+// Two-way reconciliation every 30 min: paid orders missing from the schedule tab, and schedule rows without an order.
+setInterval(async () => { try { if (sheetSync.configured()) { const ids = load().filter((o) => o.status === 'confirmed' && !(o.payment && /^mock/.test(String(o.payment.method || '')))).map((o) => o.id); await sheetSync.call({ action: 'reconcile', orderIds: ids }); } } catch (e) { console.error('reconcile failed', e.message); } }, 30 * 60 * 1000).unref();
+require('./lib/sheet-days').start();
 app.listen(PORT, () => console.log(`CAD ordering prototype → ${BASE_URL}  (admin: ${ADMIN_ON ? BASE_URL + '/admin?key=<ADMIN_KEY>' : 'off'})`));
