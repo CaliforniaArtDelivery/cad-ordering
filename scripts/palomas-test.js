@@ -285,7 +285,7 @@ const it = (kind, size, value, qty = 1, name = kind) => ({ name, kind, size, val
     ok(/Hours: Weekdays 9am-4pm/.test(csv) && /must be reserved in advance/.test(csv) && /narrow turn past the lobby/.test(csv), 'schedule notes (DE Notes) carry hours, elevator reservation and the notes field');
     ok(/Steps before\/after the elevator: yes, 4 steps/.test(csv), 'schedule notes (DE Notes) carry the steps before/after the elevator');
   }
-  const pAcc = await post('/api/palomas/orders', { ...accBody, access: { mode: 'stairs', flights: '2', hours: '' }, delivery: { ...body.delivery, notes: 'stairs ' + RUN } });
+  const pAcc = await post('/api/palomas/orders', { ...accBody, access: { mode: 'stairs', flights: '2', hours: '', shape: 'straight', tight: 'no' }, delivery: { ...body.delivery, notes: 'stairs ' + RUN } });
   ok(pAcc.s === 200 && pAcc.j.order.dropoff.stairFlights === '2', 'stairs: flights saved');
   const dAv = await post('/api/palomas/availability', { ...base([it('Sofa', 'medium', 3000)]), leg: 'pickup' });
   ok(dAv.j.days.length > 6 && dAv.j.days.length <= 14, `availability returns up to 14 days (${dAv.j.days.length}), the page shows the first 6 then "More dates"`);
@@ -354,7 +354,7 @@ const it = (kind, size, value, qty = 1, name = kind) => ({ name, kind, size, val
   c2bad = await post('/api/palomas/orders', gated({ delivery: { ...body.delivery, notes: 'c2none ' + RUN, client2: null } }, 'z'));
   ok(c2bad.s === 200 && !c2bad.j.order.contact2, 'the second client is optional');
 
-  const stAv = await post('/api/palomas/orders', { ...gated({}, 'stairs'), items: [{ name: sofa.name, kind: sofa.kind, catalogId: sofa.id, qty: 1 }], access: { mode: 'stairs', flights: '3' } });
+  const stAv = await post('/api/palomas/orders', { ...gated({}, 'stairs'), items: [{ name: sofa.name, kind: sofa.kind, catalogId: sofa.id, qty: 1 }], access: { mode: 'stairs', flights: '3', shape: 'straight', tight: 'no' } });
   ok(stAv.s === 200 && stAv.j.order.quote.lines.some((l) => /^Stairs/.test(l.label) && l.amount === 300), 'a stairs order carries the stairs fee line up front (1 sofa, 85", x 3 flights x $100 = $300)');
   ok(stAv.j.order.accessReview === false, 'stairs no longer sends the order to access review (it is priced up front)');
   ok(near(stAv.j.order.quote.dueNow, stAv.j.order.quote.total), 'the stairs fee is part of what is due today');

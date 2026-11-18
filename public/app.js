@@ -78,6 +78,9 @@ S.shipping = { ...fresh().shipping, ...(S.shipping || {}), customs: { ...fresh()
 let orderId = null, orderSig = null;   // order created at the moment of payment
 let existing = null;                    // an order opened from a payment link (?order=…)
 let payCanceled = false;                // back from Stripe without paying (?canceled=1)
+// First dates shown, then a Show more dates button (Dot, Nov 18).
+const FIRST_DAYS = 3; const moreDays = { pu: false, del: false };
+const dayWindow = (days, sel, key) => { const hide = !moreDays[key] && days.length > FIRST_DAYS && !days.slice(FIRST_DAYS).some((d) => d.date === sel); return { list: hide ? days.slice(0, FIRST_DAYS) : days, btn: hide ? `<button type="button" class="linkbtn show-more-dates" data-moredays="${key}">Show more dates (${days.length - FIRST_DAYS} more)</button>` : '' }; };
 let quoteData = null, avail = null, confirmed = null, delAvail = null;
 let payMethod = 'card';
 let saveMethod = false;
@@ -141,7 +144,7 @@ const fmtNum = (s) => {
   return (neg ? '-' : '') + grouped + (d != null ? '.' + d : '');
 };
 const COMMA_PATH = /\.(value|weight|qty)$/;
-const DEC_PATH = /\.weight$/;
+const DEC_PATH = /\.(weight|value)$/;
 const formatGrouped = (raw, allowDecimal) => {
   const s = uncomma(raw);
   if (s === '') return '';
@@ -561,6 +564,10 @@ const toggleRaw = (id, on, label, hint) => `<label class="toggle"><span>${label}
 
 // ---------- schedule helpers ----------
 const crossRegion = () => !!(quoteData && quoteData.regions && quoteData.regions.pickup && quoteData.regions.dropoff && quoteData.regions.pickup !== quoteData.regions.dropoff);
+const REGION_NAME = { NorCal: 'Northern California', SoCal: 'Southern California' };
+const regionName = (r) => REGION_NAME[r] || r || '';
+// Cross-region jobs (e.g. SF pickup, LA delivery): name both regions instead of one route label.
+const crossRegionLine = (rg) => (rg && rg.pickup && rg.dropoff && rg.pickup !== rg.dropoff ? `Pickup: ${regionName(rg.pickup)} · Delivery: ${regionName(rg.dropoff)}` : '');
 const needsTwoDates = () => !!(svc().needsPickup && svc().needsDropoff && !isShip());
 const routeHint = (day) => (day && day.routeType === 'downAndBack')
   ? `<p class="mini route-hint">This is a down-and-back route, so we have more flexibility to come early or on our way back.</p>`
@@ -593,10 +600,10 @@ function deliveryBlock() {
   const card = (d) => { const [w, m, n] = d.label.replace(',', '').split(' '); return `<button type="button" class="day ${S.schedule.deliveryDate === d.date ? 'on' : ''}" data-deldate="${d.date}"><div class="dw">${w}</div><div class="dd">${m} ${n}</div><div class="rg">${esc(d.shortLabel || d.routeLabel || d.region)}</div></button>`; };
   const sel = delAvail && (delAvail.days || []).find((d) => d.date === S.schedule.deliveryDate);
   const days = !delAvail ? '<p class="mini">Finding delivery days…</p>'
-    : `<div class="days" data-reqblock="deldate">${delAvail.days.map(card).join('')}</div>
+    : `<div class="days" data-reqblock="deldate">${dayWindow(delAvail.days, S.schedule.deliveryDate, 'del').list.map(card).join('')}</div>${dayWindow(delAvail.days, S.schedule.deliveryDate, 'del').btn}
       ${routeHint(sel)}
       ${S.schedule.deliveryDate ? timePrefBlock('schedule.deliveryTimePref', 'schedule.deliveryTimeNote') : ''}`;
-  const cross = crossRegion() ? `<p class="note">Pickup and delivery are in different regions, so delivery is usually 1–2 weeks later on the next ${esc(quoteData.regions.dropoff)} route day.</p>` : '';
+  const cross = crossRegion() ? `<p class="note">Pickup and delivery follow separate regional routes. Your selected dates are shown above.</p>` : '';
   const chip = `<div class="pickup-chip" data-pickup-chip><span><b>Pickup</b> ${esc(shortDate(S.schedule.date))}</span><button type="button" class="edit" data-change-pickup>Change</button></div>`;
   return `${chip}
     <h1 class="when-h1">Choose your delivery date</h1>
@@ -836,13 +843,13 @@ const views = {
     if (S.schedule.deliveryDate && !(S.schedule.deliveryTimePref || '').trim()) S.schedule.deliveryTimePref = 'none';
     return `<h1 class="when-h1">${title}</h1><p class="sub">${sub}</p>
       <div class="region">● ${esc(avail.area || region)} route</div>
-      <div class="days" data-reqblock="date">${avail.days.map(card).join('')}</div>
+      <div class="days" data-reqblock="date">${dayWindow(avail.days, S.schedule.date, 'pu').list.map(card).join('')}</div>${dayWindow(avail.days, S.schedule.date, 'pu').btn}
       ${intro ? `<p class="mini">${intro}</p>` : ''}
-      ${avail.rush.length ? `<h2>Need it sooner?</h2><div class="days">${avail.rush.map(card).join('')}</div>` : ''}
+      ${avail.rush.length ? `<h2>Need a different date?</h2><div class="days">${avail.rush.map(card).join('')}</div>` : ''}
       ${sel ? routeHint(sel) : ''}
       ${S.schedule.date ? timePrefBlock('schedule.timePref', 'schedule.timeNote', { showReassure: true }) : ''}
       ${deliveryBlock()}
-      ${ready ? promiseCard((sel && sel.routeLabel) || (region + ' route')) : ''}
+      ${ready ? promiseCard(crossRegionLine(quoteData && quoteData.regions) || (sel && sel.routeLabel) || (region + ' route')) : ''}
       <div class="card" style="margin-top:14px">${toggle('dedicated', 'Dedicated trip', 'A van and crew just for your job, at a time that works for you.', true, 'first')}</div>
       <p class="mini">Rush and dedicated trips are priced individually; you’ll see the price before paying.</p>`;
   },
@@ -872,7 +879,7 @@ const views = {
     const date = avail && [...avail.days, ...avail.rush].find((d) => d.date === S.schedule.date);
     const siteRows = (label, a) => (a && a.street ? `<div class="sum-row"><span>${label}</span><span>${addr(a)}<br><span class="muted">${esc(a.contactName)} · ${esc(formatPhone(a.contactPhone))}${a.sameAsMe ? (S.contact.clientType ? ` · ${esc(S.contact.clientType)}` : '') : a.contactRole ? ` · ${esc(a.contactRole === 'Other' ? (a.contactRoleOther || 'Other') : a.contactRole)}` : ''}</span></span></div>` : '');
     return `<h1>${sp ? 'Review your request' : 'Review & pay'}</h1><p class="sub">${sp ? 'CAD sets the final price before anything is charged.' : 'Your job is booked as soon as payment goes through. We’ll email your confirmation right away.'}</p>
-      ${promiseCard((date && date.routeLabel) || (avail && avail.region ? avail.region + ' route' : 'Route day'), 'margin-top:0')}
+      ${promiseCard(crossRegionLine(quoteData && quoteData.regions) || (date && date.routeLabel) || (avail && avail.region ? avail.region + ' route' : 'Route day'), 'margin-top:0')}
       <div class="card">
         <div class="sum-row"><span>Service</span><span>${esc(svc().label)}${S.rush ? ' · rush' : ''}${S.dedicated ? ' · dedicated trip' : ''} <button type="button" class="edit" data-goto="0">Edit</button></span></div>
         <div class="sum-row"><span>Pieces</span><span>${S.items.map((i) => `${esc(fmtNum(i.qty) || i.qty)}× ${esc(i.description)}<br><span class="muted">${esc([TYPE_LABEL(i.type), framingText(i), i.weightUnsure ? 'weight not sure' : (i.weight ? fmtNum(i.weight) + ' lb' : ''), i.fragile ? 'special handling' : ''].filter(Boolean).join(' · '))}</span>`).join('<br>')}</span></div>
@@ -970,7 +977,7 @@ const views = {
     return `<div class="done"><div class="check">✓</div><h1>${shipDone ? 'Your shipment is confirmed.' : `You’re booked for ${esc(longDate(o.schedule.date))}.`}</h1>${delLine}
       <p class="sub">Order <b>${esc(o.id)}</b> is confirmed. A confirmation is on its way to ${esc(o.contact.email)}. ${shipDone ? 'Samantha will confirm packing and pickup dates by email.' : 'We’ll be in touch before your date to confirm the arrival window.'}</p></div>
       <div class="card"><div class="sum-row"><span>Service</span><span>${esc(o.serviceLabel)}</span></div>
-      ${shipDone ? `<div class="sum-row"><span>Timing</span><span>${esc(timingText(o.shipping || {}))}</span></div><div class="sum-row"><span>Destination</span><span>${destText(o.dropoff)}</span></div>` : `<div class="sum-row"><span>Route</span><span>${esc(o.schedule.region)}</span></div>`}
+      ${shipDone ? `<div class="sum-row"><span>Timing</span><span>${esc(timingText(o.shipping || {}))}</span></div><div class="sum-row"><span>Destination</span><span>${destText(o.dropoff)}</span></div>` : `<div class="sum-row"><span>Route</span><span>${esc(crossRegionLine((o.quote || {}).regions) || (regionName(((o.quote || {}).regions || {}).pickup || o.schedule.region) + ' route'))}</span></div>`}
       <div class="sum-row"><span>Payment</span><span>${ach ? `<b>ACH processing</b> · ${fmt(p.amount)}` : `Paid ${fmt(p.amount)}`} · ${how}${p.method && p.method.startsWith('mock') ? ' (test)' : ''}${p.saved ? ' · saved' : ''}</span></div>
       ${o.quote.paymentPlan === 'deposit' ? `<div class="sum-row"><span>Balance due ${esc(o.quote.balanceWhen)}</span><span class="amt"><b>${fmt(o.quote.balanceDue)}</b></span></div>` : ''}
       <div class="total"><span>${accessTbc(o.quote) ? CADAccess.TBC_TOTAL : 'Order total'}</span><span class="amt">${fmt(o.quote.total)}</span></div>
@@ -1134,6 +1141,13 @@ function setReqMsg(wrap, text) {
 let lastMissingSels = new Set();
 const okUntil = new Map();
 let okTimer;
+// Required fields stay neutral until the person touches them (or tries to continue): no red before interaction (Dot, Nov 18).
+const touchedSels = new Set(); let attemptedStep = false;
+const touchFrom = (t) => {
+  if (!t || !t.closest || !app.contains(t)) return;
+  missingFields().forEach((m) => { const el = reqEl(m.sel); const w = reqWrap(el); if ((el && (el === t || el.contains(t))) || (w && w.contains(t))) touchedSels.add(m.sel); });
+};
+['focusout', 'change', 'click'].forEach((ev) => app.addEventListener(ev, (e) => { if (ev === 'click' && e.target.closest && !e.target.closest('.seg,.chip,.day,.choice,.choices,.upload,[data-v]')) return; touchFrom(e.target); if (STEPS[step] !== 'Done') setTimeout(paintRequired, 0); }));
 function paintRequired() {
   const miss = missingFields();
   const missSels = new Set(miss.map((m) => m.sel));
@@ -1146,6 +1160,7 @@ function paintRequired() {
     el.classList.remove('need', 'need-ok');
   });
   miss.forEach((m) => {
+    if (!attemptedStep && !touchedSels.has(m.sel)) return;
     const w = wrapFor(m);
     if (!w) return;
     w.classList.add('need');
@@ -1179,6 +1194,7 @@ function paintRequired() {
   measureDock();
 }
 function revealFirstMissing() {
+  attemptedStep = true; paintRequired();
   const miss = missingFields();
   if (!miss.length) return;
   const el = reqEl(miss[0].sel);
@@ -1192,7 +1208,7 @@ function revealFirstMissing() {
 }
 
 // ---------- estimate (dock) ----------
-let qTimer, qSeq = 0;
+let qTimer, qSeq = 0, quotePending = false;
 function paintEstimate() {
   const el = $('#estTotal'), lbl = $('#estLabel');
   const q = existing ? existing.quote : quoteData;
@@ -1215,12 +1231,15 @@ function paintEstimate() {
 function refreshQuote() {
   if (existing) { paintEstimate(); return; }
   clearTimeout(qTimer);
+  if (S.service) { quotePending = true; const lb = $('#estLabel'); if (lb && STEPS[step] !== 'Done') lb.textContent = 'Updating estimate…'; updateNext(); }
   qTimer = setTimeout(async () => {
-    if (!S.service) { paintEstimate(); return; }
+    if (!S.service) { quotePending = false; paintEstimate(); return; }
     const seq = ++qSeq;
     const { ok, j } = await api('/api/quote', payload());
-    if (seq !== qSeq || !ok) return;
-    quoteData = j; paintEstimate();
+    if (seq !== qSeq) return;
+    quotePending = false;
+    if (!ok) { paintEstimate(); updateNext(); return; }
+    quoteData = j; paintEstimate(); updateNext();
     if (STEPS[step] === 'Pay' && !isShip()) { const pc = document.querySelector('[data-price]'); if (pc) pc.outerHTML = `<div data-price>${priceCard(quoteData, true)}</div>`; }
   }, 120);
 }
@@ -1234,13 +1253,13 @@ function paintButton() {
     else btn.textContent = isShip() ? 'Request quote' : S.rush ? 'Request a rush quote' : 'Request a quote';
   } else btn.textContent = 'Continue';
   const wait = !canContinue();
-  if (busy) { btn.disabled = true; btn.classList.remove('is-wait'); btn.removeAttribute('aria-disabled'); }
+  if (busy || quotePending) { btn.disabled = true; btn.classList.remove('is-wait'); btn.removeAttribute('aria-disabled'); }
   else { btn.disabled = false; btn.classList.toggle('is-wait', wait); if (wait) btn.setAttribute('aria-disabled', 'true'); else btn.removeAttribute('aria-disabled'); }
   paintRequired();
 }
 
 // ---------- render ----------
-let lastStep = -1;
+let lastStep = -1, poppingStep = false;
 function render() {
   if ((S.items || []).some(routeDecorMirror)) persist();
   const name = STEPS[step];
@@ -1249,6 +1268,14 @@ function render() {
   else if (name !== 'Done') sessionStorage.setItem('cad-step', String(step));
   lastShipKey = shipKey(); lastPhotoKey = itemKey();
   const stepChanged = step !== lastStep;
+  if (stepChanged) {
+    touchedSels.clear(); attemptedStep = false;
+    // Browser Back / Forward walks the booking steps instead of leaving the page (Nov 18 audit).
+    try {
+      if (lastStep === -1 || poppingStep || name === 'Done') history.replaceState({ cadStep: step }, '');
+      else history.pushState({ cadStep: step }, '');
+    } catch (_) { /* history unavailable: ignore */ }
+  }
   lastStep = step;
   // Keep the user's scroll position on in-step re-renders (toggles, chips). Only a new step starts at the top.
   const y = window.scrollY;
@@ -1407,6 +1434,7 @@ app.addEventListener('input', (e) => {
   const p = e.target.dataset.path; if (!p) return;
   if (e.target.dataset.comma || COMMA_PATH.test(p)) {
     const allowDec = DEC_PATH.test(p);
+    e.target.value = e.target.value.replace(/[$\s\u00a0]/g, ''); // pasted “$12,000” or “12 000” still works
     const caret = e.target.selectionStart;
     const digitsBefore = e.target.value.slice(0, caret).replace(/[^\d.]/g, '').length;
     const formatted = formatGrouped(e.target.value, allowDec);
@@ -1528,6 +1556,7 @@ app.addEventListener('click', async (e) => {
   if (sg) { const v = t.dataset.v; set(sg.dataset.seg, isNaN(v) ? v : Number(v)); render(); return; }
   const paySeg = t.closest('[data-pay-method]'); if (paySeg) { payMethod = t.dataset.v; render(); return; }
   const chips = t.closest('[data-chips]'); if (chips) { set(chips.dataset.chips, t.dataset.v); render(); return; }
+  if (t.dataset.moredays) { moreDays[t.dataset.moredays] = true; render(); return; }
   if (t.dataset.date) {
     const changed = S.schedule.date !== t.dataset.date;
     S.schedule.date = t.dataset.date; S.rush = !!t.dataset.rush;
@@ -1622,12 +1651,18 @@ async function pay(method) {
   } finally { busy = false; if (STEPS[step] !== 'Done') updateNext(); }
 }
 
+window.addEventListener('popstate', (e) => {
+  const st = e.state && e.state.cadStep;
+  if (st == null || busy || STEPS[step] === 'Done' || confirmed) return;
+  const maxStep = orderId || existing ? STEPS.indexOf('Pay') : STEPS.indexOf('Pay') - 1; // never jump forward into payment without an order
+  poppingStep = true; step = Math.max(0, Math.min(st, maxStep)); render(); poppingStep = false;
+});
 $('#backBtn').addEventListener('click', () => { step = Math.max(0, step - 1); render(); });
 const needLine = $('#needLine');
 if (needLine) needLine.addEventListener('click', () => revealFirstMissing());
 
 $('#nextBtn').addEventListener('click', async () => {
-  if (busy) return;
+  if (busy || quotePending) return;
   if (!canContinue()) { revealFirstMissing(); return; }
   const name = STEPS[step];
   if (name === 'Pay') return pay(CFG.stripe ? 'stripe' : payMethod);

@@ -205,3 +205,13 @@ html{scroll-padding-bottom:96px;scroll-padding-top:12px}
 .pin button{border:1.5px solid #d9d5cb;background:#fff;border-radius:10px;padding:0 10px;color:var(--muted);cursor:pointer}
 .paymore{display:flex;justify-content:flex-start;margin:0}
 .payopt{margin:8px 0 0}
+.cdims{border:0;margin:0 0 12px;padding:0;min-width:0}.cdims legend{padding:0;margin-bottom:6px}
+.cdims .grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:10px;align-items:end}.cdims input[type=file]{width:100%;font-size:14px}
+.cdims .grid2{align-items:end}
+#cErr{color:#b3261e;margin:0 0 10px}
+.irow .cspec{font-size:12.5px;color:var(--muted);margin-top:2px}
+.irow .cspec b{color:var(--navy)}
+.sl.est{opacity:.8}
+.updating{color:var(--muted);font-style:italic}
+.skip{position:absolute;left:-9999px;top:0;background:#fff;color:#0f1b2d;padding:10px 14px;z-index:99;border-radius:0 0 10px 0}
+.skip:focus{left:0}

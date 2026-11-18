@@ -8,7 +8,7 @@ const num = (v) => { const n = Number(String(v ?? '').replace(/[,$\s]/g, '')); r
 let CFG = null;
 const S = {
   placedBy: '', placedOther: '', pickup: 'salinas', items: [], courtesy: false, staffOpen: false, payOpen: false, unlocked: false, pin: '', pinFor: '', pinVal: '', puMore: false, deMore: false, puFrom: '', deFrom: '',
-  payer: 'client', card: '', exp: '', cvc: '', payError: '',
+  payer: 'client', card: '', exp: '', cvc: '', payError: '', quoteBusy: false,
   pickupDate: '', deliveryDate: '', puDays: [], deDays: [], quote: null, submitting: false, errors: [], showErrors: false,
 };
 let uid = 1, cat = 'All', quoteTok = 0, availTok = 0, qTimer = 0, aTimer = 0;
@@ -24,12 +24,12 @@ const delivery = () => ({
   name: $('#dName').value.trim(), phone: $('#dPhone').value.trim(), email: $('#dEmail').value.trim(), street: $('#dStreet').value.trim(),
   unit: $('#dUnit').value.trim(), city: $('#dCity').value.trim(), state: ($('#dState').value.trim() || 'CA').toUpperCase(), zip: $('#dZip').value.trim(), notes: $('#dNotes').value.trim(), client2: client2(),
 });
-const access = () => ({ mode: $('#aMode').value, flights: $('#aFlights').value, flightsCount: $('#aFlightsN').value.trim(), floor: $('#aFloor').value.trim(), elevatorType: $('#aElevType').value, elevatorReserve: $('#aElevRes').checked, elevSteps: $('#aElevSteps').value, elevStepsN: $('#aElevStepsN').value.trim(), hours: $('#aHours').value.trim() });
+const access = () => ({ shape: $('#aShape').value, tight: $('#aTight').value, mode: $('#aMode').value, flights: $('#aFlights').value, flightsCount: $('#aFlightsN').value.trim(), floor: $('#aFloor').value.trim(), elevatorType: $('#aElevType').value, elevatorReserve: $('#aElevRes').checked, elevSteps: $('#aElevSteps').value, elevStepsN: $('#aElevStepsN').value.trim(), hours: $('#aHours').value.trim() });
 const outOfState = () => { const d = delivery(); const z = parseInt(d.zip.slice(0, 3), 10); return (d.state && d.state !== 'CA') || (/^\d{5}/.test(d.zip) && !(z >= 900 && z <= 961)); };
 const payload = (payMode = 'now') => ({
   payer: S.payer, payMode,
   placedBy: { name: S.placedBy, other: S.placedOther }, pickupLocation: S.pickup, courtesy: S.courtesy, ...(S.unlocked ? { pin: S.pin } : {}),
-  items: S.items.map((i) => ({ name: i.name, kind: i.kind, qty: i.qty, catalogId: i.catalogId, custom: !!i.custom, w: i.w, h: i.h })),
+  items: S.items.map((i) => ({ name: i.name, kind: i.kind, qty: i.qty, catalogId: i.catalogId, custom: !!i.custom, w: i.w, h: i.h, ...(i.custom ? { d: i.d, weight: i.weight, weightUnsure: !!i.weightUnsure, photos: i.photos || [], photoLater: !!i.photoLater } : {}) })),
   delivery: delivery(), access: access(), schedule: { date: S.pickupDate, deliveryDate: S.deliveryDate },
 });
 async function api(url, body) {
@@ -49,9 +49,9 @@ function renderCatalog() {
   const added = (c) => S.items.find((i) => i.catalogId === (c.id || c.name));
   $('#catalog').innerHTML = list.length ? list.map((c) => {
     const a = added(c);
-    return `<button type="button" class="pcard" data-add="${esc(c.id || c.name)}" aria-label="Add ${esc(c.name)}">
+    return `<button type="button" class="pcard" data-add="${esc(c.id || c.name)}" aria-label="Add ${esc(c.name)}, ${esc(c.dims || c.kind)}">
       <div class="th">${c.id ? `<img src="/palomas/thumbs/${esc(c.id)}.jpg" alt="" loading="lazy" onerror="this.replaceWith(document.createTextNode('◇'))">` : '◇'}</div>
-      <div class="pt"><b>${esc(c.name)}</b><span>${esc(c.dims || c.kind)}</span></div>${a ? `<i class="added">× ${a.qty}</i>` : ''}</button>`;
+      <div class="pt"><b>${esc(c.name)}</b><span>${esc(c.kind)}${c.dims ? ' · ' + esc(c.dims) : ''}</span></div>${a ? `<i class="added">× ${a.qty}</i>` : ''}</button>`;
   }).join('') : `<div class="none">No match. Use “Add a custom item” below.</div>`;
   $('#catalogNote').textContent = `${CFG.catalog.length} pieces from palomascarmel.com. Don't see it? Add a custom item.`;
 }
@@ -73,7 +73,8 @@ function renderItems() {
         <div class="ctl">
           <div><span class="lbl">Qty</span><div class="qty"><button type="button" data-q="-1" aria-label="Fewer">−</button><input data-f="qty" value="${i.qty}" inputmode="numeric" aria-label="Quantity"><button type="button" data-q="1" aria-label="More">+</button></div></div>
         </div>
-        ${isMirror(i.kind) ? `<div class="dims">Face size, optional: <input data-f="w" value="${esc(i.w)}" inputmode="numeric" placeholder="W"> × <input data-f="h" value="${esc(i.h)}" inputmode="numeric" placeholder="H"> in</div>` : ''}
+        ${i.custom ? `<div class="cspec">${[i.w && i.d && i.h ? `<b>${esc(i.w)} × ${esc(i.d)} × ${esc(i.h)} in</b>` : '', i.weightUnsure ? 'weight not sure' : i.weight ? `<b>~${esc(i.weight)} lb</b>` : '', (i.photos || []).length ? `${i.photos.length} photo${i.photos.length > 1 ? 's' : ''}` : i.photoLater ? 'photo to follow' : ''].filter(Boolean).join(' · ')}</div>` : ''}
+        ${isMirror(i.kind) && !i.custom ? `<div class="dims">Face size, optional: <input data-f="w" value="${esc(i.w)}" inputmode="numeric" placeholder="W"> × <input data-f="h" value="${esc(i.h)}" inputmode="numeric" placeholder="H"> in</div>` : ''}
       </div><button type="button" class="rm" data-rm="1" aria-label="Remove ${esc(i.name)}">×</button></div>`;
   }).join('');
 }
@@ -84,13 +85,13 @@ function itemsChanged(rerenderRows) {
 }
 
 /* ---------- pricing + summary ---------- */
-function scheduleQuote() { clearTimeout(qTimer); qTimer = setTimeout(runQuote, 180); }
+function scheduleQuote() { clearTimeout(qTimer); if (S.items.length && !S.quoteBusy) { S.quoteBusy = true; renderSummary(); } else S.quoteBusy = S.items.length ? true : false; qTimer = setTimeout(runQuote, 180); }
 async function runQuote() {
   const tok = ++quoteTok;
-  if (!S.items.length) { S.quote = null; renderSummary(); return; }
+  if (!S.items.length) { S.quote = null; S.quoteBusy = false; renderSummary(); return; }
   const { ok, j } = await api('/api/palomas/quote', payload());
   if (tok !== quoteTok) return;
-  S.quote = ok ? j : null; renderSummary(); renderDatesVisibility();
+  S.quote = ok ? j : null; S.quoteBusy = false; renderSummary(); renderDatesVisibility(); syncStairsQ();
 }
 function problems() {
   const out = [];
@@ -117,6 +118,7 @@ function problems() {
   if (!a.mode) add('How we get in at delivery', '#aMode');
   if (a.mode === 'stairs' && !a.flights) add('Flights of stairs', '#aFlights');
   if (a.mode === 'stairs' && a.flights === '4plus' && !(parseInt(a.flightsCount, 10) >= 4)) add('How many flights (4 or more)', '#aFlightsN');
+  if (a.mode === 'stairs' && a.flights && S.quote && S.quote.stairsFollowUp) { if (!a.shape) add('Are the stairs straight or do they turn', '#aShape'); if (!a.tight) add('Any tight turns or narrow doorways', '#aTight'); }
   if (a.mode === 'elevator' && !a.floor) add('Elevator floor', '#aFloor');
   if (a.mode === 'elevator' && !a.elevatorType) add('Which elevator (freight or passenger)', '#aElevType');
   if (a.mode === 'elevator' && !a.elevSteps) add('Any steps before or after the elevator', '#aElevSteps');
@@ -153,13 +155,14 @@ function payBlock(q) {
     <label class="prow ${S.payer === 'client' ? 'on' : ''}"><input type="radio" name="payer" value="client" ${S.payer === 'client' ? 'checked' : ''}><span><b>Client pays now</b><small>Card payment at checkout</small></span></label>
     ${S.payOpen ? `<label class="prow ${S.payer === 'palomas' ? 'on' : ''}"><input type="radio" name="payer" value="palomas" ${S.payer === 'palomas' ? 'checked' : ''}><span><b>Paloma's Pay</b><small>Same card checkout, billed to Paloma's</small></span></label>` : ''}
   </div>
-  <div class="paymore"><button type="button" class="chev ${S.payOpen ? 'open' : ''}" id="payMore" aria-label="More" aria-expanded="${S.payOpen ? 'true' : 'false'}">${CHEV_SVG}</button></div>${pinHtml('payOpen')}
+  <div class="paymore"><button type="button" class="chev ${S.payOpen ? 'open' : ''}" id="payMore" aria-label="More (checkout)" aria-expanded="${S.payOpen ? 'true' : 'false'}">${CHEV_SVG}</button></div>${pinHtml('payOpen')}
   <p class="mini payerline" id="payerLine">${payerLineHtml()}</p>`;
   h += deposit
     ? `<div class="sl big rule due"><span>Due today<small>${esc(pay.paymentSummary || '')}</small></span><span class="a">${usd(pay.dueNow)}</span></div>`
-    : `<div class="sl big rule due"><span>Due today<small>${esc(pay.paymentSummary || 'Covers the delivery as quoted')}</small></span><span class="a">${usd(pay.dueNow || q.total)}</span></div>`;
+    : `<div class="sl big rule due"><span>Due today<small>${esc(q.accessReview ? 'Estimated, before access check' : (pay.paymentSummary || 'Covers the delivery as quoted'))}</small></span><span class="a">${usd(pay.dueNow || q.total)}</span></div>`;
+  if (q.accessReview) h += `<p class="mini access-note" data-access-review>${esc(q.accessFeeNote)}</p>`;
   if (mock) {
-    h += `<div class="cardbox"><div class="wallets"><button type="button" class="btn ghost wal" data-wallet="apple_pay">Apple Pay</button><button type="button" class="btn ghost wal" data-wallet="google_pay">Google Pay</button></div>
+    h += `<div class="cardbox"><div class="wallets"><button type="button" class="btn ghost wal" data-wallet="apple_pay" ${S.quoteBusy ? 'disabled' : ''}>Apple Pay</button><button type="button" class="btn ghost wal" data-wallet="google_pay" ${S.quoteBusy ? 'disabled' : ''}>Google Pay</button></div>
       <div class="or">or pay by card <em>test mode, no real charge</em></div>
       <label class="field"><span class="lbl">Card number</span><input id="cardNum" type="text" inputmode="numeric" autocomplete="cc-number" maxlength="23" value="${esc(S.card)}" placeholder="4242 4242 4242 4242"></label>
       <div class="two"><label class="field"><span class="lbl">Expiry</span><input id="cardExp" type="text" inputmode="numeric" autocomplete="cc-exp" maxlength="7" value="${esc(S.exp)}" placeholder="MM / YY"></label>
@@ -167,7 +170,7 @@ function payBlock(q) {
   } else if (!offline) h += `<p class="mini" style="margin:8px 0">You'll finish on our secure Stripe checkout page: card, Apple Pay, Google Pay, Link and more.</p>`;
   else h += `<p class="mini" style="margin:8px 0">Online payment isn't available right now. Please call us.</p>`;
   if (S.payError) h += `<div class="errs" role="alert"><b>Payment didn't go through.</b>${esc(S.payError)}</div>`;
-  h += `<button type="button" class="btn primary wide" id="place" ${S.submitting || offline ? 'disabled' : ''}>${S.submitting ? 'Processing…' : 'Pay &amp; lock in delivery'}</button>`;
+  h += `<button type="button" class="btn primary wide" id="place" ${S.submitting || offline || S.quoteBusy ? 'disabled' : ''}>${S.submitting ? 'Processing…' : S.quoteBusy ? 'Updating estimate…' : 'Pay &amp; lock in delivery'}</button>`;
   if (S.payer === 'client') h += `<p class="linkrow"><button type="button" class="linkbtn" id="sendLink" ${S.submitting ? 'disabled' : ''}>Client can't pay now? Email them a payment link.</button></p>
     <p class="mini linknote">We email the client a link. The delivery isn't scheduled until it's paid.</p>`;
   return h;
@@ -181,24 +184,24 @@ function renderSummary() {
   }
   let html = '';
   if (q.special) {
-    html = `<div class="special"><b>Delivery outside California is quoted as Shipping.</b><br>${esc(q.quoteNote || 'Samantha prices it and emails you a quote. Nothing is charged until it is approved.')}</div>`;
+    html = `<div class="special"><b>Delivery outside California is quoted as Shipping.</b><br>${esc('Our team will email your shipping quote. No charge until you approve it.')}</div>`;
     barTotal.textContent = 'Quote'; 
   } else {
     const extras = q.volumeOff > 0 || q.courtesyOff > 0;
     const each = (l) => (l.qty > 1 ? ` · ${Math.round(l.after * 100) % l.qty === 0 ? '' : 'about '}${usd(l.each)} each` : '');
     html += q.lines.map((l) => `<div class="li"><div class="li-l">${esc(l.label)}</div>
-      <div class="li-p">${l.standard != null && l.standard !== l.amount ? `<s>${usd(l.standard)}</s> ` : ''}<b>${usd(l.amount)}</b><small> partnership price</small></div>
+      <div class="li-p">${l.standard != null && l.standard !== l.amount ? `<s>${usd(l.standard)}</s> ` : ''}<b>${usd(l.amount)}</b>${l.standard != null && l.standard !== l.amount ? '<small> partnership price</small>' : ''}</div>
       ${extras ? `<div class="li-all"><span>After all discounts${esc(each(l))}</span><b>${usd(l.after)}</b></div>` : ''}</div>`).join('');
-    html += `<div class="sl partner"><span>Paloma's Home Furnishings partnership pricing<small>25% off our standard rates</small></span><span class="a"><s>${usd(q.standard)}</s>${usd(q.partner)}</span></div>`;
+    html += `<div class="sl partner"><span>Paloma's Home Furnishings partnership pricing<small>25% off standard pickup, delivery and placement. Access charges (like stairs) are additional.</small></span><span class="a"><s>${usd(q.standard)}</s>${usd(q.partner)}</span></div>`;
     if (q.volumeEligible) html += `<div class="sl disc"><span>Additional ${q.rules.volumePct}% off (delivery orders of $${q.rules.volumeThreshold.toLocaleString('en-US')}+ after partnership pricing)</span><span class="a">−${usd(q.volumeOff)}</span></div>`;
     html += `<div class="sum-note">${q.volumeEligible ? '✓ ' : ''}Delivery orders of $${q.rules.volumeThreshold.toLocaleString('en-US')} or more (after partnership pricing) get an additional ${q.rules.volumePct}% off the whole delivery price.</div>`;
     if (q.courtesy) html += `<div class="sl disc"><span>Manager's courtesy</span><span class="a">−${usd(q.courtesyOff)}</span></div>`;
-    html += `<div class="sl big rule"><span>Total</span><span class="a">${q.standard !== q.total ? `<s>${usd(q.standard)}</s>` : ''}${usd(q.total)}</span></div>`;
+    html += `<div class="sl big rule"><span>${esc(q.totalLabel || 'Total')}</span><span class="a">${q.standard !== q.total ? `<s>${usd(q.standard)}</s>` : ''}${usd(q.total)}</span></div>`;
     // Discreet control: a small unlabeled chevron (aria-label "More"); the checkbox only exists in the page while it is expanded.
-    html += `<div class="more"><button type="button" class="chev ${S.staffOpen ? 'open' : ''}" id="more" aria-label="More" aria-expanded="${S.staffOpen ? 'true' : 'false'}" aria-controls="morePanel">${CHEV_SVG}</button></div>${pinHtml('staffOpen')}`;
+    html += `<div class="more"><button type="button" class="chev ${S.staffOpen ? 'open' : ''}" id="more" aria-label="More (order summary)" aria-expanded="${S.staffOpen ? 'true' : 'false'}" aria-controls="morePanel">${CHEV_SVG}</button></div>${pinHtml('staffOpen')}`;
     if (S.staffOpen) html += `<div id="morePanel" class="morepanel"><label class="mc"><input type="checkbox" id="mc" ${S.courtesy ? 'checked' : ''}><span>Manager's courtesy (−${q.rules.courtesyPct}%)</span></label></div>`;
     if (q.notes && q.notes.length) html += q.notes.filter((n) => !/access/i.test(n)).map((n) => `<p class="mini">${esc(n)}</p>`).join('');
-    barTotal.textContent = usd(q.total);
+    barTotal.textContent = S.quoteBusy ? 'Updating…' : usd(q.total);
   }
   $('#bar').hidden = false;
   const errs = S.showErrors ? problems() : [];
@@ -217,7 +220,7 @@ function renderDatesVisibility() {
     : /^\d{5}/.test(d.zip) ? 'Pick a pickup day, then a delivery day. We pre-selected the earliest.' : 'Enter the delivery ZIP above and the available days appear here. We pre-select the earliest.';
 }
 const dayCard = (d, on, i, kind) => { const [w, m, n] = String(d.label).replace(',', '').split(' '); return `<button type="button" class="day ${on ? 'on' : ''} ${i === 0 ? 'early' : ''}" data-${kind}="${d.date}"><div class="dw">${esc(w)}</div><div class="dd">${esc(m)} ${esc(n)}</div><div class="rg">${esc(d.shortLabel || d.region || '')}</div></button>`; };
-const SHOW_FIRST = 6; // the first few days, then "More dates" (up to 14) and "Later date"
+const SHOW_FIRST = 3; // the next 3 days, then "Show more dates" (up to 14) and "Later date"
 function dayList(days, sel, kind, more) {
   const selIdx = days.findIndex((d) => d.date === sel);
   const all = more || selIdx >= SHOW_FIRST;
@@ -228,7 +231,7 @@ function dayCtl(days, sel, kind) {
   const selIdx = days.findIndex((d) => d.date === sel);
   const hidden = days.length > SHOW_FIRST && !(more || selIdx >= SHOW_FIRST);
   const min = (days[0] || {}).date || '';
-  return `${hidden ? `<button type="button" class="linkbtn" data-more="${kind}">More dates (${days.length - SHOW_FIRST} more)</button>` : ''}
+  return `${hidden ? `<button type="button" class="linkbtn" data-more="${kind}">Show more dates (${days.length - SHOW_FIRST} more)</button>` : ''}
     <label class="later">Later date <input type="date" data-later="${kind}" min="${esc(from ? '' : min)}" value="${esc(from)}" aria-label="Choose a later ${kind === 'pu' ? 'pickup' : 'delivery'} date"></label>
     ${from ? `<button type="button" class="linkbtn" data-back="${kind}">Back to earliest dates</button>` : ''}`;
 }
@@ -262,6 +265,7 @@ async function refreshDelivery(tok = availTok) {
 
 /* ---------- submit ---------- */
 async function place(mode = 'now', wallet = '') {
+  if (S.quoteBusy) return; // wait for the latest estimate before anything is charged or sent
   S.showErrors = true; S.payError = '';
   const errs = problems();
   if (errs.length) {
@@ -287,12 +291,13 @@ async function place(mode = 'now', wallet = '') {
 }
 function markBad(errs) { document.querySelectorAll('.bad').forEach((e) => e.classList.remove('bad')); errs.forEach((e) => { const el = $(e.sel); if (el && /^(INPUT|SELECT|TEXTAREA)$/.test(el.tagName)) el.classList.add('bad'); }); }
 function showDone(j, how) {
+  clearTimeout(draftTimer); try { sessionStorage.removeItem(DRAFT_KEY); } catch (_) { /* ignore */ }
   const o = j.order || {}; const q = j.quote || {}; const d = delivery();
   const shipping = o.status === 'pending_approval';
   const day = (s) => (s ? new Date(s + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' }) : '');
   $('#main').innerHTML = `<div class="done"><div class="ck">✓</div>
     <h2>${shipping ? 'Shipping quote requested' : how === 'link' ? 'Payment link sent' : 'Delivery locked in'}</h2>
-    <p class="sub">Order <b>${esc(o.id || j.id)}</b>${shipping ? ' · Samantha will price it and email a quote.' : how === 'link' ? ` · we emailed ${esc(d.email)} a payment link. <b>Awaiting payment — not scheduled until paid.</b> We'll send a reminder each day until it's paid.` : ' · paid, and we have it from here.'}</p>
+    <p class="sub">Order <b>${esc(o.id || j.id)}</b>${shipping ? ' · Our team will email your shipping quote. No charge until you approve it.' : how === 'link' ? ` · we emailed ${esc(d.email)} a payment link. <b>Awaiting payment — not scheduled until paid.</b> We'll send a reminder each day until it's paid.` : ' · paid, and we have it from here.'}</p>
     <div class="box">
       <p><b>Placed by</b> ${esc(S.placedBy === 'Other' ? S.placedOther : S.placedBy)}</p>
       <p><b>Pickup</b> ${esc(S.pickup === 'salinas' ? 'Salinas warehouse, 329 Rianda St' : 'Carmel-by-the-Sea showroom, Ocean Ave at Mission St')}${S.pickupDate && !shipping ? ' · ' + esc(day(S.pickupDate)) : ''}</p>
@@ -329,12 +334,41 @@ function bind() {
   const kind = $('#cKind');
   kind.innerHTML = `<optgroup label="Furniture">${CFG.kinds.furniture.map((k) => `<option>${esc(k)}</option>`).join('')}</optgroup>` +
     CFG.kinds.groups.map((g) => `<optgroup label="${esc(g.label === 'Wall' ? 'Wall décor & mirrors' : g.label === 'Lighting' ? 'Lighting' : 'Accents & objects')}">${g.items.map((k) => `<option>${esc(k)}</option>`).join('')}</optgroup>`).join('');
-  $('#cAdd').addEventListener('click', () => {
-    const n = $('#cName').value.trim();
-    $('#cName').classList.toggle('bad', !n);
-    if (!n) return;
-    S.items.push({ uid: uid++, name: n, kind: kind.value, qty: 1, catalogId: 'custom-' + uid, custom: true, thumb: '', dims: '', w: '', h: '' });
-    $('#cName').value = ''; itemsChanged(true);
+  const cNum = (id) => num($(id).value);
+  const cHeavy = () => cNum('#cWt') > 500 || $('#cWtUnsure').checked;
+  const syncCustomPhoto = () => {
+    const heavy = cHeavy(); $('#cLaterWrap').hidden = false;
+    $('#cPhotoReq').textContent = heavy ? '(required: over 500 lb or weight not sure. Add one, or tick “I’ll send a photo”)' : '(optional)';
+  };
+  ['#cWt', '#cWtUnsure'].forEach((id) => $(id).addEventListener('input', syncCustomPhoto));
+  $('#cWtUnsure').addEventListener('change', () => { $('#cWt').disabled = $('#cWtUnsure').checked; if ($('#cWtUnsure').checked) $('#cWt').value = ''; syncCustomPhoto(); });
+  syncCustomPhoto();
+  $('#cAdd').addEventListener('click', async () => {
+    const n = $('#cName').value.trim(); const err = $('#cErr'); const bad = [];
+    const mark = (id, isBad) => { $(id).classList.toggle('bad', isBad); if (isBad) bad.push(id); };
+    mark('#cName', !n); ['#cL', '#cW', '#cH'].forEach((id) => mark(id, !(cNum(id) > 0)));
+    mark('#cWt', !$('#cWtUnsure').checked && !(cNum('#cWt') > 0));
+    const files = [...($('#cPhoto').files || [])];
+    const needPhoto = cHeavy() && !files.length && !$('#cLater').checked;
+    if (needPhoto) bad.push('#cPhoto');
+    if (bad.length) {
+      err.hidden = false;
+      err.textContent = needPhoto && bad.length === 1 ? 'Heavy or unknown-weight pieces need a photo. Add one, or tick “I’ll send a photo”.' : 'Please add the item name, length, width, height and approximate weight (or tick “Not sure of the weight”).';
+      const f = $(bad[0]); if (f && f.focus) f.focus({ preventScroll: true }); return;
+    }
+    err.hidden = true;
+    let photos = [];
+    if (files.length) {
+      const fd = new FormData(); files.slice(0, 10).forEach((f) => fd.append('photos', f));
+      $('#cAdd').disabled = true; $('#cAdd').textContent = 'Uploading photo…';
+      try { const r = await fetch('/api/upload', { method: 'POST', body: fd }); const j = await r.json(); photos = j.files || []; } catch (_) { photos = []; }
+      $('#cAdd').disabled = false; $('#cAdd').textContent = 'Add item';
+      if (!photos.length && !$('#cLater').checked) { err.hidden = false; err.textContent = 'The photo didn’t upload. Try again, or tick “I’ll send a photo”.'; return; }
+    }
+    S.items.push({ uid: uid++, name: n, kind: kind.value, qty: 1, catalogId: 'custom-' + uid, custom: true, thumb: '', dims: '', w: String(cNum('#cL')), d: String(cNum('#cW')), h: String(cNum('#cH')), weight: $('#cWtUnsure').checked ? '' : String(cNum('#cWt')), weightUnsure: $('#cWtUnsure').checked, photos, photoLater: $('#cLater').checked && !photos.length });
+    ['#cName', '#cL', '#cW', '#cH', '#cWt', '#cPhoto'].forEach((id) => { $(id).value = ''; $(id).classList.remove('bad'); });
+    $('#cWtUnsure').checked = false; $('#cWt').disabled = false; $('#cLater').checked = false; syncCustomPhoto();
+    itemsChanged(true);
   });
   // item rows
   const rowOf = (el) => { const r = el.closest('.irow'); return r && S.items.find((i) => String(i.uid) === r.dataset.uid); };
@@ -358,17 +392,24 @@ function bind() {
   const am = $('#aMode');
   am.innerHTML = '<option value="">Choose…</option>' + CFG.access.map(([k, l]) => `<option value="${k}">${esc(l)}</option>`).join('');
   $('#aFlights').innerHTML = '<option value="">Choose…</option>' + CFG.flights.map(([k, l]) => `<option value="${k}">${esc(l)}</option>`).join('');
+  window.syncStairsQ = () => {
+    const show = am.value === 'stairs' && !!$('#aFlights').value && !!(S.quote && S.quote.stairsFollowUp);
+    $('#aStairsQWrap').hidden = !show;
+    if (show && S.draftStairs) { $('#aShape').value = S.draftStairs.shape || ''; $('#aTight').value = S.draftStairs.tight || ''; S.draftStairs = null; }
+    else if (!show && S.quote) { $('#aShape').value = ''; $('#aTight').value = ''; }
+  };
   const syncAccess = () => {
     const m = am.value; const fl = $('#aFlights').value;
     $('#aFlightsWrap').hidden = m !== 'stairs'; $('#aFlightsNWrap').hidden = !(m === 'stairs' && fl === '4plus'); $('#aFloorWrap').hidden = m !== 'elevator';
     $('#aElevTypeWrap').hidden = m !== 'elevator'; $('#aElevResWrap').hidden = m !== 'elevator'; $('#aMoreWrap').hidden = !m;
     $('#aElevStepsWrap').hidden = m !== 'elevator'; $('#aElevStepsNWrap').hidden = !(m === 'elevator' && $('#aElevSteps').value === 'yes');
-    scheduleQuote();
+    syncStairsQ(); scheduleQuote();
   };
   am.addEventListener('change', () => { am.classList.remove('bad'); syncAccess(); });
   $('#aFlights').addEventListener('change', (e) => { e.target.classList.remove('bad'); syncAccess(); });
   $('#aFlightsN').addEventListener('input', scheduleQuote);
   $('#aElevType').addEventListener('change', (e) => e.target.classList.remove('bad'));
+  ['aShape', 'aTight'].forEach((id) => $('#' + id).addEventListener('change', (e) => e.target.classList.remove('bad')));
   $('#aElevSteps').addEventListener('change', (e) => { e.target.classList.remove('bad'); syncAccess(); });
   // second client (optional)
   $('#addClient').addEventListener('click', () => { $('#client2').hidden = false; $('#addClient').hidden = true; $('#c2Name').focus(); });
@@ -414,9 +455,38 @@ function bind() {
   $('#form').addEventListener('keydown', (e) => { if (e.key === 'Enter' && e.target.tagName === 'INPUT') e.preventDefault(); });
 }
 
+/* ---------- keep the draft across a refresh / accidental back (sessionStorage, this tab only) ---------- */
+const DRAFT_KEY = 'palomas-draft';
+const DRAFT_FIELDS = ['placedOther', 'dName', 'dPhone', 'dEmail', 'dStreet', 'dUnit', 'dCity', 'dState', 'dZip', 'dNotes', 'aHours', 'aFloor', 'aFlightsN', 'aElevStepsN', 'c2Name', 'c2Phone', 'c2Email', 'aMode', 'aFlights', 'aElevType', 'aElevSteps', 'aShape', 'aTight'];
+let draftTimer = 0;
+function saveDraft() {
+  clearTimeout(draftTimer);
+  draftTimer = setTimeout(() => {
+    try {
+      const f = {}; DRAFT_FIELDS.forEach((id) => { const el = $('#' + id); if (el) f[id] = el.value; });
+      sessionStorage.setItem(DRAFT_KEY, JSON.stringify({ items: S.items, pickup: S.pickup, client2: !$('#client2').hidden, f, uid }));
+    } catch (_) { /* storage full or blocked: ignore */ }
+  }, 250);
+}
+function restoreDraft() {
+  let d = null; try { d = JSON.parse(sessionStorage.getItem(DRAFT_KEY) || 'null'); } catch (_) { d = null; }
+  if (!d || !Array.isArray(d.items)) return;
+  S.items = d.items.filter((i) => i && typeof i === 'object'); uid = Math.max(uid, d.uid || 1, ...S.items.map((i) => (i.uid || 0) + 1));
+  if (d.pickup) { const r = document.querySelector(`input[name=pickup][value="${d.pickup}"]`); if (r) { r.checked = true; S.pickup = d.pickup; document.querySelectorAll('.radio').forEach((l) => l.classList.toggle('on', l.querySelector('input').checked)); } }
+  if (d.client2) { $('#client2').hidden = false; $('#addClient').hidden = true; }
+  Object.entries(d.f || {}).forEach(([id, v]) => { const el = $('#' + id); if (el && typeof v === 'string' && v) el.value = v; });
+  if ($('#placedOther').value) S.placedOther = $('#placedOther').value;
+  S.draftStairs = { shape: (d.f || {}).aShape || '', tight: (d.f || {}).aTight || '' };
+  $('#aMode').dispatchEvent(new Event('change')); if ($('#aFlights').value) $('#aFlights').dispatchEvent(new Event('change'));
+  ['aElevSteps'].forEach((id) => { if ($('#' + id).value) $('#' + id).dispatchEvent(new Event('change')); });
+  if (S.items.length) itemsChanged(true); scheduleAvail();
+}
+
 (async function init() {
   const r = await fetch('/api/palomas/config'); CFG = await r.json();
   if (CFG.pay.testMode) { S.card = '4242 4242 4242 4242'; S.exp = '12 / 34'; S.cvc = '123'; }
   bind(); renderCats(); renderCatalog(); renderItems(); renderSummary();
+  restoreDraft();
+  ['input', 'change', 'click'].forEach((ev) => document.addEventListener(ev, (e) => { if (e.target && e.target.closest && e.target.closest('#form')) saveDraft(); }));
 })();
 })();

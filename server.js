@@ -54,6 +54,22 @@ app.post('/api/stripe/webhook', express.raw({ type: 'application/json' }), (req,
   res.json({ received: true });
 });
 app.use(express.json({ limit: '2mb' }));
+// Defensive input hygiene (audit Nov 18): clamp any one text value to 5,000 characters and refuse a body that is not a JSON object,
+// so a pasted novel or a stray null can never reach the pricing code or the stored order.
+const clampText = (v, depth = 0) => {
+  if (typeof v === 'string') { const t = v.trim(); return t.length > 5000 ? t.slice(0, 5000) : t; }
+  if (depth > 8 || v == null || typeof v !== 'object') return v;
+  if (Array.isArray(v)) return v.slice(0, 200).map((x) => clampText(x, depth + 1));
+  const o = {}; Object.keys(v).forEach((k) => { if (k !== '__proto__' && k !== 'constructor' && k !== 'prototype') o[k] = clampText(v[k], depth + 1); }); return o;
+};
+app.use((req, res, next) => {
+  if (req.method !== 'POST') return next();
+  if (req.is('application/json') && req.body !== undefined) {
+    if (req.body === null || typeof req.body !== 'object' || Array.isArray(req.body)) req.body = {};
+    else req.body = clampText(req.body);
+  }
+  next();
+});
 // Access answers (ground / steps / stairs / elevator) are mapped onto the legacy stair fields before pricing or booking.
 app.use((req, _res, next) => {
   const b = req.body;
@@ -128,6 +144,11 @@ app.post('/api/availability', (req, res) => {
 
 function validate(o) {
   const errs = [];
+  if (!Array.isArray(o.items)) o.items = [];
+  o.items = o.items.filter((it) => it && typeof it === 'object');
+  if (o.items.length > 60) errs.push('no more than 60 pieces per order');
+  if (o.items.some((it) => Number(String(it.qty ?? '').replace(/,/g, '')) > 500)) errs.push('a quantity of 500 or fewer for each piece (call us for larger jobs)');
+  if (o.contact && typeof o.contact !== 'object') o.contact = null;
   if (!SERVICES[o.service] || SERVICES[o.service].legacy) errs.push('service');
   if (!o.items || !o.items.length || o.items.some((it) => !String(it.description || '').trim())) errs.push('items');
   if ((o.items || []).some((it) => !TYPES[it.type || 'painting'])) errs.push('item type');
@@ -449,21 +470,32 @@ function palomasPublicQuote(q) {
 }
 // Staff code for the two hidden controls. Neutral wording on purpose: nothing here says what the controls do.
 const unlockHits = new Map();
+// Every way of guessing the code (unlock, quote with courtesy, order with courtesy / Paloma's Pay) shares one per-visitor limit
+// on WRONG guesses, so the quote and order endpoints can't be used to brute-force it (audit Nov 18).
+const codeTries = (req) => { const now = Date.now(); const ip = req.ip || 'x'; return { ip, now, hits: (unlockHits.get(ip) || []).filter((t) => now - t < 60000) }; };
+const CODE_TRIES = Math.max(3, parseInt(process.env.CODE_TRIES_PER_MIN, 10) || 10); // tests raise it; production keeps 10 wrong guesses a minute
+const codeBlocked = (req) => codeTries(req).hits.length >= CODE_TRIES;
+const codeMiss = (req) => { const { ip, now, hits } = codeTries(req); hits.push(now); unlockHits.set(ip, hits); };
 app.post('/api/palomas/unlock', (req, res) => {
-  const now = Date.now(); const ip = req.ip || 'x';
-  const hits = (unlockHits.get(ip) || []).filter((t) => now - t < 60000);
-  if (hits.length >= 10) return res.status(429).json({ ok: false });
-  hits.push(now); unlockHits.set(ip, hits);
-  res.json({ ok: PAL.staffCodeOk(String((req.body || {}).code || '')) });
+  if (codeBlocked(req)) return res.status(429).json({ ok: false });
+  const ok = PAL.staffCodeOk(String((req.body || {}).code || ''));
+  if (!ok) codeMiss(req);
+  res.json({ ok });
 });
 app.post('/api/palomas/quote', (req, res) => {
   const b = req.body || {};
-  if (b.courtesy && !PAL.staffCodeOk(b.pin)) b.courtesy = false; // never applied without the staff code
-  if (!Array.isArray(b.items) || !b.items.length) return res.json({ empty: true });
+  if (b.courtesy) {
+    if (codeBlocked(req)) b.courtesy = false;
+    else if (!PAL.staffCodeOk(b.pin)) { b.courtesy = false; codeMiss(req); } // never applied without the staff code
+  }
+  b.items = (Array.isArray(b.items) ? b.items : []).filter((x) => x && typeof x === 'object').slice(0, 60);
+  if (!b.items.length) return res.json({ empty: true });
   try { res.json(palomasPublicQuote(PAL.partnerQuote(b))); } catch (e) { res.status(400).json({ error: 'Could not price that yet.' }); }
 });
 app.post('/api/palomas/availability', (req, res) => {
   const b = req.body || {};
+  if (!b.delivery || typeof b.delivery !== 'object') b.delivery = {};
+  b.items = (Array.isArray(b.items) ? b.items : []).filter((x) => x && typeof x === 'object').slice(0, 60);
   const o = PAL.engineOrder(b, { member: true });
   const zip = String(o.dropoff.zip || '');
   if (!/^\d{5}/.test(zip)) return res.json({ days: [] });
@@ -480,7 +512,9 @@ app.post('/api/palomas/availability', (req, res) => {
 });
 app.post('/api/palomas/orders', (req, res) => {
   const b = req.body || {};
-  if ((b.courtesy || b.payer === 'palomas') && !PAL.staffCodeOk(b.pin)) return res.status(403).json({ error: 'That option isn’t available.' });
+  if (!b.delivery || typeof b.delivery !== 'object') b.delivery = {};
+  b.items = (Array.isArray(b.items) ? b.items : []).filter((x) => x && typeof x === 'object');
+  if ((b.courtesy || b.payer === 'palomas') && (codeBlocked(req) || !PAL.staffCodeOk(b.pin))) { codeMiss(req); return res.status(403).json({ error: 'That option isn’t available.' }); }
   const errs = PAL.validate(b);
   const eo = PAL.engineOrder(b, { member: true });
   const q = errs.length ? null : PAL.partnerQuote(b);
@@ -544,7 +578,7 @@ app.post('/api/palomas/orders', (req, res) => {
     ...(q.courtesyOff ? [{ label: "Manager's courtesy", amount: -q.courtesyOff }] : []),
   ];
   order.quote = {
-    ...q.engine, notes: (q.engine.notes || []).filter((n) => n !== ACCESS_PAL.PRICE_NOTE), accessFeeNote: PAL.ACCESS_FEE_NOTE, lines, total: q.total, regularTotal: q.total, protection: null, member: true, memberCompany: PAL.PARTNER_NAME,
+    ...q.engine, notes: (q.engine.notes || []).filter((n) => n !== ACCESS_PAL.PRICE_NOTE), accessFeeNote: q.accessFeeNote, accessReview: !!q.accessReview, totalLabel: q.totalLabel, lines, total: q.total, regularTotal: q.total, protection: null, member: true, memberCompany: PAL.PARTNER_NAME,
     ...q.payment, // same payment plan as the main site (paid in full; 50% at booking from $3,000)
     partnerPricing: { standard: q.standard, partnerPrice: q.partner, partnerSavings: q.partnerSavings, volumeOff: q.volumeOff, courtesyOff: q.courtesyOff, delivery: q.delivery, items: q.lines.map(({ label, standard, amount, after, qty }) => ({ label, standard, partner: amount, allIn: after, qty })) },
   };
@@ -625,5 +659,10 @@ app.post('/api/admin/orders/:id/approve', admin, (req, res) => {
 app.use('/outbox', (req, res, next) => (adminKeyOk(req.query.key) ? next() : res.status(401).end()), express.static(storage.dir('outbox')));
 app.get('/admin', (_, res) => res.sendFile(path.join(__dirname, 'public', 'admin.html')));
 
-app.use((err, req, res, next) => { console.error(err); res.status(500).json({ error: err.message }); });
+app.use((err, req, res, next) => {
+  // Bad JSON, too-large bodies and other client mistakes are a 4xx with a plain message, never a 500.
+  if (err && (err.type === 'entity.parse.failed' || err.status === 400)) return res.status(400).json({ error: 'That request couldn’t be read. Please refresh the page and try again.' });
+  if (err && err.type === 'entity.too.large') return res.status(413).json({ error: 'That request is too large. Please shorten the notes or remove photos and try again.' });
+  console.error(err); res.status(500).json({ error: 'Something went wrong on our side. Please try again, or call us.' });
+});
 app.listen(PORT, () => console.log(`CAD ordering prototype → ${BASE_URL}  (admin: ${ADMIN_ON ? BASE_URL + '/admin?key=<ADMIN_KEY>' : 'off'})`));

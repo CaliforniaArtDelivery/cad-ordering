@@ -240,3 +240,4 @@ input:focus,select:focus,textarea:focus{border-color:var(--navy);background:#fff
 .time-reassure p{margin:0}
 .route-hint{margin-top:10px}
 h2 .opt{font-weight:500;color:var(--muted);letter-spacing:0;text-transform:none;font-size:14px}
+.linkbtn{background:none;border:0;padding:10px 4px;margin:6px 0 2px;font:inherit;font-size:15px;color:var(--ink,#0f1b2d);text-decoration:underline;cursor:pointer;min-height:44px}

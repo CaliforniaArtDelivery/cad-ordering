@@ -37,8 +37,9 @@ const frame = async (page, i, framed, glazing) => {
     if (await page.locator(sel).count()) { await page.click(sel); await page.waitForTimeout(150); }
   }
 };
-const isBlocked = async (page) => page.$eval('#nextBtn', (b) => !!(b.disabled || b.getAttribute('aria-disabled') === 'true' || b.classList.contains('is-wait')));
-const next = async (page) => { await page.click('#nextBtn:not([disabled]):not([aria-disabled="true"])'); await page.waitForTimeout(450); };
+const settled = (page) => page.waitForFunction(() => !/Updating estimate/.test((document.querySelector('#estLabel') || {}).textContent || ''), null, { timeout: 8000 }).catch(() => {});
+const isBlocked = async (page) => { await settled(page); return page.$eval('#nextBtn', (b) => !!(b.disabled || b.getAttribute('aria-disabled') === 'true' || b.classList.contains('is-wait'))); };
+const next = async (page) => { await settled(page); await page.click('#nextBtn:not([disabled]):not([aria-disabled="true"])'); await page.waitForTimeout(450); };
 const hasText = async (page, re) => re.test(await page.content());
 const startFresh = async (page) => { await page.goto(BASE); await page.waitForLoadState('networkidle').catch(() => {}); await page.evaluate(() => sessionStorage.clear()); await page.goto(BASE); await page.waitForSelector('[data-service]'); };
 const me = async (page, name, email, phone) => {
@@ -280,7 +281,7 @@ const readOrders = () => JSON.parse(fs.readFileSync(path.join(DATA_ROOT, 'data',
   await fillSite(page, 'pickup', { street: '1153 Camino Dos Rios', city: 'Thousand Oaks', zip: '91360', same: true });
   await fillSite(page, 'dropoff', { street: '850 Sanitarium Rd', city: 'Deer Park', zip: '94576', same: true, access: { mode: 'elevator', floor: '3', elevStairs: 'no' } });
   await next(page); await pickDay(page);
-  await expect(/different regions, so delivery is usually 1–2 weeks later/, 'cross-region job should explain the later delivery day');
+  await expect(/follow separate regional routes/, 'cross-region job should explain separate regional routes');
   if (await page.locator('[data-path="schedule.deliveryLater"]').count()) errors.push('later-delivery toggle should be gone on cross-region jobs');
   if (!(await page.locator('[data-deldate]').count())) errors.push('cross-region job should still let the customer pick a delivery date');
   await next(page); await page.waitForTimeout(500);

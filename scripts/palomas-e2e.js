@@ -91,6 +91,8 @@ const txt = async (page, sel) => ((await page.locator(sel).first().innerText().c
     // custom item
     await page.click('#customToggle');
     await page.fill('#cName', 'Custom copper bench'); await page.selectOption('#cKind', 'Bench');
+    await page.click('#cAdd'); ok(await page.locator('#cErr').isVisible() && (await page.locator('.irow').count()) === 2, 'custom item without size and weight is refused');
+    await page.fill('#cL', '60'); await page.fill('#cW', '18'); await page.fill('#cH', '20'); await page.fill('#cWt', '90');
     await page.click('#cAdd');
     ok((await page.locator('.irow').count()) === 3 && /custom/.test(await txt(page, '.irow:nth-child(3) .ty')), 'custom item added');
     await page.fill('#search', 'arco captiva sofa'); await page.locator('.pcard').first().click(); await page.fill('#search', '');
@@ -126,14 +128,14 @@ const txt = async (page, sel) => ((await page.locator(sel).first().innerText().c
     await page.fill('#aHours', 'Weekdays 9am-4pm');
     await page.selectOption('#aMode', 'stairs');
     await page.selectOption('#aFlights', '1');
-    ok(await page.locator('#aTight').count() === 0 && /anything tight like narrow hallways or doorways/.test(await page.locator('#dNotes').getAttribute('placeholder')) && /gate code, parking, who to call on arrival, where it goes in the home/i.test(await page.locator('#dNotes').getAttribute('placeholder')), 'one notes field; its placeholder covers gate code, parking, who to call, where it goes and anything tight');
+    ok(/anything tight like narrow hallways or doorways/.test(await page.locator('#dNotes').getAttribute('placeholder')) && /gate code, parking, who to call on arrival, where it goes in the home/i.test(await page.locator('#dNotes').getAttribute('placeholder')), 'one notes field; its placeholder covers gate code, parking, who to call, where it goes and anything tight');
     ok(!/stairs can add a fee|we confirm it/i.test(await page.locator('#sec-delivery').innerText()), 'no "stairs can add a fee…" text under the access questions');
     await page.waitForSelector('#datesBox:not([hidden])');
     await page.waitForSelector('#deDays .day'); await page.waitForSelector('#puCtl [data-later]'); await page.waitForSelector('#deCtl [data-later]'); // live latency: the delivery leg loads after the pickup leg
     ok((await page.locator('#puDays .day').count()) > 0 && (await page.locator('#deDays .day').count()) > 0, 'pickup and delivery days appear, earliest pre-selected');
     ok((await page.locator('#puDays .day').count()) <= 6 && (await page.locator('#deDays .day').count()) <= 6, 'the date lists are short: first 6 days only');
     ok((await page.locator('#puCtl [data-later]').count()) === 1 && (await page.locator('#deCtl [data-later]').count()) === 1, 'each list has a "Later date" option');
-    if (await page.locator('#puCtl [data-more]').count()) { await page.locator('#puCtl [data-more]').click(); ok((await page.locator('#puDays .day').count()) > 6 && (await page.locator('#puDays .day').count()) <= 14, 'More dates shows up to 14'); }
+    if (await page.locator('#puCtl [data-more]').count()) { await page.locator('#puCtl [data-more]').click(); ok((await page.locator('#puDays .day').count()) > 6 && (await page.locator('#puDays .day').count()) <= 14, 'Show more dates shows up to 14'); }
     const lastPu = await page.locator('#puDays .day').last().getAttribute('data-pu');
     const laterDate = new Date(Date.parse(lastPu + 'T12:00:00Z') + 21 * 864e5).toISOString().slice(0, 10);
     await page.locator('#puCtl [data-later]').fill(laterDate);
@@ -150,8 +152,8 @@ const txt = async (page, sel) => ((await page.locator(sel).first().innerText().c
     const sumNow = await txt(page, '#sumBody');
     const stairsTxt = await txt(page, '#sumBody');
     ok(/Stairs — Arco Captiva Sofa, delivery \(1 flight × \$100\)/.test(stairsTxt) && !/Piece \d/.test(stairsTxt), 'stairs fee line appears automatically in the summary for the large piece, named after the item (1 flight × $100)');
-    ok((await page.locator('.li').count()) === 5 && (await page.locator('.li .li-p s').count()) === 4, 'each line item shows its standard price struck through next to its partnership price');
-    ok((await page.locator('.li .li-all').count()) === 5 && /After all discounts/.test(sumNow), 'with the 10% applying, each item also shows its price after all discounts');
+    ok((await page.locator('.li').count()) === 6 && (await page.locator('.li .li-p s').count()) === 4, '(custom bench 90 lb now carries its own weight-based stairs fee) each line item shows its standard price struck through next to its partnership price');
+    ok((await page.locator('.li .li-all').count()) === 6 && /After all discounts/.test(sumNow), 'with the 10% applying, each item also shows its price after all discounts');
     const money = (t) => Number(String(t).replace(/[^0-9.]/g, ''));
     const allIn = async () => (await page.locator('.li .li-all b').allInnerTexts()).map(money);
     const totalNow = async () => money(await page.locator('.sl.big .a').first().evaluate((e) => e.lastChild.textContent));
@@ -162,7 +164,7 @@ const txt = async (page, sel) => ((await page.locator(sel).first().innerText().c
     ok(!/declared value/i.test(await page.content().then((h) => h.replace(/<script[\s\S]*?<\/script>/g, ''))), 'no declared value field or wording anywhere on the page');
     ok(!/cost less than|that's intended|that’s intended/i.test(sumNow) && /Delivery orders of \$1,000 or more \(after partnership pricing\) get an additional 10% off the whole delivery price\./.test(sumNow), 'the $1,000 note is precise ("after partnership pricing") and has no "that\'s intended" sentence');
     // staff options: collapsed, low key, courtesy checkbox
-    ok(await page.locator('#more').getAttribute('aria-label') === 'More' && await page.locator('#more').getAttribute('aria-expanded') === 'false' && (await page.locator('#more').innerText()).trim() === '', 'a small unlabeled chevron: aria-label "More", no visible text, collapsed by default');
+    ok(await page.locator('#more').getAttribute('aria-label') === 'More (order summary)' && await page.locator('#more').getAttribute('aria-expanded') === 'false' && (await page.locator('#more').innerText()).trim() === '', 'a small unlabeled chevron: aria-label "More", no visible text, collapsed by default');
     ok((await page.locator('#morePanel').count()) === 0 && (await page.locator('#mc').count()) === 0, 'collapsed: the checkbox is not on the page at all');
     ok(!/courtesy|staff options|your call|discount/i.test(await page.locator('#more').evaluate((e) => e.outerHTML)), 'nothing in or around the arrow hints at a discount');
     ok(!/price sensitive/i.test(await page.evaluate(() => document.body.innerText + document.documentElement.innerHTML)), 'the words "price sensitive" appear nowhere in the client-facing page');
@@ -172,7 +174,7 @@ const txt = async (page, sel) => ((await page.locator(sel).first().innerText().c
     ok(/Covers the delivery as quoted/.test(sumNow) && !/Paid in full at booking/i.test(sumNow) && (await page.locator('#feeNote').count()) === 0 && !/unexpected stairs|approval before/i.test(sumNow), 'copy under Due today: just "Covers the delivery as quoted", no extra stairs or access-fee text');
     // payment section: client pays now by default; the second option is hidden behind an unlabeled chevron
     ok(await page.locator('input[name=payer][value=client]').isChecked() && /Client pays now/.test(await txt(page, '.payer')) && (await page.locator('input[name=payer][value=palomas]').count()) === 0 && !/Paloma's Pay|Paloma's is paying/.test(await page.locator('#sumBody').innerText()), 'payment: "Client pays now" is the default; Paloma\'s Pay is not on the page while collapsed');
-    ok(await page.locator('#payMore').getAttribute('aria-label') === 'More' && await page.locator('#payMore').getAttribute('aria-expanded') === 'false' && (await page.locator('#payMore').innerText()).trim() === '' && !/paloma|pay|courtesy|discount/i.test(await page.locator('#payMore').evaluate((e) => e.outerHTML.replace(/aria-label="More"|id="payMore"/g, ''))), 'second chevron under "Client pays now": aria-label "More", no visible text, collapsed by default');
+    ok(await page.locator('#payMore').getAttribute('aria-label') === 'More (checkout)' && await page.locator('#payMore').getAttribute('aria-expanded') === 'false' && (await page.locator('#payMore').innerText()).trim() === '' && !/paloma|pay|courtesy|discount/i.test(await page.locator('#payMore').evaluate((e) => e.outerHTML.replace(/aria-label="More \(checkout\)"|id="payMore"/g, ''))), 'second chevron under "Client pays now": aria-label "More", no visible text, collapsed by default');
     await page.locator('#summary .sticky').scrollIntoViewIfNeeded(); await page.waitForTimeout(200);
     await page.locator('#summary .sticky').screenshot({ path: `${OUT}/palomas-${name}-pay-collapsed.png` });
     // staff code: locked prompt on the courtesy chevron
@@ -209,6 +211,7 @@ const txt = async (page, sel) => ((await page.locator(sel).first().innerText().c
     ok(await page.locator('#more').getAttribute('aria-expanded') === 'false' && (await page.locator('#mc').count()) === 0, 'staff taps the arrow again to collapse it');
     await page.selectOption('#aFlights', '2'); await page.waitForTimeout(700);
     await page.selectOption('#aFlights', '1'); await page.waitForTimeout(700);
+    if (await page.locator('#aStairsQWrap').isVisible()) { ok(true, 'large piece up stairs asks the two quick follow-ups'); await page.selectOption('#aShape', 'straight'); await page.selectOption('#aTight', 'no'); }
     await page.waitForSelector('.li .li-all');
     ok(await page.locator('#more').getAttribute('aria-expanded') === 'false' && (await page.locator('#mc').count()) === 0, 'the arrow stays collapsed after the price recalculates');
     ok(/Manager's courtesy/.test(await txt(page, '#sumBody')) && !(await page.locator('#mc').isVisible()), "the applied \"Manager's courtesy\" line stays visible in the summary while the option itself stays tucked away");
