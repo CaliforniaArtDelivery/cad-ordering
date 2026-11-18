@@ -142,9 +142,20 @@ const ord = (o = {}) => ({ service: 'pickup_delivery', pickup: addr('8678 Melros
   const laDays = (await avail(laBody({}))).days;
   const dA = laDays[0].date;
   const sofa = await post('/api/orders', baseOrder(dA, { items: [{ qty: 1, type: 'furniture', furnitureKind: 'Sofa', sizeClass: 'small', value: 2000, description: 'Small sofa' }] }));
-  ok(sofa.status === 200 && sofa.j.status === 'pending_approval' && sofa.j.order.review.helper, 'a sofa (any weight) holds the date for a helper');
+  // Default (Chad's Nov 16 rule wins): NEED HELPER is only a label, the order books and pays immediately. HELPER_HOLD_ORDERS=1 holds the date for the team instead.
+  const HOLD = process.env.HELPER_HOLD_ORDERS === '1';
+  console.log(`  (NEED HELPER mode: ${HOLD ? 'HOLD, HELPER_HOLD_ORDERS=1' : 'label only, default'})`);
+  const helperLabelled = async (id) => (await waitFor(async () => orderRows(bridge, id).some(({ r }) => JSON.stringify(r).includes('NEED HELPER')), 8000));
+  if (HOLD) ok(sofa.status === 200 && sofa.j.status === 'pending_approval' && sofa.j.order.review.helper, 'a sofa (any weight) holds the date for a helper');
+  else {
+    ok(sofa.status === 200 && sofa.j.status === 'awaiting_payment' && sofa.j.order.review.helper, 'a sofa (any weight) is flagged NEED HELPER but books and pays immediately (not held)');
+    const sp = await post(`/api/orders/${sofa.j.id}/pay`, { method: 'card', card: '4242424242424242' });
+    ok(sp.status === 200, 'and the sofa order pays at the card price');
+    ok(await helperLabelled(sofa.j.id), 'the sofa rows on the ONLINE ORDERS tab carry NEED HELPER so Samantha books a helper');
+  }
   const heavy = await post('/api/orders', baseOrder(laDays[1].date, { items: [item({ type: 'sculpture', weight: 200, w: 16, h: 40, d: 16, description: 'Bronze' })] }));
-  ok(heavy.status === 200 && heavy.j.status === 'pending_approval' && heavy.j.order.review.helper, 'a 200 lb piece holds the date for a helper');
+  if (HOLD) ok(heavy.status === 200 && heavy.j.status === 'pending_approval' && heavy.j.order.review.helper, 'a 200 lb piece holds the date for a helper');
+  else ok(heavy.status === 200 && heavy.j.status === 'awaiting_payment' && heavy.j.order.review.helper, 'a 200 lb piece is flagged NEED HELPER but books and pays immediately (not held)');
   const ded2 = await post('/api/orders', baseOrder(laDays[2].date, { dedicated: true }));
   ok(ded2.status === 200 && ded2.j.status === 'pending_approval' && ded2.j.quote.paymentPlan === 'quote', 'dedicated trip goes to the team for a quote');
   const plain = await post('/api/orders', baseOrder(laDays[3].date, {}));
@@ -159,9 +170,15 @@ const ord = (o = {}) => ({ service: 'pickup_delivery', pickup: addr('8678 Melros
   const sofaBody = palBase([palItem('Sofa', 'medium', 'Arco Captiva Sofa')]);
   const sd = await pav(sofaBody);
   const ps = await post('/api/palomas/orders', { ...sofaBody, payer: 'client', payMode: 'now', schedule: { date: sd.pu, deliveryDate: sd.de } });
-  ok(ps.status === 200 && ps.j.status === 'pending_approval' && ps.j.order.review && ps.j.order.review.helper, "Paloma's sofa order is held for a helper (pending, nothing charged)");
   const pps = await post(`/api/orders/${ps.j.id}/pay`, { method: 'card', card: '4242424242424242' });
-  ok(pps.status === 400, "and cannot be paid until the team approves");
+  if (HOLD) {
+    ok(ps.status === 200 && ps.j.status === 'pending_approval' && ps.j.order.review && ps.j.order.review.helper, "Paloma's sofa order is held for a helper (pending, nothing charged)");
+    ok(pps.status === 400, "and cannot be paid until the team approves");
+  } else {
+    ok(ps.status === 200 && ps.j.status === 'awaiting_payment', "Paloma's sofa order is not held: it goes straight to payment");
+    ok(pps.status === 200, "and pays at the card price");
+    ok(await helperLabelled(ps.j.id), "and its rows on the ONLINE ORDERS tab carry NEED HELPER so Samantha books a helper");
+  }
   const lampBody = palBase([palItem('Table Lamp', 'medium', 'Lamp')], { street: '200 Ocean Ave' });
   const ld = await pav(lampBody);
   const pl = await post('/api/palomas/orders', { ...lampBody, payer: 'client', payMode: 'now', schedule: { date: ld.pu, deliveryDate: ld.de } });

@@ -438,7 +438,7 @@ const readOrders = () => JSON.parse(fs.readFileSync(path.join(DATA_ROOT, 'data',
   // ---- Order 9: Shipping, international destination, technical carry photos ----
   await startFresh(page);
   await page.click('[data-service="crating_shipping"]'); await page.waitForTimeout(300);
-  await expect(/Out-of-state shipping by air or ground/, 'shipping card subtitle missing');
+  await expect(/anything going outside California/, 'shipping card subtitle missing');
   await expect(/If pickup and delivery are both in California, choose Pickup \+ Delivery above/, 'shipping card should send in-state jobs to Pickup + Delivery');
   await expect(/Custom quote/, 'shipping card should say Custom quote');
   await fill(page, 'items.0.description', 'Large abstract, oil on linen'); await frame(page, 0, 'no');

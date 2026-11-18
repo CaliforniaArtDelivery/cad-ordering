@@ -284,9 +284,10 @@ async function run(BASE, errors, { dataRoot = process.env.STORAGE_DIR || ROOT, a
     const bookPay = async (name, it, dropoff = {}) => {
       const r = await ok(name, order(it, dropoff));
       if (!r.j.id) return null;
-      // Samantha, Nov 18 2026: a piece over 150 lb needs a helper, so the date is HELD for the team (pending request, nothing charged).
-      // Chad's price rule still holds: it is priced from the card (no CAD-priced quote). Approving confirms the shown price; then it pays like any order.
-      if (/^(600|750) lb|^80"/.test(name) && !/72"/.test(name)) {
+      // Samantha, Nov 18 2026: a piece over 150 lb needs a helper. Default (Chad's Nov 16 rule wins, holdOrders=false): it books and pays now at the card price and
+      // NEED HELPER is only a sheet label. With HELPER_HOLD_ORDERS=1 on BOTH this script and the server, the date is HELD for the team (pending request, nothing charged);
+      // approving confirms the shown price, then it pays like any order.
+      if (process.env.HELPER_HOLD_ORDERS === '1' && /^(600|750) lb|^80"/.test(name) && !/72"/.test(name)) {
         const q0 = r.j.quote || {};
         if (r.j.status !== 'pending_approval' || !q0.reviewOnly || !(q0.total > 0) || !(r.j.order.review && r.j.order.review.helper)) errors.push(`helper rule: ${name} must be held for NEED HELPER review at its card price, got ${r.j.status} reviewOnly=${q0.reviewOnly}`);
         const early = await post(`/api/orders/${r.j.id}/pay`, { method: 'card', card: '4242424242424242' });

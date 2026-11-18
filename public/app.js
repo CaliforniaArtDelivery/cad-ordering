@@ -295,7 +295,18 @@ const DESC = {
   pickup_delivery: 'White-glove pickup and delivery of fine art, sculpture, luxury furniture, décor, antiques and other valuable or fragile pieces, placed exactly where you want them.',
   delivery_install: 'Everything above, plus expert installation of paintings, mirrors and wall décor.',
   install_only: 'Already on site. We hang paintings, mirrors and wall décor.',
-  crating_shipping: 'Out-of-state shipping by air or ground. If pickup and delivery are both in California, choose Pickup + Delivery above.',
+  crating_shipping: 'For anything going outside California, anywhere in the US or overseas, by air or ground. Delivering within California? Choose Pickup + Delivery above.',
+};
+// CAD are fine art handlers, not movers: the items-step heading names what we are actually doing for the chosen service.
+const SVC_VERB = { pickup_delivery: 'delivering', delivery_install: 'delivering and installing', install_only: 'installing', crating_shipping: 'shipping', delivery: 'delivering', pickup: 'picking up' };
+const svcVerb = () => SVC_VERB[S.service] || 'delivering';
+const svcVerbShort = () => ({ delivering: 'deliver', 'delivering and installing': 'deliver and install', installing: 'install', shipping: 'ship', 'picking up': 'pick up' }[svcVerb()] || 'deliver');
+// Subtitle under each service title on step 1: says at a glance where the service applies.
+const SUBTITLE = {
+  pickup_delivery: 'Within California',
+  delivery_install: 'Within California',
+  install_only: 'Within California',
+  crating_shipping: 'Domestic & International',
 };
 const ITEM_TYPES = [['painting', 'Painting'], ['photograph', 'Photograph'], ['mirror', 'Mirror'], ['wallart', 'Other wall art'], ['sculpture', 'Sculpture'], ['furniture', 'Furniture'], ['decor', 'Décor'], ['other', 'Other fragile or valuable item'], ['custom', 'Other request']];
 const INSTALL_TYPES = ['painting', 'photograph', 'mirror', 'wallart', 'decor', 'custom'];
@@ -783,11 +794,11 @@ const views = {
         ${type === 'custom' ? '<p class="mini" style="margin:0 0 6px">Tell us what you need in the description. CAD reviews it and sends a custom quote; nothing is charged until you approve it.</p>' : ''}
       </div>`;
     };
-    const pieceTitle = (i) => (S.items.length > 1 ? `Piece ${i + 1}: what is it?` : (S.service === 'install_only' ? 'What are we installing?' : 'What are we moving?'));
+    const pieceTitle = (i) => (S.items.length > 1 ? `Piece ${i + 1}: what is it?` : `What are we ${svcVerb()}?`);
     const panels = [];
     panels.push(panel('service', `<h1>${S.service === 'install_only' ? 'What are we installing?' : 'How can we help?'}</h1><p class="sub">Fine art, luxury furniture and décor are our specialty, and we handle other fragile or valuable pieces. Approximate sizes are fine.</p>
       <div class="choices">${Object.entries(CFG.services).map(([k, v]) => `<button type="button" class="choice ${S.service === k ? 'on' : ''}" data-service="${k}">
-        <span class="ico">${ICONS[k]}</span><span class="txt"><b>${v.label}</b><span class="d">${DESC[k]}</span></span><span class="from">${base[k] == null ? 'Custom quote' : 'from ' + fmt(base[k])}</span></button>`).join('')}</div>
+        <span class="ico">${ICONS[k]}</span><span class="txt"><b>${v.label}</b>${SUBTITLE[k] ? `<span class="svc-sub">${esc(SUBTITLE[k])}</span>` : ''}<span class="d">${DESC[k]}</span></span><span class="from">${base[k] == null ? 'Custom quote' : 'from ' + fmt(base[k])}</span></button>`).join('')}</div>
       <p class="mini" data-from-note>Starting prices don’t include declared value protection.</p>`));
     if (S.service) {
       S.items.forEach((item, i) => {
@@ -795,10 +806,10 @@ const views = {
         if (pieceHasSize(item, ship)) panels.push(panel(`p${i}b`, `<h1>How big is it?</h1>${pieceTag(item, i)}<div class="card">${pieceSize(item, i, ship)}</div>`));
         panels.push(panel(`p${i}c`, `<h1>${ship ? 'Weight, value and care' : 'Value and care'}</h1>${pieceTag(item, i)}<div class="card">${pieceCare(item, i, ship)}</div>`));
       });
-      panels.push(panel('pieces-more', `<h1>Anything else to move?</h1><p class="sub">${S.items.length === 1 ? 'You’ve added one piece.' : `You’ve added ${S.items.length} pieces.`} Add more, or tap Next to continue.</p>
+      panels.push(panel('pieces-more', `<h1>Anything else to ${svcVerbShort()}?</h1><p class="sub">${S.items.length === 1 ? 'You’ve added one piece.' : `You’ve added ${S.items.length} pieces.`} Add more, or tap Next to continue.</p>
         <div class="card">${S.items.map((it, i) => `<div class="sum-row"><span>${esc(fmtNum(it.qty) || it.qty)}× ${esc(it.description || 'Piece ' + (i + 1))}<br><span class="muted">${esc(TYPE_LABEL(it.type))}</span></span><span>${editBtn(`0:p${i}a`)}</span></div>`).join('')}</div>
         <button type="button" class="add" id="addItem">＋ Add another piece</button>
-        <p class="mini">${ship ? 'Shipping is for out-of-state orders and is always custom quoted. Within California we always provide white-glove delivery. Nothing is charged until you approve Samantha’s quote.' : `${esc(CFG.notice || '')} Jobs with an address outside California are custom quoted as Shipping. Within California we always provide white-glove delivery.`}</p>`));
+        <p class="mini">${ship ? 'Shipping is for anything going outside California, in the US or overseas, and is always custom quoted. Within California we always provide white-glove delivery. Nothing is charged until you approve Samantha’s quote.' : `${esc(CFG.notice || '')} Jobs with an address outside California are custom quoted as Shipping. Within California we always provide white-glove delivery.`}</p>`));
     }
     return panels.join('');
   },

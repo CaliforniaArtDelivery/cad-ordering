@@ -1,6 +1,6 @@
 # California Art Delivery — Online Ordering (prototype)
 
-Mobile-first, 4-step booking flow (What are we moving? → Where are we going? → Choose your date / Shipping details → Review & pay) plus an admin page. Full details in FLOW_SUMMARY.md; Render deployment in DEPLOY.md.
+Mobile-first, 4-step booking flow (What are we delivering? (heading follows the chosen service) → Where are we going? → Choose your date / Shipping details → Review & pay) plus an admin page. Full details in FLOW_SUMMARY.md; Render deployment in DEPLOY.md.
 
 ## Run
 ```bash

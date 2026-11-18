@@ -47,6 +47,8 @@ h2{font-size:19px;letter-spacing:-.01em;margin:28px 0 10px;font-weight:600}
 .choice.on .ico{background:var(--navy);color:#fff}
 .choice .txt{min-width:0;flex:1}
 .choice b{display:block;font-size:17px;font-weight:600;letter-spacing:-.01em}
+.choice span.svc-sub{display:block;color:#8a6a2f;font-size:15px;font-weight:600;letter-spacing:.02em;line-height:1.3;margin-top:2px}
+.choice.on span.svc-sub{color:#7a5c25}
 .choice span.d{display:block;color:var(--muted);font-size:14px;line-height:1.35;margin-top:2px}
 .choice .from{flex:none;color:var(--muted);font-size:13px;white-space:nowrap;align-self:flex-start;margin-top:2px}
 

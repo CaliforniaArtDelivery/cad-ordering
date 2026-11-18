@@ -236,22 +236,34 @@ const noGate = (name, r) => {
   check(r.paymentPlan !== 'quote' && r.total > 0 && r.dueNow > 0, `${name}: should be bookable and payable now`, { plan: r.paymentPlan, total: r.total });
   for (const n of r.notes || []) check(!/confirm|may apply|review|adjust|starting rate|quote/i.test(n), `${name}: note implies a later price review: ${n}`);
 };
-// Samantha, Nov 18 2026: NEED HELPER (over 150 lb, any sofa / heavy furniture) keeps Chad's price rule (priced from the card, never a CAD-priced quote)
-// but the order is a pending request: the date is held until a helper is booked, and nothing is charged until the team confirms.
-const helperHold = (name, r) => {
-  check(r.reviewOnly === true && r.total > 0 && /NEED HELPER/.test((r.reviewReasons || []).join(' ')) && r.reviewKinds.includes('helper'), `${name}: priced from the card, held for NEED HELPER review`, { plan: r.paymentPlan, total: r.total, why: r.reviewReasons });
-  check(r.quoteRange && r.quoteRange.low === r.total && r.quoteRange.high === r.total, `${name}: no 1.5x-2x range, the regular price is the price`, r.quoteRange);
+// Samantha, Nov 18 2026: NEED HELPER (over 150 lb, any sofa / heavy furniture) keeps Chad's price rule (priced from the card, never a CAD-priced quote).
+// Chad's standing Nov 16 rule wins by default (config.scheduling.helperRules.holdOrders = false): heavy pieces book and pay immediately at the card price and
+// NEED HELPER is only a label on the sheet so Samantha books a helper. With HELPER_HOLD_ORDERS=1 (run: HELPER_HOLD_ORDERS=1 node scripts/pricing-test.js)
+// the order is a pending request instead: the date is held until a helper is booked, and nothing is charged until the team confirms.
+const HELPER_HOLD = process.env.HELPER_HOLD_ORDERS === '1';
+const RULES = require('../lib/date-guard-rules');
+console.log(`NEED HELPER mode: ${HELPER_HOLD ? 'HOLD (HELPER_HOLD_ORDERS=1)' : 'label only (default, Chad Nov 16 rule)'}`);
+const helperHold = (name, service, items) => {
+  const r = q(service, items);
+  check(RULES.review({ service, items }).helper === true, `${name}: flagged NEED HELPER by the rules`);
+  if (HELPER_HOLD) {
+    check(r.reviewOnly === true && r.total > 0 && /NEED HELPER/.test((r.reviewReasons || []).join(' ')) && r.reviewKinds.includes('helper'), `${name}: priced from the card, held for NEED HELPER review`, { plan: r.paymentPlan, total: r.total, why: r.reviewReasons });
+    check(r.quoteRange && r.quoteRange.low === r.total && r.quoteRange.high === r.total, `${name}: no 1.5x-2x range, the regular price is the price`, r.quoteRange);
+  } else {
+    check(r.paymentPlan !== 'quote' && !r.reviewOnly && r.total > 0 && r.dueNow > 0, `${name}: not held, bookable and payable now at the card price (NEED HELPER is only a sheet label)`, { plan: r.paymentPlan, total: r.total, due: r.dueNow });
+    check(!r.quoteRange && !r.reviewKinds, `${name}: no quote range or review state`, r.quoteRange);
+  }
+  return r;
 };
-helperHold('501 lb sculpture', q('pickup_delivery', [{ qty: 1, type: 'sculpture', weight: 501, w: 30, h: 40, d: 30, value: 5000, description: 's' }]));
-const s750 = q('pickup_delivery', [{ qty: 1, type: 'sculpture', weight: 750, w: 30, h: 40, d: 30, value: 5000, description: 's' }]);
-helperHold('750 lb sculpture', s750);
+helperHold('501 lb sculpture', 'pickup_delivery', [{ qty: 1, type: 'sculpture', weight: 501, w: 30, h: 40, d: 30, value: 5000, description: 's' }]);
+const s750 = helperHold('750 lb sculpture', 'pickup_delivery', [{ qty: 1, type: 'sculpture', weight: 750, w: 30, h: 40, d: 30, value: 5000, description: 's' }]);
 check(line(s750, /Sculpture/) && line(s750, /Sculpture/).amount === 1000, '750 lb sculpture keeps the $1,000 over-700 rate', s750.lines);
-helperHold('80" sculpture (200 lb)', q('pickup_delivery', [{ qty: 1, type: 'sculpture', weight: 200, w: 20, h: 80, d: 20, value: 5000, description: 's' }]));
+helperHold('80" sculpture (200 lb)', 'pickup_delivery', [{ qty: 1, type: 'sculpture', weight: 200, w: 20, h: 80, d: 20, value: 5000, description: 's' }]);
 const p72 = q('delivery_install', [{ qty: 1, type: 'painting', framed: 'no', w: 72, h: 40, value: 5000, description: 'p' }]);
 noGate('72" painting', p72);
 check(line(p72, /Oversize painting \(72"\+\) delivery/) && line(p72, /Oversize painting \(72"\+\) install/), '72" painting keeps the oversize lines', p72.lines);
-helperHold('600 lb, 90" other item', q('pickup_delivery', [{ qty: 1, type: 'other', weight: 600, w: 90, h: 30, d: 30, value: 5000, description: 'o' }]));
-helperHold('large 96" sofa', q('pickup_delivery', [{ qty: 1, type: 'furniture', furnitureKind: 'Sofa', sizeClass: 'large', w: 96, h: 36, d: 40, value: 3000, description: 'f' }]));
+helperHold('600 lb, 90" other item', 'pickup_delivery', [{ qty: 1, type: 'other', weight: 600, w: 90, h: 30, d: 30, value: 5000, description: 'o' }]);
+helperHold('large 96" sofa', 'pickup_delivery', [{ qty: 1, type: 'furniture', furnitureKind: 'Sofa', sizeClass: 'large', w: 96, h: 36, d: 40, value: 3000, description: 'f' }]);
 // Unknown weight is not "heavy": it still can't be priced from the weight card, so it stays a CAD-priced request.
 check(q('pickup_delivery', [{ qty: 1, type: 'sculpture', weightUnsure: true, value: 5000, description: 's' }]).paymentPlan === 'quote', 'unknown sculpture weight stays priced by CAD (no weight to price from)');
 
@@ -299,6 +311,11 @@ for (const f of ['public/app.js', 'public/index.html', 'lib/email.js']) {
   const src = fs.readFileSync(path.join(__dirname, '..', f), 'utf8');
   check(!/protection not offered|isn’t eligible for declared value protection|isn't eligible for declared value protection/i.test(src), `${f} must not tell the customer protection is not offered`);
 }
+
+// CAD are fine art handlers, not movers (Chad, Nov 18 2026): the items-step heading follows the service and customer copy never says "moving".
+check(!/What are we moving|Anything else to move/i.test(appJs), 'customer copy must not say "What are we moving?" / "Anything else to move?"');
+for (const [k, h] of [['pickup_delivery', 'delivering'], ['delivery_install', 'delivering and installing'], ['install_only', 'installing'], ['crating_shipping', 'shipping']]) check(new RegExp(`${k}: '${h}'`).test(appJs), `items-step heading for ${k} is "What are we ${h}?"`);
+check(/Within California/.test(appJs) && /Domestic & International/.test(appJs) && /anything going outside California/.test(appJs), 'service cards carry the Within California / Domestic & International subtitles and the clear Shipping description');
 
 console.log(JSON.stringify({ errors }, null, 2));
 if (errors.length) {

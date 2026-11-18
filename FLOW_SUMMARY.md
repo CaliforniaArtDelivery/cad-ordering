@@ -6,7 +6,7 @@ Orders go only to `data/orders.json` + `data/schedule-2026.csv` (never the real 
 
 Header shows "Step N of 4" + a 4-segment progress bar. The bottom dock always shows the running total (on step 4: amount due today) and the main button.
 
-## 1. What are we moving?
+## 1. What are we delivering? (heading follows the service: delivering / delivering and installing / installing / shipping)
 Three services, because CAD has no delivery-only or pickup-only job (everything picked up gets delivered):
 - **Pickup + Delivery** (from $200): white-glove pickup and delivery for fine art, sculpture, luxury furniture, décor and antiques, placed exactly where you want it.
 - **Pickup, Delivery + Install** (from $275): everything above, plus expert installation of paintings, mirrors and wall décor.

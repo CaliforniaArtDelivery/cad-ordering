@@ -276,7 +276,7 @@ module.exports = {
     // NEED HELPER rules: over 150 lb, any sofa / heavy furniture regardless of weight, installs needing a ladder, stairwell or custom hang
     // (the site has no "Level" question, so these stand in for install Level 2/3 until Samantha defines them).
     helperRules: {
-      holdOrders: true, // true: NEED HELPER orders are held for the team (date on hold until a helper is booked). false: only label NEED HELPER on the sheet.
+      holdOrders: false, // true: NEED HELPER orders are held for the team (date on hold until a helper is booked). false: only label NEED HELPER on the sheet.
       overLb: 150,
       heavyFurnitureKinds: ['Sofa', 'Loveseat', '2-Piece Sectional', '3-Piece Sectional', '4-Piece Sectional', 'Armoire', 'Buffet / Hutch', 'Credenza / Sideboard', 'Dresser', 'Desk', 'Dining Table', 'Headboard / Bed Frame', 'Storage Trunk / Chest', 'Vanity'],
       installProxy: { hangWhere: ['high', 'stairwell', 'other'], quoteHangKinds: ['Chandelier', 'Sconces'] },
