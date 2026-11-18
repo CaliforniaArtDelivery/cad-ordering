@@ -494,20 +494,21 @@ const accessBlock = (key, a) => {
     h += `<div class="field"><label class="f">${big ? 'Any tight turns or narrow spots?' + req : opt('Any tight turns or narrow spots?')}</label>${seg(`${key}.stairTurns`, A.YNS, 'wrap')}${big ? firmNote : ''}</div>`;
     if (A.stairPhotosNeeded(a)) h += `<p class="mini req-line">Photos of the stairs and path — required, so we can plan the carry.</p>${photoRow(key, 'stairPhotos', 'Photos of the stairs and path', true)}`;
   }
+  let d = '';
   if (mode) {
-    h += `<div class="field"><label class="f">${opt('Loading dock available?')}</label>${seg(`${key}.dock`, A.YNS, 'wrap')}</div>`;
-    h += `<div class="field"><label class="f">${opt('Doors')}</label>${seg(`${key}.doorway`, A.DOORWAYS, 'wrap')}</div>`;
-    h += `<div class="field"><label class="f">${big ? 'Will everything fit easily?' + req : opt('Will everything fit easily?')}</label>${seg(`${key}.fits`, A.FITS, 'wrap')}<p class="mini">Think doors, halls, turns, stairs and the elevator.</p>${big ? firmNote : ''}</div>`;
-    if (A.doorPhotosNeeded(a)) h += `<p class="mini req-line">Please add a photo of the tight spot and the way in.</p>${photoRow(key, 'doorPhotos', 'Photos', true)}`;
-    else if (a.fits === 'not_sure') h += `<p class="mini" style="margin:0 0 8px">Photos help if you have them.</p>${photoRow(key, 'doorPhotos', 'Photos', false)}`;
-    if (A.fitUnsure(a)) h += input(`${key}.narrowestIn`, opt('Narrowest opening (inches)'), { type: 'number', ph: 'e.g. 30', attrs: 'inputmode="numeric" min="1" step="1"' });
+    d += `<div class="field"><label class="f">${opt('Loading dock available?')}</label>${seg(`${key}.dock`, A.YNS, 'wrap')}</div>`;
+    d += `<div class="field"><label class="f">${opt('Doors')}</label>${seg(`${key}.doorway`, A.DOORWAYS, 'wrap')}</div>`;
+    d += `<div class="field"><label class="f">${big ? 'Will everything fit easily?' + req : opt('Will everything fit easily?')}</label>${seg(`${key}.fits`, A.FITS, 'wrap')}<p class="mini">Think doors, halls, turns, stairs and the elevator.</p>${big ? firmNote : ''}</div>`;
+    if (A.doorPhotosNeeded(a)) d += `<p class="mini req-line">Please add a photo of the tight spot and the way in.</p>${photoRow(key, 'doorPhotos', 'Photos', true)}`;
+    else if (a.fits === 'not_sure') d += `<p class="mini" style="margin:0 0 8px">Photos help if you have them.</p>${photoRow(key, 'doorPhotos', 'Photos', false)}`;
+    if (A.fitUnsure(a)) d += input(`${key}.narrowestIn`, opt('Narrowest opening (inches)'), { type: 'number', ph: 'e.g. 30', attrs: 'inputmode="numeric" min="1" step="1"' });
   }
-  h += `${toggle(`${key}.technicalCarry`, 'Tight spaces, backyard or technical carry', 'Garden paths, gravel or flagstone, narrow side gates, or around the house.', true)}
+  const x = `${toggle(`${key}.technicalCarry`, 'Tight spaces, backyard or technical carry', 'Garden paths, gravel or flagstone, narrow side gates, or around the house.', true)}
         ${a.technicalCarry ? `<p class="mini" style="margin:0 0 8px">Photos of the route are helpful if you have them — you can also send them later.</p><div class="photos" style="margin:0 0 12px">${(a.sitePhotos || []).map((ph2) => `<img src="${esc(ph2)}" alt="">`).join('')}<label class="upload">＋ Photos of the route (stairs, stairwell, narrow halls or path)<span> (helpful)</span><input type="file" accept="image/*" multiple data-siteupload="${key}"></label></div>` : ''}
         ${toggle(`${key}.parkingRestricted`, 'Parking or loading restrictions', '', true)}
         ${a.parkingRestricted ? input(`${key}.parkingNote`, '', { ph: 'e.g. Loading zone only 9–11am, permit needed', attrs: 'aria-label="Parking or loading restrictions"' }) : ''}
         ${input(`${key}.hours`, 'Access hours', { ph: 'e.g. 9am–5pm' })}`;
-  return h;
+  return { inn: h, doors: d, extra: x };
 };
 
 // ---------- pricing blocks ----------
@@ -581,7 +582,7 @@ const timePrefBlock = (prefPath, notePath, { showReassure = false } = {}) => {
     <p class="mini">Tell us any time limits in the note; we’ll do our best but can’t promise.</p>
     ${showReassure ? timeReassure : ''}`;
 };
-const promiseCard = (sub, extraStyle = '') => {
+const promiseCard = (sub, extraStyle = '', editTarget = '') => {
   const sp = special();
   const two = needsTwoDates() && S.schedule.date && S.schedule.deliveryDate;
   const title = two
@@ -593,7 +594,7 @@ const promiseCard = (sub, extraStyle = '') => {
     : timePrefSummary(S.schedule.timePref, S.schedule.timeNote);
   const line = sp ? (S.rush || S.dedicated ? 'Preferred date · confirmed with your quote' : 'Price confirmed with your quote')
     : (prefs || sub || '');
-  return `<div class="promise ${sp ? 'quote' : ''}" style="${extraStyle}"><span class="pi">${sp ? '⏱' : '✓'}</span><span><b>${title}</b><span>${esc(line)}</span></span></div>`;
+  return `<div class="promise ${sp ? 'quote' : ''}" style="${extraStyle}"><span class="pi">${sp ? '⏱' : '✓'}</span><span><b>${title}</b><span>${esc(line)}</span></span>${editTarget ? editBtn(editTarget) : ''}</div>`;
 };
 function deliveryBlock() {
   if (!needsTwoDates() || !S.schedule.date) return '';
@@ -709,41 +710,68 @@ const timingText = (s) => [s.shipBy && `Ship by ${shortDate(s.shipBy)}`, s.arriv
 const destText = (a) => [a.street, [a.city, intlDest(a) ? '' : a.state].filter(Boolean).join(', '), a.zip, intlDest(a) ? a.country : ''].filter(Boolean).map(esc).join(', ');
 const OOS_NOTE = 'Pickups and deliveries outside California are custom quoted as Shipping. Within California we always provide white-glove delivery. Samantha prices your job and emails you a quote; nothing is charged until you approve it.';
 
+// ---------- small steps ----------
+// Each booking step (What, Where, When, Pay) is shown as a few short screens ("panels"), a handful of questions at a time.
+// Every panel of the step is rendered (so all the existing field logic, validation and re-renders keep working) and only the
+// current one is visible. `sub` is the id of the visible panel; '' = first, '__last' = last, '__missing' = first one with a gap.
+const panel = (id, inner) => `<section class="panel" data-panel="${id}">${inner}</section>`;
+let sub = '';
+const panelEls = () => [...app.querySelectorAll('[data-panel]')];
+const panelIds = () => panelEls().map((p) => p.dataset.panel);
+const isLastPanel = () => { const ids = panelIds(); return ids.length < 2 || ids.indexOf(sub) >= ids.length - 1; };
+const isFirstPanel = () => { const ids = panelIds(); return ids.length < 2 || ids.indexOf(sub) <= 0; };
+// Pieces: up to three short screens each (what it is, how big, value and handling).
+const dimsBlock = (i) => { const p = `items.${i}`; return `<label class="f">Size in inches (W × H × D)${req}</label>
+        <div class="row3">${input(`${p}.w`, '', { type: 'number', ph: 'W', attrs: 'inputmode="decimal" aria-label="Width"' })}${input(`${p}.h`, '', { type: 'number', ph: 'H', attrs: 'inputmode="decimal" aria-label="Height"' })}${input(`${p}.d`, '', { type: 'number', ph: 'D', attrs: 'inputmode="decimal" aria-label="Depth"' })}</div>
+        <p class="mini" style="margin:-4px 0 10px">Approximate inches are fine.</p>`; };
+const pieceHasSize = (it, ship) => ship || needsDims(it);
+const pieceSize = (it, i, ship) => (pieceHasSize(it, ship) ? dimsBlock(i) + (FRAMING_TYPES.includes(it.type || 'painting') ? framingBlock(it, i) : '') : '');
+const pieceCare = (item, i, ship) => {
+  const type = item.type || 'painting';
+  const p = `items.${i}`;
+  const needsWeight = type === 'sculpture' || type === 'other';
+  let h;
+  if (ship) {
+    h = `${weightField(item, i, { required: true })}
+    ${input(`${p}.value`, 'Declared value ($)', { ph: 'e.g. 12,000', attrs: 'inputmode="numeric"', req: true })}
+    ${handlingBlock(item, i)}`;
+  } else {
+    const value = input(`${p}.value`, 'Declared value per piece ($)', { ph: 'e.g. 12,000', attrs: 'inputmode="numeric"', req: true })
+      + `<p class="mini" style="margin:-4px 0 8px" data-valhint="${i}">${valueHint(item)}</p>`;
+    h = `${needsWeight ? weightField(item, i, { required: true }) : ''}
+        ${type === 'custom' ? '' : value}
+        ${type === 'other' ? '<p class="mini" style="margin:0 0 6px">Priced by weight from our sculpture rates. The price covers pickup, delivery and placement wherever you want it. CAD may adjust the final quote after seeing photos.</p>' : ''}
+        ${type === 'sculpture' ? '<p class="mini" style="margin:0 0 6px">One weight-based price covers pickup, delivery and placement wherever you want it.</p>' : ''}
+        ${hasInstall() && type === 'decor' && quoteHangList().includes(item.furnitureKind) ? `<p class="mini" style="margin:0 0 6px">${esc(item.furnitureKind)} hanging isn’t on our rate card, so this becomes a quick quote request.</p>` : ''}
+        ${type === 'furniture' ? '<p class="mini" style="margin:0 0 6px">One price covers pickup, delivery and placement wherever you want it.</p>' : ''}
+        ${!needsWeight ? weightField(item, i, { approx: true }) : ''}
+        ${handlingBlock(item, i)}`;
+  }
+  return `${h}
+        <p class="mini req-line" data-photoreq="${i}" ${itemPhotoReason(item) ? '' : 'hidden'}>${esc(itemPhotoReason(item))}</p>
+        <p class="mini" data-photonote="${i}" ${item.fragile && !itemPhotoReason(item) ? '' : 'hidden'}>Add a photo if you have one, or send it later.</p>
+        <div class="photos">${(item.photos || []).map((ph2) => `<img src="${esc(ph2)}" alt="">`).join('')}
+          <label class="upload">＋ Photos<span data-photolbl="${i}">${itemPhotoReason(item) ? req : ' (optional)'}</span><input type="file" accept="image/*" multiple data-upload="${i}"></label></div>`;
+};
+const pieceTag = (it, i) => (S.items.length > 1 ? `<p class="piece-tag">Piece ${i + 1}${it.description ? ` · ${esc(it.description)}` : ''}</p>` : '');
+// What, Where, When, Pay: edit links jump straight to a screen ("1:pickup-addr" = Where, Pickup address).
+const editBtn = (target, label = 'Edit') => `<button type="button" class="edit" data-goto="${target}">${label}</button>`;
+
 // ---------- views ----------
 const roleLabel = (key) => (key === 'pickup' ? 'Pickup contact role' : S.service === 'install_only' ? 'Install contact role' : 'Delivery contact role');
 const views = {
   What() {
     const base = (CFG.pricing && CFG.pricing.displayFrom) || {};
-    const it = (item, i) => {
+    const ship = shipService();
+    const itemA = (item, i) => {
       const type = item.type || 'painting';
       const p = `items.${i}`;
-      const dims = `<label class="f">Size in inches (W × H × D)${req}</label>
-        <div class="row3">${input(`${p}.w`, '', { type: 'number', ph: 'W', attrs: 'inputmode="decimal" aria-label="Width"' })}${input(`${p}.h`, '', { type: 'number', ph: 'H', attrs: 'inputmode="decimal" aria-label="Height"' })}${input(`${p}.d`, '', { type: 'number', ph: 'D', attrs: 'inputmode="decimal" aria-label="Depth"' })}</div>
-        <p class="mini" style="margin:-4px 0 10px">Approximate inches are fine.</p>`;
-      const value = input(`${p}.value`, 'Declared value per piece ($)', { ph: 'e.g. 12,000', attrs: 'inputmode="numeric"', req: true })
-        + `<p class="mini" style="margin:-4px 0 8px" data-valhint="${i}">${valueHint(item)}</p>`;
       const ph = { painting: 'e.g. Oil on canvas by J. Smith', photograph: 'e.g. Signed gelatin silver print', mirror: 'e.g. Venetian mirror, gilt', wallart: 'e.g. Mixed media, wall sculpture', sculpture: 'e.g. Bronze on plinth', furniture: 'e.g. Walnut credenza', decor: item.furnitureKind === 'Other (describe)' ? 'e.g. Ceramic garden stool, pair of candlesticks' : 'e.g. Pair of table lamps', other: 'e.g. Antique clock, Murano glass chandelier', custom: 'e.g. Collect two pieces from a framer and deliver them with the rest' }[type];
       const kinds = type === 'furniture' ? (CFG.pricing.furnitureKinds || []) : decorKindOptions();
       const sizeOpts = sizeOptionsFor(type, item.furnitureKind);
       const allowedSizes = sizeOpts.map((o) => Array.isArray(o) ? o[0] : o);
       if ((type === 'furniture' || type === 'decor') && !allowedSizes.includes(item.sizeClass)) item.sizeClass = 'medium';
       const kindRow = (type === 'furniture' || type === 'decor') ? `<div class="row keep kind-row">${select(`${p}.furnitureKind`, type === 'decor' ? 'Type of décor' : 'Item', kinds, { rerender: true })}${select(`${p}.sizeClass`, 'Size', sizeOpts)}</div>${type === 'decor' && isAccentKind(item.furnitureKind) ? '<p class="mini" style="margin:-4px 0 10px">Extra small is a small figurine or bud vase. Extra large is a statement piece.</p>' : ''}` : '';
-      const needsWeight = type === 'sculpture' || type === 'other';
-      const showApproxWeight = !needsWeight; // optional approx. weight for paintings, wall art, furniture, décor, custom
-      const rateBlock = `
-        ${type === 'custom' ? '' : type === 'furniture' ? value : dims}
-        ${needsWeight ? weightField(item, i, { required: true }) + value : ''}
-        ${type === 'decor' ? value : ''}
-        ${FRAMING_TYPES.includes(type) ? framingBlock(item, i) + value : ''}
-        ${type === 'mirror' ? value : ''}
-        ${type === 'custom' ? '<p class="mini" style="margin:0 0 6px">Tell us what you need in the description. CAD reviews it and sends a custom quote; nothing is charged until you approve it.</p>' : ''}
-        ${type === 'other' ? '<p class="mini" style="margin:0 0 6px">Priced by weight from our sculpture rates. The price covers pickup, delivery and placement wherever you want it. CAD may adjust the final quote after seeing photos.</p>' : ''}
-        ${type === 'sculpture' ? '<p class="mini" style="margin:0 0 6px">One weight-based price covers pickup, delivery and placement wherever you want it.</p>' : ''}
-        ${hasInstall() && type === 'decor' && quoteHangList().includes(item.furnitureKind) ? `<p class="mini" style="margin:0 0 6px">${esc(item.furnitureKind)} hanging isn’t on our rate card, so this becomes a quick quote request.</p>` : ''}
-        ${type === 'furniture' ? '<p class="mini" style="margin:0 0 6px">One price covers pickup, delivery and placement wherever you want it.</p>' : ''}
-        ${showApproxWeight ? weightField(item, i, { approx: true }) : ''}
-        ${handlingBlock(item, i)}
-`;
       return `<div class="card"><div class="item-head"><b>Piece ${i + 1}</b><span class="item-actions">
           <button type="button" class="link" data-dup="${i}">Duplicate</button>
           ${S.items.length > 1 ? `<button type="button" class="link muted" data-remove="${i}">Remove</button>` : ''}</span></div>
@@ -752,27 +780,35 @@ const views = {
         ${type === 'wallart' ? `<p class="mini" style="margin:-4px 0 10px">Mixed media, wall sculpture, etc.${hasInstall() ? ' Hung on a wall, so we can install it.' : ''}</p>` : ''}
         ${kindRow}
         <div class="row qty">${input(`${p}.qty`, 'Qty', { type: 'number', attrs: 'min="1" inputmode="numeric"' })}${input(`${p}.description`, type === 'custom' ? 'Your request' : 'Description', { ph, req: true })}</div>
-        ${shipService() ? shipExtras(item, i) : rateBlock}
-        <p class="mini req-line" data-photoreq="${i}" ${itemPhotoReason(item) ? '' : 'hidden'}>${esc(itemPhotoReason(item))}</p>
-        <p class="mini" data-photonote="${i}" ${item.fragile && !itemPhotoReason(item) ? '' : 'hidden'}>Add a photo if you have one, or send it later.</p>
-        <div class="photos">${(item.photos || []).map((ph2) => `<img src="${esc(ph2)}" alt="">`).join('')}
-          <label class="upload">＋ Photos<span data-photolbl="${i}">${itemPhotoReason(item) ? req : ' (optional)'}</span><input type="file" accept="image/*" multiple data-upload="${i}"></label></div>
+        ${type === 'custom' ? '<p class="mini" style="margin:0 0 6px">Tell us what you need in the description. CAD reviews it and sends a custom quote; nothing is charged until you approve it.</p>' : ''}
       </div>`;
     };
-    return `<h1>${S.service === 'install_only' ? 'What are we installing?' : 'How can we help?'}</h1><p class="sub">Fine art, luxury furniture and décor are our specialty, and we handle other fragile or valuable pieces. Approximate sizes are fine.</p>
+    const pieceTitle = (i) => (S.items.length > 1 ? `Piece ${i + 1}: what is it?` : (S.service === 'install_only' ? 'What are we installing?' : 'What are we moving?'));
+    const panels = [];
+    panels.push(panel('service', `<h1>${S.service === 'install_only' ? 'What are we installing?' : 'How can we help?'}</h1><p class="sub">Fine art, luxury furniture and décor are our specialty, and we handle other fragile or valuable pieces. Approximate sizes are fine.</p>
       <div class="choices">${Object.entries(CFG.services).map(([k, v]) => `<button type="button" class="choice ${S.service === k ? 'on' : ''}" data-service="${k}">
         <span class="ico">${ICONS[k]}</span><span class="txt"><b>${v.label}</b><span class="d">${DESC[k]}</span></span><span class="from">${base[k] == null ? 'Custom quote' : 'from ' + fmt(base[k])}</span></button>`).join('')}</div>
-      <p class="mini" data-from-note>Starting prices don’t include declared value protection.</p>
-      ${S.service ? `<h2 id="pieces">The pieces</h2>${S.items.map(it).join('')}
+      <p class="mini" data-from-note>Starting prices don’t include declared value protection.</p>`));
+    if (S.service) {
+      S.items.forEach((item, i) => {
+        panels.push(panel(`p${i}a`, `<h1>${pieceTitle(i)}</h1>${itemA(item, i)}`));
+        if (pieceHasSize(item, ship)) panels.push(panel(`p${i}b`, `<h1>How big is it?</h1>${pieceTag(item, i)}<div class="card">${pieceSize(item, i, ship)}</div>`));
+        panels.push(panel(`p${i}c`, `<h1>${ship ? 'Weight, value and care' : 'Value and care'}</h1>${pieceTag(item, i)}<div class="card">${pieceCare(item, i, ship)}</div>`));
+      });
+      panels.push(panel('pieces-more', `<h1>Anything else to move?</h1><p class="sub">${S.items.length === 1 ? 'You’ve added one piece.' : `You’ve added ${S.items.length} pieces.`} Add more, or tap Next to continue.</p>
+        <div class="card">${S.items.map((it, i) => `<div class="sum-row"><span>${esc(fmtNum(it.qty) || it.qty)}× ${esc(it.description || 'Piece ' + (i + 1))}<br><span class="muted">${esc(TYPE_LABEL(it.type))}</span></span><span>${editBtn(`0:p${i}a`)}</span></div>`).join('')}</div>
         <button type="button" class="add" id="addItem">＋ Add another piece</button>
-        
-        <p class="mini">${shipService() ? 'Shipping is for out-of-state orders and is always custom quoted. Within California we always provide white-glove delivery. Nothing is charged until you approve Samantha’s quote.' : `${esc(CFG.notice || '')} Jobs with an address outside California are custom quoted as Shipping. Within California we always provide white-glove delivery.`}</p>` : ''}`;
+        <p class="mini">${ship ? 'Shipping is for out-of-state orders and is always custom quoted. Within California we always provide white-glove delivery. Nothing is charged until you approve Samantha’s quote.' : `${esc(CFG.notice || '')} Jobs with an address outside California are custom quoted as Shipping. Within California we always provide white-glove delivery.`}</p>`));
+    }
+    return panels.join('');
   },
 
   Where() {
-    const site = (key, title, optional = false) => {
+    const oos = () => (outOfState() ? `<p class="note" data-oos>${OOS_NOTE}</p>` : '');
+    const addrPanel = (key, optional = false) => {
       const a = get(key);
-      return `<h2>${title}</h2><div class="card">
+      const title = key === 'pickup' ? 'Where are we picking up?' : shipService() ? 'Where is it going?' : S.service === 'install_only' ? 'Where are we installing?' : 'Where are we delivering?';
+      return panel(`${key}-addr`, `<h1>${title}</h1>${oos()}<div class="card">
         ${key === 'dropoff' && shipService() ? input(`${key}.country`, 'Country', { ph: 'United States', attrs: 'autocomplete="country-name"', req: true }) : ''}
         ${key === 'dropoff' && shipService() && intlDest(a)
           ? `<div class="field"><label class="f" for="f-${key}.street">Full address${req}</label><textarea id="f-${key}.street" data-path="${key}.street" placeholder="Street, building, postal code, city, region">${esc(a.street)}</textarea></div>${input(`${key}.city`, 'City', { ph: 'e.g. London', req: true })}`
@@ -780,33 +816,41 @@ const views = {
         <div class="row keep addr3">${input(`${key}.city`, 'City', { ph: key === 'pickup' ? 'San Francisco' : 'West Hollywood', req: !optional })}${input(`${key}.state`, 'State', { ph: 'CA', attrs: 'autocomplete="address-level1" maxlength="14"' })}${input(`${key}.zip`, 'ZIP', { ph: key === 'pickup' ? '94103' : '90069', attrs: 'inputmode="numeric" maxlength="10"' })}</div>`}
         ${key === 'dropoff' && shipService() ? `<div class="field" style="margin-top:4px"><label class="f">Destination type</label>${seg(`${key}.locationType`, [['residential', 'Residential'], ['commercial', 'Commercial']])}</div>` : ''}
         ${input(`${key}.business`, 'Business or gallery (optional)', { ph: 'e.g. gallery, showroom, hotel' })}
-        <div class="sub-head"><span>On-site <b>${key === 'pickup' ? 'pickup' : S.service === 'install_only' ? 'install' : shipService() ? 'destination' : 'delivery'}</b> contact</span><button type="button" class="pill-btn ${a.sameAsMe ? 'on' : ''}" data-same="${key}">${a.sameAsMe ? '✓ Same as me' : 'Same as me'}</button></div>
+      </div>`);
+    };
+    const whereWord = (key) => (key === 'pickup' ? 'pickup' : S.service === 'install_only' ? 'install' : shipService() ? 'destination' : 'delivery');
+    const contactPanel = (key, optional = false) => {
+      const a = get(key);
+      return panel(`${key}-contact`, `<h1>Who will meet us at ${key === 'pickup' ? 'pickup' : S.service === 'install_only' ? 'the install' : shipService() ? 'the destination' : 'delivery'}?</h1><p class="sub">The person on site who can let us in.</p><div class="card">
+        <div class="sub-head first"><span>On-site <b>${whereWord(key)}</b> contact</span><button type="button" class="pill-btn ${a.sameAsMe ? 'on' : ''}" data-same="${key}">${a.sameAsMe ? '✓ Same as me' : 'Same as me'}</button></div>
         <div class="row keep">${input(`${key}.contactName`, 'Name', { ph: 'Name', req: !optional })}${input(`${key}.contactPhone`, 'Mobile', { type: 'tel', ph: '(310) 555-0100', req: !optional, attrs: 'autocomplete="tel"' })}</div>
         <div data-rolewrap="${key}" ${a.sameAsMe ? 'hidden' : ''}>${select(`${key}.contactRole`, roleLabel(key), CONTACT_ROLES, { req: !optional, placeholder: 'Please choose one', rerender: true })}
         ${a.contactRole === 'Other' ? input(`${key}.contactRoleOther`, 'Describe their role', { req: true, ph: 'e.g. House sitter' }) : ''}</div>
-        <div class="sub-head"><span>Access</span></div>
-        ${accessBlock(key, a)}
-        ${key === 'dropoff' && intlDest(a) && shipService() ? `<div class="sub-head"><span>Customs / import contact</span></div>
-        <p class="mini" style="margin:-4px 0 8px">The person or broker who clears the shipment at the destination. Leave blank if it’s the recipient above.</p>
-        <div class="row keep">${input('shipping.customs.name', 'Name', { ph: 'Name or broker' })}${input('shipping.customs.phone', 'Phone', { type: 'tel', ph: '+44 20 0000 0000' })}</div>
-        ${input('shipping.customs.email', 'Email', { type: 'email', attrs: 'autocapitalize="off"' })}` : ''}
-        ${key === 'dropoff' && hasHanging() && !isShip() ? `<div class="sub-head"><span>Hanging</span></div>
-        ${select(`${key}.wallType`, 'Wall type', ['Not sure', 'Drywall', 'Plaster', 'Concrete / brick', 'Wood', 'Tile / stone', 'Glass'])}
-        <div class="field"><label class="f">Hanging hardware</label>${seg(`${key}.hardware`, [['CAD brings it', 'CAD brings it'], ['On site', 'On site'], ['Not sure', 'Not sure']])}</div>
-        ${S.items.map((it, i) => hangPieceBlock(it, i)).join('')}` : ''}
-        <div class="field" style="margin:0"><label class="f" for="f-${key}.notes">Special instructions</label><textarea id="f-${key}.notes" data-path="${key}.notes" placeholder="Gate codes, who to ask for, anything else">${esc(a.notes)}</textarea></div>
-      </div>`;
+      </div>`);
     };
-    const dropTitle = shipService() ? 'Destination' : S.service === 'install_only' ? 'Installation address' : 'Delivery address';
-    return `<h1>Contact and addresses</h1><p class="sub">Who we’re working with and where we’re going. A few details about each address help us arrive prepared.</p>
-      ${outOfState() ? `<p class="note" data-oos>${OOS_NOTE}</p>` : ''}
-      <h2>Your details</h2><div class="card">
+    const accessPanels = (key) => {
+      const a = get(key);
+      const ab = accessBlock(key, a);
+      const at = `<p class="sub">${key === 'pickup' ? 'Pickup' : S.service === 'install_only' ? 'Install' : shipService() ? 'Destination' : 'Delivery'}${a.street ? ' · ' + esc(a.street) : ''}</p>`;
+      return [
+        panel(`${key}-access`, `<h1>How do we get in?</h1>${at}<div class="card">${ab.inn}</div>`),
+        panel(`${key}-doors`, `<h1>Doors, docks and fit</h1>${at}<div class="card">${ab.doors || '<p class="mini" style="margin:0">Tell us how we get in first.</p>'}</div>`),
+        panel(`${key}-extra`, `<h1>Anything else about this address?</h1>${at}<div class="card">${ab.extra}
+        <div class="field" style="margin:0"><label class="f" for="f-${key}.notes">Special instructions</label><textarea id="f-${key}.notes" data-path="${key}.notes" placeholder="Gate codes, who to ask for, anything else">${esc(a.notes)}</textarea></div></div>`),
+      ];
+    };
+    const out = [];
+    out.push(panel('you', `<h1>Let’s start with you</h1><p class="sub">Who we’re working with.</p><div class="card">
         ${input('contact.name', 'Full name', { attrs: 'autocomplete="name"', req: true })}
         <div class="row">${input('contact.email', 'Email', { type: 'email', attrs: 'autocomplete="email" autocapitalize="off"', req: true })}${input('contact.phone', 'Mobile', { type: 'tel', ph: '(415) 555-0123', attrs: 'autocomplete="tel"', req: true })}</div>
-        <div class="row keep">${input('contact.company', 'Company (optional)')}${select('contact.clientType', 'I am a…', ['Collector', 'Gallery', 'Furniture showroom', 'Interior designer', 'Auction house', 'Artist', 'Other'], { req: true, placeholder: 'Please choose one' })}</div>
+      </div>`));
+    out.push(panel('about', `<h1>A little about you</h1><div class="card">
+        <div class="row">${input('contact.company', 'Company (optional)')}${select('contact.clientType', 'I am a…', ['Collector', 'Gallery', 'Furniture showroom', 'Interior designer', 'Auction house', 'Artist', 'Other'], { req: true, placeholder: 'Please choose one' })}</div>
         ${toggle('member', 'I’m a CAD member', '25% off published rates.', true)}
         ${S.member ? `${input('memberCode', 'Member code', { req: true, ph: 'Enter your member code', attrs: 'autocapitalize="characters" autocomplete="off" spellcheck="false"' })}
         ${S.memberVerified && S.memberCompany ? `<p class="mini member-ok">Member rate applied for ${esc(S.memberCompany)}.</p>` : ''}` : `<p class="mini member-pitch">Not a member? CAD Membership is $200/month and gives 25% off every order — ideal if you book $1,000+ a month. Ask us about it on your order or at checkout.</p>`}
+      </div>`));
+    out.push(panel('heard', `<h1>How did you find us?</h1><div class="card">
         ${toggle('heard.repeatClient', 'I’ve ordered with CAD before', 'Welcome back.', true)}
         ${!S.heard.repeatClient ? `${select('heard.source', 'How did you hear about us?', HEARD_SOURCES, { req: true, placeholder: 'Please choose one', rerender: true })}
         ${S.heard.source === 'referral' ? `${select('heard.referrerKind', 'Who referred you?', REFERRER_KINDS, { req: true, placeholder: 'Please choose one', rerender: true })}
@@ -815,17 +859,31 @@ const views = {
         ${BUSINESS_REFERRERS.includes(S.heard.referrerKind) ? input('heard.businessName', 'Business name (optional)', { ph: 'Gallery or showroom name' }) : ''}
         <p class="mini member-pitch">If someone referred you, we’d love to thank them.</p>` : ''}` : ''}
         ${S.heard.source === 'other' ? input('heard.sourceOther', 'Tell us where', { req: true, ph: 'Where did you hear about us?' }) : ''}` : ''}
-      </div>
-      ${svc().needsPickup ? site('pickup', 'Pickup address') : ''}
-      ${site('dropoff', dropTitle)}
-      ${S.items.some(pieceNeedsStairwellFit) ? `<h2>Stairwell fit</h2><div class="card">${S.items.map((it, i) => pieceNeedsStairwellFit(it) ? `<label class="toggle" data-reqblock="stairwellFit-${i}"><span>Piece ${i + 1}${it.description ? ` (${esc(it.description)})` : ''}: I confirm this piece will fit through the stairwell. If it doesn’t fit, CAD will leave it at the bottom of the stairs and the full price still applies.</span>
-        <span class="sw"><input type="checkbox" data-path="items.${i}.fitsStairwell" ${it.fitsStairwell ? 'checked' : ''}><i></i></span></label>` : '').join('')}</div>` : ''}
-`;
+      </div>`));
+    if (svc().needsPickup) { out.push(addrPanel('pickup'), contactPanel('pickup'), ...accessPanels('pickup')); }
+    out.push(addrPanel('dropoff'), contactPanel('dropoff'), ...accessPanels('dropoff'));
+    const da = get('dropoff');
+    if (intlDest(da) && shipService()) {
+      out.push(panel('customs', `<h1>Customs / import contact</h1><p class="sub">The person or broker who clears the shipment at the destination. Leave blank if it’s the recipient.</p><div class="card">
+        <div class="row keep">${input('shipping.customs.name', 'Name', { ph: 'Name or broker' })}${input('shipping.customs.phone', 'Phone', { type: 'tel', ph: '+44 20 0000 0000' })}</div>
+        ${input('shipping.customs.email', 'Email', { type: 'email', attrs: 'autocapitalize="off"' })}</div>`));
+    }
+    if (hasHanging() && !isShip()) {
+      out.push(panel('hang', `<h1>About the walls</h1><p class="sub">For hanging.</p><div class="card">
+        ${select('dropoff.wallType', 'Wall type', ['Not sure', 'Drywall', 'Plaster', 'Concrete / brick', 'Wood', 'Tile / stone', 'Glass'])}
+        <div class="field" style="margin:0"><label class="f">Hanging hardware</label>${seg('dropoff.hardware', [['CAD brings it', 'CAD brings it'], ['On site', 'On site'], ['Not sure', 'Not sure']])}</div></div>`));
+      S.items.forEach((it, i) => { if (isHung(it)) out.push(panel(`hang-p${i}`, `<h1>How high should we hang it?</h1><div class="card">${hangPieceBlock(it, i)}</div>`)); });
+    }
+    if (S.items.some(pieceNeedsStairwellFit)) {
+      out.push(panel('stairfit', `<h1>Stairwell fit</h1><div class="card">${S.items.map((it, i) => pieceNeedsStairwellFit(it) ? `<label class="toggle" data-reqblock="stairwellFit-${i}"><span>Piece ${i + 1}${it.description ? ` (${esc(it.description)})` : ''}: I confirm this piece will fit through the stairwell. If it doesn’t fit, CAD will leave it at the bottom of the stairs and the full price still applies.</span>
+        <span class="sw"><input type="checkbox" data-path="items.${i}.fitsStairwell" ${it.fitsStairwell ? 'checked' : ''}><i></i></span></label>` : '').join('')}</div>`));
+    }
+    return out.join('');
   },
 
   When() {
     if (isShip()) return views.ShipWhen();
-    if (!avail) return `<h1>Choose your date</h1><p class="sub">Finding route days near you…</p>`;
+    if (!avail) return panel('date', `<h1>Choose your date</h1><p class="sub">Finding route days near you…</p>`);
     const region = avail.region || 'your area';
     const card = (d) => { const [w, m, n] = d.label.replace(',', '').split(' '); return `<button type="button" class="day ${S.schedule.date === d.date && !!S.rush === !!d.rush ? 'on' : ''} ${d.rush ? 'rush' : ''}" data-date="${d.date}" data-rush="${d.rush ? 1 : ''}"><div class="dw">${w}</div><div class="dd">${m} ${n}</div><div class="rg">${d.rush ? 'Rush quote' : esc(d.shortLabel || d.routeLabel || d.region)}</div></button>`; };
     const simpleOc = (avail.days || []).some((d) => d.simpleStop);
@@ -835,39 +893,48 @@ const views = {
     const sel = [...avail.days, ...avail.rush].find((d) => d.date === S.schedule.date && !!S.rush === !!d.rush);
     const two = needsTwoDates();
     const title = two ? 'Choose your pickup date' : 'Choose your date';
-    const sub = two
+    const subTxt = two
       ? 'Our van follows a weekly route. Pick a route day that serves the pickup address.'
       : 'Our van follows a weekly route. Pick a route day.'
     const ready = two ? !!(S.schedule.date && S.schedule.deliveryDate) : !!S.schedule.date;
     if (S.schedule.date && !(S.schedule.timePref || '').trim()) S.schedule.timePref = 'none';
     if (S.schedule.deliveryDate && !(S.schedule.deliveryTimePref || '').trim()) S.schedule.deliveryTimePref = 'none';
-    return `<h1 class="when-h1">${title}</h1><p class="sub">${sub}</p>
+    const pickupHtml = `<h1 class="when-h1">${title}</h1><p class="sub">${subTxt}</p>
       <div class="region">● ${esc(avail.area || region)} route</div>
       <div class="days" data-reqblock="date">${dayWindow(avail.days, S.schedule.date, 'pu').list.map(card).join('')}</div>${dayWindow(avail.days, S.schedule.date, 'pu').btn}
       ${intro ? `<p class="mini">${intro}</p>` : ''}
       ${avail.rush.length ? `<h2>Need a different date?</h2><div class="days">${avail.rush.map(card).join('')}</div>` : ''}
       ${sel ? routeHint(sel) : ''}
-      ${S.schedule.date ? timePrefBlock('schedule.timePref', 'schedule.timeNote', { showReassure: true }) : ''}
-      ${deliveryBlock()}
-      ${ready ? promiseCard(crossRegionLine(quoteData && quoteData.regions) || (sel && sel.routeLabel) || (region + ' route')) : ''}
+      ${S.schedule.date ? timePrefBlock('schedule.timePref', 'schedule.timeNote', { showReassure: true }) : ''}`;
+    const tail = `${ready ? promiseCard(crossRegionLine(quoteData && quoteData.regions) || (sel && sel.routeLabel) || (region + ' route')) : ''}
       <div class="card" style="margin-top:14px">${toggle('dedicated', 'Dedicated trip', 'A van and crew just for your job, at a time that works for you.', true, 'first')}</div>
       <p class="mini">Rush and dedicated trips are priced individually; you’ll see the price before paying.</p>`;
+    const split = two && !!S.schedule.date;
+    return panel('date', pickupHtml + (split ? '' : tail)) + (split ? panel('deldate', deliveryBlock() + tail) : '');
   },
 
   ShipWhen() {
     const sh = S.shipping;
     const lvl = ([v, l, h]) => `<button type="button" class="choice ${sh.serviceLevel === v ? 'on' : ''}" data-level="${v}"><span class="txt"><b>${l}</b><span class="d">${h}</span></span></button>`;
     const today = new Date().toISOString().slice(0, 10);
-    return `<h1>Shipping details</h1><p class="sub">Everything Samantha needs to price your shipment.</p>
-      ${outOfState() ? `<p class="note" data-oos>${OOS_NOTE}</p>` : ''}
-      ${outOfState() ? `<h2>The pieces</h2>${S.items.map((it, i) => `<div class="card"><div class="item-head"><b>${esc(fmtNum(it.qty) || it.qty)}× ${esc(it.description || 'Piece ' + (i + 1))}</b></div>${shipExtras(it, i)}</div>`).join('')}` : ''}
+    const oos = outOfState() ? `<p class="note" data-oos>${OOS_NOTE}</p>` : '';
+    const out = [];
+    if (outOfState()) {
+      S.items.forEach((it, i) => {
+        const nm = `${esc(fmtNum(it.qty) || it.qty)}× ${esc(it.description || 'Piece ' + (i + 1))}`;
+        out.push(panel(`ship-p${i}b`, `<h1>Shipping details</h1>${oos}<p class="piece-tag">${nm}</p><div class="card">${dimsBlock(i)}${FRAMING_TYPES.includes(it.type || 'painting') ? framingBlock(it, i) : ''}</div>`));
+        out.push(panel(`ship-p${i}c`, `<h1>Weight, value and care</h1><p class="piece-tag">${nm}</p><div class="card">${pieceCare(it, i, true)}</div>`));
+      });
+    }
+    out.push(panel('ship-level', `<h1>${out.length ? 'Service at the destination' : 'Shipping details'}</h1>${out.length ? '' : `<p class="sub">Everything Samantha needs to price your shipment.</p>${oos}`}
       ${outOfState() ? `<h2>Destination type</h2><div class="card">${seg('dropoff.locationType', [['residential', 'Residential'], ['commercial', 'Commercial']])}</div>` : ''}
-      <h2>Service at the destination</h2><div class="choices" data-reqblock="serviceLevel">${LEVELS.map(lvl).join('')}</div>
-      <h2>Timing</h2><div class="card">
+      <h2>Service at the destination</h2><div class="choices" data-reqblock="serviceLevel">${LEVELS.map(lvl).join('')}</div>`));
+    out.push(panel('ship-timing', `<h1>When should it ship?</h1><div class="card">
         <div class="row keep">${input('shipping.shipBy', 'Ship by', { type: 'date', attrs: `min="${today}"` })}${input('shipping.arriveBy', 'Arrive by (optional)', { type: 'date', attrs: `min="${today}"` })}</div>
         ${toggle('shipping.flexible', 'My dates are flexible', 'Flexible dates usually mean a better shipping rate.', true)}
       </div>
-      <p class="mini">Fully insured through our shipping partners.</p>`;
+      <p class="mini">Fully insured through our shipping partners.</p>`));
+    return out.join('');
   },
 
   Pay() {
@@ -877,69 +944,76 @@ const views = {
     const addr = (a) => (a.street ? `${esc(a.street)}, ${esc(a.city)}` : '—');
     const sp = special();
     const date = avail && [...avail.days, ...avail.rush].find((d) => d.date === S.schedule.date);
-    const siteRows = (label, a) => (a && a.street ? `<div class="sum-row"><span>${label}</span><span>${addr(a)}<br><span class="muted">${esc(a.contactName)} · ${esc(formatPhone(a.contactPhone))}${a.sameAsMe ? (S.contact.clientType ? ` · ${esc(S.contact.clientType)}` : '') : a.contactRole ? ` · ${esc(a.contactRole === 'Other' ? (a.contactRoleOther || 'Other') : a.contactRole)}` : ''}</span></span></div>` : '');
-    return `<h1>${sp ? 'Review your request' : 'Review & pay'}</h1><p class="sub">${sp ? 'CAD sets the final price before anything is charged.' : 'Your job is booked as soon as payment goes through. We’ll email your confirmation right away.'}</p>
-      ${promiseCard(crossRegionLine(quoteData && quoteData.regions) || (date && date.routeLabel) || (avail && avail.region ? avail.region + ' route' : 'Route day'), 'margin-top:0')}
+    const siteRows = (label, a, goto) => (a && a.street ? `<div class="sum-row"><span>${label}</span><span>${addr(a)}<br><span class="muted">${esc(a.contactName)} · ${esc(formatPhone(a.contactPhone))}${a.sameAsMe ? (S.contact.clientType ? ` · ${esc(S.contact.clientType)}` : '') : a.contactRole ? ` · ${esc(a.contactRole === 'Other' ? (a.contactRoleOther || 'Other') : a.contactRole)}` : ''}</span> ${editBtn(goto)}</span></div>` : '');
+    const payerCard = `<div class="card">${seg('payer', isBizReferral() ? [['me', 'Me'], ['partner', 'Referring partner'], ['other', 'Someone else']] : [['me', 'Me'], ['other', 'Someone else']])}
+        ${S.payer === 'other' ? `<div class="row" style="margin-top:12px">${input('payerOther.name', 'Payer name', { req: true })}${input('payerOther.email', 'Payer email', { type: 'email', req: true, attrs: 'autocapitalize="off" autocomplete="email"' })}</div>
+        ${input('payerOther.phone', 'Payer phone', { type: 'tel', req: true, ph: '(415) 555-0123', attrs: 'autocomplete="tel"' })}` : ''}
+        ${S.payer === 'partner' && !(isBizReferral() && (S.heard.businessName || S.heard.referrerName || S.partner.name)) ? `<p class="mini">Add the referring partner in <button type="button" class="edit" style="padding:0" data-goto="1:heard">Where</button> so we know who to bill.</p>` : ''}</div>`;
+    const payerName = S.payer === 'other' ? (S.payerOther.name || 'Someone else') : S.payer === 'partner' ? 'Referring partner' : 'Me';
+    return panel('payer', `<h1>Who’s paying?</h1><p class="sub">Last question before your review.</p>${payerCard}`)
+      + panel('review', `<h1>${sp ? 'Review your request' : 'Review & pay'}</h1><p class="sub">${sp ? 'CAD sets the final price before anything is charged.' : 'Your job is booked as soon as payment goes through. We’ll email your confirmation right away.'}</p>
+      ${promiseCard(crossRegionLine(quoteData && quoteData.regions) || (date && date.routeLabel) || (avail && avail.region ? avail.region + ' route' : 'Route day'), 'margin-top:0', '2:date')}
       <div class="card">
-        <div class="sum-row"><span>Service</span><span>${esc(svc().label)}${S.rush ? ' · rush' : ''}${S.dedicated ? ' · dedicated trip' : ''} <button type="button" class="edit" data-goto="0">Edit</button></span></div>
-        <div class="sum-row"><span>Pieces</span><span>${S.items.map((i) => `${esc(fmtNum(i.qty) || i.qty)}× ${esc(i.description)}<br><span class="muted">${esc([TYPE_LABEL(i.type), framingText(i), i.weightUnsure ? 'weight not sure' : (i.weight ? fmtNum(i.weight) + ' lb' : ''), i.fragile ? 'special handling' : ''].filter(Boolean).join(' · '))}</span>`).join('<br>')}</span></div>
-        ${svc().needsPickup ? siteRows('Pickup', S.pickup) : ''}
-        ${siteRows(S.service === 'install_only' ? 'Install at' : 'Delivery', S.dropoff)}
-        <div class="sum-row"><span>Booked by</span><span>${esc(S.contact.name)}<br><span class="muted">${esc(S.contact.email)}</span> <button type="button" class="edit" data-goto="1">Edit</button></span></div>
+        <div class="sum-row"><span>Service</span><span>${esc(svc().label)}${S.rush ? ' · rush' : ''}${S.dedicated ? ' · dedicated trip' : ''} ${editBtn('0:service')}</span></div>
+        <div class="sum-row"><span>Pieces</span><span>${S.items.map((i) => `${esc(fmtNum(i.qty) || i.qty)}× ${esc(i.description)}<br><span class="muted">${esc([TYPE_LABEL(i.type), framingText(i), i.weightUnsure ? 'weight not sure' : (i.weight ? fmtNum(i.weight) + ' lb' : ''), i.fragile ? 'special handling' : ''].filter(Boolean).join(' · '))}</span>`).join('<br>')} ${editBtn('0:pieces-more')}</span></div>
+        ${svc().needsPickup ? siteRows('Pickup', S.pickup, '1:pickup-addr') : ''}
+        ${siteRows(S.service === 'install_only' ? 'Install at' : 'Delivery', S.dropoff, '1:dropoff-addr')}
+        <div class="sum-row"><span>Booked by</span><span>${esc(S.contact.name)}<br><span class="muted">${esc(S.contact.email)}</span> ${editBtn('1:you')}</span></div>
+        <div class="sum-row"><span>Paying</span><span>${esc(payerName)} ${editBtn('3:payer')}</span></div>
       </div>
-      ${svc().needsPickup ? siteReview('Pickup details', S.pickup) : ''}
-      ${siteReview(S.service === 'install_only' ? 'Installation details' : 'Delivery details', S.dropoff)}
+      ${svc().needsPickup ? siteReview('Pickup details', S.pickup, '1:pickup-access') : ''}
+      ${siteReview(S.service === 'install_only' ? 'Installation details' : 'Delivery details', S.dropoff, '1:dropoff-access')}
       <h2>${sp ? 'Estimated range' : 'Price'}</h2>
       ${priceCard(q, true)}
       ${q && q.notes && q.notes.filter((n) => n !== CADAccess.PRICE_NOTE).length ? `<p class="mini">${q.notes.filter((n) => n !== CADAccess.PRICE_NOTE).map((n) => esc(n)).join(' ')}</p>` : ''}
       ${S.member && S.memberVerified ? `<p class="mini">Member rate (25% off) applied${S.memberCompany ? ` for ${esc(S.memberCompany)}` : ''}.</p>` : ''}
-      <h2>Who’s paying?</h2><div class="card">${seg('payer', isBizReferral() ? [['me', 'Me'], ['partner', 'Referring partner'], ['other', 'Someone else']] : [['me', 'Me'], ['other', 'Someone else']])}
-        ${S.payer === 'other' ? `<div class="row" style="margin-top:12px">${input('payerOther.name', 'Payer name', { req: true })}${input('payerOther.email', 'Payer email', { type: 'email', req: true, attrs: 'autocapitalize="off" autocomplete="email"' })}</div>
-        ${input('payerOther.phone', 'Payer phone', { type: 'tel', req: true, ph: '(415) 555-0123', attrs: 'autocomplete="tel"' })}` : ''}
-        ${S.payer === 'partner' && !(isBizReferral() && (S.heard.businessName || S.heard.referrerName || S.partner.name)) ? `<p class="mini">Add the referring partner in <button type="button" class="edit" style="padding:0" data-goto="1">Where</button> so we know who to bill.</p>` : ''}</div>
       ${sp ? '<div class="err" id="err"></div>' : `<h2>Payment</h2>${paymentBlock(q)}`}
       <p class="mini" data-protection-terms>${PROTECTION_TERMS}</p>
-      <p class="mini">${sp ? 'Samantha reviews your request and emails your price with a payment link. Nothing is charged until you approve it.' : 'Need to change or cancel? Reply to your confirmation email.'}</p>`;
+      <p class="mini">${sp ? 'Samantha reviews your request and emails your price with a payment link. Nothing is charged until you approve it.' : 'Need to change or cancel? Reply to your confirmation email.'}</p>`);
   },
 
   ShipPay() {
     const sh = S.shipping, d = S.dropoff;
     const declared = S.items.reduce((s, it) => s + num(it.value) * (num(it.qty) || 1), 0);
-    return `<h1>Review your shipping request</h1><p class="sub">Samantha prices shipping and emails you a quote. Nothing is charged until you approve it.</p>
+    const payerName = S.payer === 'other' ? (S.payerOther.name || 'Someone else') : S.payer === 'partner' ? 'Referring partner' : 'Me';
+    const payerCard = `<div class="card">${seg('payer', isBizReferral() ? [['me', 'Me'], ['partner', 'Referring partner'], ['other', 'Someone else']] : [['me', 'Me'], ['other', 'Someone else']])}
+        ${S.payer === 'other' ? `<div class="row" style="margin-top:12px">${input('payerOther.name', 'Payer name', { req: true })}${input('payerOther.email', 'Payer email', { type: 'email', req: true, attrs: 'autocapitalize="off" autocomplete="email"' })}</div>
+        ${input('payerOther.phone', 'Payer phone', { type: 'tel', req: true, ph: '(415) 555-0123', attrs: 'autocomplete="tel"' })}` : ''}
+        ${S.payer === 'partner' && !(isBizReferral() && (S.heard.businessName || S.heard.referrerName || S.partner.name)) ? `<p class="mini">Add the referring partner in <button type="button" class="edit" style="padding:0" data-goto="1:heard">Where</button> so we know who to bill.</p>` : ''}</div>`;
+    return panel('payer', `<h1>Who’s paying?</h1><p class="sub">Last question before your review.</p>${payerCard}`)
+      + panel('review', `<h1>Review your shipping request</h1><p class="sub">Samantha prices shipping and emails you a quote. Nothing is charged until you approve it.</p>
       ${outOfState() ? `<p class="note" data-oos>${OOS_NOTE}</p>` : ''}
-      <div class="promise quote" style="margin-top:0"><span class="pi">✈</span><span><b>${esc(timingText(sh))}</b><span>${esc(levelText(sh.serviceLevel))}</span></span></div>
+      <div class="promise quote" style="margin-top:0"><span class="pi">✈</span><span><b>${esc(timingText(sh))}</b><span>${esc(levelText(sh.serviceLevel))}</span></span>${editBtn('2:ship-timing')}</div>
       <div class="card">
-        <div class="sum-row"><span>Service</span><span>Shipping <button type="button" class="edit" data-goto="0">Edit</button></span></div>
-        <div class="sum-row"><span>Pieces</span><span>${S.items.map((i) => `${esc(fmtNum(i.qty) || i.qty)}× ${esc(i.description)}<br><span class="muted">${esc([[i.w, i.h, i.d].filter(Boolean).join(' × ') ? [i.w, i.h, i.d].filter(Boolean).join(' × ') + ' in' : '', i.weightUnsure ? 'weight not sure' : (i.weight ? fmtNum(i.weight) + ' lb' : ''), TYPE_LABEL(i.type), framingText(i), i.fragile ? 'special handling' : ''].filter(Boolean).join(' · '))}</span>`).join('<br>')}</span></div>
-        <div class="sum-row"><span>Pickup</span><span>${destText(S.pickup)}<br><span class="muted">${esc([S.pickup.contactName, formatPhone(S.pickup.contactPhone)].filter(Boolean).join(' · '))}</span></span></div>
-        <div class="sum-row"><span>Destination</span><span>${destText(d)}${d.locationType ? ` · ${esc(d.locationType)}` : ''}<br><span class="muted">${esc([d.contactName, formatPhone(d.contactPhone)].filter(Boolean).join(' · '))}</span> <button type="button" class="edit" data-goto="1">Edit</button></span></div>
+        <div class="sum-row"><span>Service</span><span>Shipping ${editBtn('0:service')}</span></div>
+        <div class="sum-row"><span>Pieces</span><span>${S.items.map((i) => `${esc(fmtNum(i.qty) || i.qty)}× ${esc(i.description)}<br><span class="muted">${esc([[i.w, i.h, i.d].filter(Boolean).join(' × ') ? [i.w, i.h, i.d].filter(Boolean).join(' × ') + ' in' : '', i.weightUnsure ? 'weight not sure' : (i.weight ? fmtNum(i.weight) + ' lb' : ''), TYPE_LABEL(i.type), framingText(i), i.fragile ? 'special handling' : ''].filter(Boolean).join(' · '))}</span>`).join('<br>')} ${editBtn('0:pieces-more')}</span></div>
+        <div class="sum-row"><span>Pickup</span><span>${destText(S.pickup)}<br><span class="muted">${esc([S.pickup.contactName, formatPhone(S.pickup.contactPhone)].filter(Boolean).join(' · '))}</span> ${editBtn('1:pickup-addr')}</span></div>
+        <div class="sum-row"><span>Destination</span><span>${destText(d)}${d.locationType ? ` · ${esc(d.locationType)}` : ''}<br><span class="muted">${esc([d.contactName, formatPhone(d.contactPhone)].filter(Boolean).join(' · '))}</span> ${editBtn('1:dropoff-addr')}</span></div>
         ${intlDest(d) && (sh.customs.name || sh.customs.phone) ? `<div class="sum-row"><span>Customs contact</span><span>${esc([sh.customs.name, sh.customs.phone, sh.customs.email].filter(Boolean).join(' · '))}</span></div>` : ''}
-        <div class="sum-row"><span>At destination</span><span>${esc(levelText(sh.serviceLevel))} <button type="button" class="edit" data-goto="2">Edit</button></span></div>
-        <div class="sum-row"><span>Booked by</span><span>${esc(S.contact.name)}<br><span class="muted">${esc(S.contact.email)}</span></span></div>
+        <div class="sum-row"><span>At destination</span><span>${esc(levelText(sh.serviceLevel))} ${editBtn('2:ship-level')}</span></div>
+        <div class="sum-row"><span>Booked by</span><span>${esc(S.contact.name)}<br><span class="muted">${esc(S.contact.email)}</span> ${editBtn('1:you')}</span></div>
+        <div class="sum-row"><span>Paying</span><span>${esc(payerName)} ${editBtn('3:payer')}</span></div>
       </div>
-      ${siteReview('Pickup details', S.pickup)}
-      ${siteReview('Destination details', S.dropoff)}
+      ${siteReview('Pickup details', S.pickup, '1:pickup-access')}
+      ${siteReview('Destination details', S.dropoff, '1:dropoff-access')}
       <h2>Price</h2><div class="card">
         <div class="sum-row"><span>Shipping</span><span>Custom quote</span></div>
         <div class="sum-row"><span>Insurance</span><span>Fully insured through our shipping partners</span></div>
         <p class="mini" style="margin:4px 0 0">Declared value: ${fmt(declared)}.</p>
         <p class="mini" style="margin:6px 0 0">Samantha sets the price for packing, shipping and destination service before anything is charged. Our shipping partner chooses the right packing for each piece.</p>
       </div>
-      <h2>Who’s paying?</h2><div class="card">${seg('payer', isBizReferral() ? [['me', 'Me'], ['partner', 'Referring partner'], ['other', 'Someone else']] : [['me', 'Me'], ['other', 'Someone else']])}
-        ${S.payer === 'other' ? `<div class="row" style="margin-top:12px">${input('payerOther.name', 'Payer name', { req: true })}${input('payerOther.email', 'Payer email', { type: 'email', req: true, attrs: 'autocapitalize="off" autocomplete="email"' })}</div>
-        ${input('payerOther.phone', 'Payer phone', { type: 'tel', req: true, ph: '(415) 555-0123', attrs: 'autocomplete="tel"' })}` : ''}</div>
-      <div class="err" id="err"></div>`;
+      <div class="err" id="err"></div>`);
   },
 
   PayLink() {
     const o = existing, q = o.quote;
-    return `<h1>Pay to confirm</h1><p class="sub">${payCanceled ? 'Payment wasn’t completed. Your booking is saved; pay below to confirm it.' : o.approvedAt ? 'Your quote is approved. Your job is booked as soon as payment goes through.' : 'Pay below to confirm your booking.'}</p>
+    return panel('review', `<h1>Pay to confirm</h1><p class="sub">${payCanceled ? 'Payment wasn’t completed. Your booking is saved; pay below to confirm it.' : o.approvedAt ? 'Your quote is approved. Your job is booked as soon as payment goes through.' : 'Pay below to confirm your booking.'}</p>
       <div class="promise" style="margin-top:0"><span class="pi">✓</span><span><b>${o.service === 'crating_shipping' ? esc(timingText(o.shipping || {})) : `${esc(longDate(o.schedule.date))}${o.schedule.deliveryDate ? ' · Delivery ' + esc(shortDate(o.schedule.deliveryDate)) : ''}`}</b><span>Order ${esc(o.id)}</span></span></div>
       <div class="card"><div class="sum-row"><span>Service</span><span>${esc(o.serviceLabel)}${o.rush ? ' · rush' : ''}${o.dedicated ? ' · dedicated trip' : ''}</span></div>
         <div class="sum-row"><span>Pieces</span><span>${(o.items || []).map((i) => `${esc(fmtNum(i.qty) || i.qty)}× ${esc(i.description)}`).join('<br>')}</span></div></div>
       ${priceCard(q, false)}
       <h2>Payment</h2>${paymentBlock(q)}
-      ${o.service === 'crating_shipping' ? '' : `<p class="mini" data-protection-terms>${PROTECTION_TERMS}</p>`}`;
+      ${o.service === 'crating_shipping' ? '' : `<p class="mini" data-protection-terms>${PROTECTION_TERMS}</p>`}`);
   },
 
   Done() {
@@ -987,7 +1061,7 @@ const views = {
   },
 };
 
-const siteReview = (title, a) => {
+const siteReview = (title, a, goto) => {
   if (!a || !a.street) return '';
   const rows = [
     a.business && ['Business', esc(a.business)],
@@ -997,7 +1071,7 @@ const siteReview = (title, a) => {
     a === S.dropoff && hasHanging() && ['Hanging', `${esc(a.wallType || 'Wall type not sure')} · hardware: ${esc(a.hardware || 'not sure')}${S.items.map((it, i) => isHung(it) ? '<br>' + esc(hangSummary(it, i)) : '').join('')}`],
     a.notes && ['Notes', esc(a.notes)],
   ].filter(Boolean);
-  return `<h2>${esc(title)}</h2><div class="card">${rows.map(([k, v]) => `<div class="sum-row"><span>${k}</span><span>${v}</span></div>`).join('')}</div>`;
+  return `<h2>${esc(title)}${goto ? ' ' + editBtn(goto) : ''}</h2><div class="card">${rows.map(([k, v]) => `<div class="sum-row"><span>${k}</span><span>${v}</span></div>`).join('')}</div>`;
 };
 
 // ---------- validation + required-field guidance ----------
@@ -1008,15 +1082,16 @@ const contactReady = () => S.contact.name.trim() && /\S+@\S+\.\S+/.test(S.contac
 
 const needsDims = (it) => !['custom', 'furniture'].includes(it.type || 'painting') || shipService();
 const dimsOk = (it) => ['w', 'h', 'd'].every((k) => Number(it[k]) > 0);
-function missingFields() {
+function missingFields(name = STEPS[step]) {
   const out = [];
   const add = (sel, label, msg) => { if (sel && label) out.push({ sel, label, msg }); };
   const itemGaps = (it, i) => {
     const p = pieceName(i);
     if (!(num(it.qty) > 0)) add(`#f-items.${i}.qty`, `Qty — ${p}`, 'Please enter how many of this piece.');
     if (!String(it.description || '').trim()) add(`#f-items.${i}.description`, `Description — ${p}`, 'Please add a short description of this piece.');
-    if (shipService() || (STEPS[step] === 'When' && isShip())) {
-      if (!weightOk(it)) add(`[data-weight="${i}"]`, `Weight — ${p}`, 'Please enter the weight, or tap Not sure.');
+    if (shipService() || (name === 'When' && isShip())) {
+      // Out-of-state pieces show weight as required and the server refuses an order without it, so ask for it here too (was only enforced for the Shipping service).
+      if (!(weightOk(it) && (shipService() || it.weightUnsure || num(it.weight) > 0))) add(`[data-weight="${i}"]`, `Weight — ${p}`, 'Please enter the weight, or tap Not sure.');
       if (!(num(it.value) > 0)) add(`#f-items.${i}.value`, `Declared value — ${p}`, 'Please enter the value of this piece.');
     } else {
       if (it.type !== 'custom' && !(num(it.value) > 0)) add(`#f-items.${i}.value`, `Declared value — ${p}`, 'Please enter the value of this piece.');
@@ -1030,7 +1105,6 @@ function missingFields() {
     }
     if (!photosOk(it)) add(`[data-photolbl="${i}"]`, `Photos — ${p}`, 'Please add a photo of this piece.');
   };
-  const name = STEPS[step];
   if (name === 'What') {
     if (!S.service) { add('.choices', 'Service type', 'Please choose a service.'); return out; }
     S.items.forEach(itemGaps);
@@ -1115,12 +1189,19 @@ function missingFields() {
       if (!/\S+@\S+\.\S+/.test(S.payerOther.email || '')) add('#f-payerOther.email', 'Payer email', 'Please enter the payer’s email.');
       if (String(S.payerOther.phone || '').replace(/\D/g, '').length < 7) add('#f-payerOther.phone', 'Payer phone', 'Please enter the payer’s phone number.');
     }
-    if (S.payer === 'partner' && !(isBizReferral() && (S.heard.businessName || S.heard.referrerName || S.partner.name))) add('[data-goto="1"]', 'Referring partner', 'Please add the referring partner in Where so we know who to bill.');
+    if (S.payer === 'partner' && !(isBizReferral() && (S.heard.businessName || S.heard.referrerName || S.partner.name))) add('[data-goto="1:heard"]', 'Referring partner', 'Please add the referring partner in Where so we know who to bill.');
     return out;
   }
   return out;
 }
 const canContinue = () => missingFields().length === 0;
+// Small steps: a screen only asks for its own fields. The last screen of a step also checks the whole step, so nothing is skipped.
+const panelOfMissing = (m) => { const el = reqEl(m.sel); const p = el && el.closest ? el.closest('[data-panel]') : null; return p ? p.dataset.panel : null; };
+function missingNow() {
+  const all = missingFields();
+  if (isLastPanel()) return all;
+  return all.filter((m) => panelOfMissing(m) === sub);
+}
 
 function reqEl(sel) {
   if (!sel) return null;
@@ -1182,9 +1263,10 @@ function paintRequired() {
   }
   const line = $('#needLine');
   if (line) {
-    if (!miss.length || STEPS[step] === 'Done') { line.hidden = true; line.textContent = ''; }
+    const here = STEPS[step] === 'Done' ? [] : missingNow();
+    if (!here.length || STEPS[step] === 'Done') { line.hidden = true; line.textContent = ''; }
     else {
-      const names = miss.map((m) => m.label);
+      const names = here.map((m) => m.label);
       const n = names.length;
       const listed = names.slice(0, 3).join(', ') + (n > 3 ? '…' : '');
       line.hidden = false;
@@ -1195,9 +1277,12 @@ function paintRequired() {
 }
 function revealFirstMissing() {
   attemptedStep = true; paintRequired();
-  const miss = missingFields();
+  const miss = missingNow();
   if (!miss.length) return;
-  const el = reqEl(miss[0].sel);
+  // A gap on an earlier screen of this step (only checked on the last screen): take them back to it.
+  const inHere = miss.find((m) => panelOfMissing(m) === sub);
+  if (!inHere) { const pid = panelOfMissing(miss[0]); if (pid && pid !== sub) { sub = pid; keepAttempt = true; render(); return; } }
+  const el = reqEl((inHere || miss[0]).sel);
   const wrap = reqWrap(el) || el;
   if (!wrap) return;
   wrap.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -1206,6 +1291,7 @@ function revealFirstMissing() {
   setTimeout(() => { if (focusable && focusable.focus) focusable.focus({ preventScroll: true }); }, 280);
   setTimeout(() => wrap.classList.remove('pulse-need'), 900);
 }
+let keepAttempt = false;
 
 // ---------- estimate (dock) ----------
 let qTimer, qSeq = 0, quotePending = false;
@@ -1246,46 +1332,58 @@ function refreshQuote() {
 function paintButton() {
   const name = STEPS[step], btn = $('#nextBtn');
   const q = existing ? existing.quote : quoteData;
-  if (name === 'Pay') {
+  if (name === 'Pay' && isLastPanel()) {
     // Access "Not sure": the customer pays the base price now (Dot round 4).
     const payWhat = q && accessTbc(q) ? (q.paymentPlan === 'deposit' ? '50% of base price ' : 'base price ') : '';
     if (existing || !special()) btn.textContent = CFG.stripe ? `Pay ${payWhat}${q ? fmt(q.dueNow) : ''} on Stripe` : `Pay ${payWhat}${q ? fmt(q.dueNow) : ''}`;
     else btn.textContent = isShip() ? 'Request quote' : S.rush ? 'Request a rush quote' : 'Request a quote';
-  } else btn.textContent = 'Continue';
-  const wait = !canContinue();
-  if (busy || quotePending) { btn.disabled = true; btn.classList.remove('is-wait'); btn.removeAttribute('aria-disabled'); }
+  } else btn.textContent = 'Next';
+  const wait = missingNow().length > 0;
+  const hold = busy || (quotePending && name === 'Pay' && isLastPanel());
+  if (hold) { btn.disabled = true; btn.classList.remove('is-wait'); btn.removeAttribute('aria-disabled'); }
   else { btn.disabled = false; btn.classList.toggle('is-wait', wait); if (wait) btn.setAttribute('aria-disabled', 'true'); else btn.removeAttribute('aria-disabled'); }
   paintRequired();
 }
 
 // ---------- render ----------
-let lastStep = -1, poppingStep = false;
+let lastStep = -1, lastSub = null, poppingStep = false;
+const applyPanel = () => panelEls().forEach((p) => { p.hidden = p.dataset.panel !== sub; });
 function render() {
   if ((S.items || []).some(routeDecorMirror)) persist();
   const name = STEPS[step];
   // Done: forget the draft so a refresh or Continue can't book (or charge) the same job twice; a refresh shows this order again.
-  if (name === 'Done' && confirmed) { sessionStorage.removeItem('cad-order'); sessionStorage.removeItem('cad-step'); }
+  if (name === 'Done' && confirmed) { sessionStorage.removeItem('cad-order'); sessionStorage.removeItem('cad-step'); sessionStorage.removeItem('cad-sub'); }
   else if (name !== 'Done') sessionStorage.setItem('cad-step', String(step));
   lastShipKey = shipKey(); lastPhotoKey = itemKey();
-  const stepChanged = step !== lastStep;
-  if (stepChanged) {
-    touchedSels.clear(); attemptedStep = false;
-    // Browser Back / Forward walks the booking steps instead of leaving the page (Nov 18 audit).
-    try {
-      if (lastStep === -1 || poppingStep || name === 'Done') history.replaceState({ cadStep: step }, '');
-      else history.pushState({ cadStep: step }, '');
-    } catch (_) { /* history unavailable: ignore */ }
-  }
-  lastStep = step;
-  // Keep the user's scroll position on in-step re-renders (toggles, chips). Only a new step starts at the top.
+  // Y position and focus belong to the screen being left, so read them before the view is rebuilt.
   const y = window.scrollY;
   const html = views[name]();
+  // Which screen (panel) of this step is showing: '' = first, '__last' = last, '__missing' = the first with a gap.
+  const ids = [...html.matchAll(/data-panel="([^"]+)"/g)].map((m) => m[1]);
+  const wantMissing = sub === '__missing';
+  if (ids.length) {
+    if (sub === '__last') sub = ids[ids.length - 1];
+    else if (!sub || sub === '__missing' || !ids.includes(sub)) sub = ids[0];
+  } else sub = '';
+  const stepChanged = step !== lastStep || sub !== lastSub || wantMissing;
+  if (stepChanged) { touchedSels.clear(); attemptedStep = keepAttempt || wantMissing; keepAttempt = false; }
   const ae = document.activeElement;
   const focusId = !stepChanged && ae && app.contains(ae) ? ae.id : '';
   // Keep the caret / selection and textarea scroll, so typing after a re-render continues where it was (Dot, Nov 16).
   let sel = null;
   if (focusId) { try { sel = { s: ae.selectionStart, e: ae.selectionEnd, d: ae.selectionDirection, top: ae.scrollTop }; } catch (_) { sel = null; } }
   app.innerHTML = `<div class="view${stepChanged ? ' enter' : ''}">${html}</div>`;
+  if (wantMissing && ids.length) { const m = missingFields()[0]; const pid = m && panelOfMissing(m); if (pid) sub = pid; }
+  applyPanel();
+  if (stepChanged) {
+    // Browser Back / Forward walks the booking screens instead of leaving the page (Nov 18 audit).
+    try {
+      if (lastStep === -1 || poppingStep || name === 'Done') history.replaceState({ cadStep: step, cadSub: sub }, '');
+      else history.pushState({ cadStep: step, cadSub: sub }, '');
+    } catch (_) { /* history unavailable: ignore */ }
+  }
+  lastStep = step; lastSub = sub;
+  if (name !== 'Done') sessionStorage.setItem('cad-sub', sub);
   if (focusId) {
     const f = document.getElementById(focusId);
     if (f) {
@@ -1296,10 +1394,15 @@ function render() {
     }
   }
   if (name === 'Pay' && !existing && !isShip()) wrapPriceCard();
-  const idx = Math.min(step, 3);
-  document.querySelectorAll('#progress i').forEach((el, i) => el.classList.toggle('on', name === 'Done' || i <= idx));
-  $('#stepsLabel').textContent = name === 'Done' ? (confirmed && confirmed.status === 'pending_approval' ? 'Quote requested' : 'Confirmed') : `Step ${idx + 1} of 4`;
-  $('#backBtn').classList.toggle('hide', step === 0 || name === 'Done' || !!existing);
+  if (name === 'Pay') returnToReview = false;
+  // A slim progress bar (no step count): where this screen sits in the whole booking.
+  const pIds = panelIds();
+  const pIdx = Math.max(0, pIds.indexOf(sub)), pLen = Math.max(1, pIds.length);
+  const pct = name === 'Done' ? 100 : Math.max(5, Math.min(100, Math.round(((Math.min(step, 3) + (pIdx + 1) / pLen) / 4) * 100)));
+  const bar = $('#progress i'); if (bar) bar.style.width = pct + '%';
+  const pg = $('#progress'); if (pg) pg.setAttribute('aria-valuenow', String(pct));
+  $('#stepsLabel').textContent = name === 'Done' ? (confirmed && confirmed.status === 'pending_approval' ? 'Quote requested' : 'Confirmed') : '';
+  $('#backBtn').classList.toggle('hide', (step === 0 && isFirstPanel()) || name === 'Done' || !!existing);
   const noDock = name === 'Done';
   $('#dock').classList.toggle('hide', noDock);
   app.classList.toggle('no-dock', noDock);
@@ -1499,10 +1602,12 @@ app.addEventListener('change', (e) => {
   else if (/^(pickup|dropoff)\.(state|zip|city)$/.test(e.target.dataset.path || '')) syncOosNote();
 });
 function syncOosNote() {
-  const sub = app.querySelector('h1 + .sub'); if (!sub || STEPS[step] !== 'Where') return;
-  const cur = app.querySelector('[data-oos]');
-  if (outOfState() && !cur) sub.insertAdjacentHTML('afterend', `<p class="note" data-oos>${OOS_NOTE}</p>`);
-  else if (!outOfState() && cur) cur.remove();
+  if (STEPS[step] !== 'Where') return;
+  app.querySelectorAll('[data-panel$="-addr"]').forEach((pn) => {
+    const cur = pn.querySelector('[data-oos]');
+    if (outOfState() && !cur) pn.querySelector('h1').insertAdjacentHTML('afterend', `<p class="note" data-oos>${OOS_NOTE}</p>`);
+    else if (!outOfState() && cur) cur.remove();
+  });
 }
 const itemKey = () => S.items.map((i) => itemPhotoReason(i) + (num(i.value) > 50000 ? 2 : num(i.value) > 0 ? 1 : 0)).join('|');
 const shipKey = () => `${isShip()}|${intlDest(S.dropoff)}`;
@@ -1538,16 +1643,21 @@ app.addEventListener('click', async (e) => {
     if (it.weightUnsure) it.weight = '';
     persist(); render(); return;
   }
-  if (t.id === 'addItem') { S.items.push(emptyItem()); persist(); render(); return; }
-  if (t.dataset.dup != null) { const src = S.items[+t.dataset.dup]; S.items.splice(+t.dataset.dup + 1, 0, JSON.parse(JSON.stringify(src))); persist(); render(); return; }
-  if (t.dataset.remove != null) { S.items.splice(+t.dataset.remove, 1); persist(); render(); return; }
+  if (t.id === 'addItem') { S.items.push(emptyItem()); persist(); sub = `p${S.items.length - 1}a`; render(); return; }
+  if (t.dataset.dup != null) { const src = S.items[+t.dataset.dup]; S.items.splice(+t.dataset.dup + 1, 0, JSON.parse(JSON.stringify(src))); persist(); sub = `p${+t.dataset.dup + 1}a`; render(); return; }
+  if (t.dataset.remove != null) { S.items.splice(+t.dataset.remove, 1); persist(); sub = 'pieces-more'; render(); return; }
   if (t.dataset.same) {
     const a = S[t.dataset.same];
     a.sameAsMe = !a.sameAsMe;
     if (a.sameAsMe) applySameAsMe(t.dataset.same);
     persist(); render(); return;
   }
-  if (t.dataset.goto != null) { step = +t.dataset.goto; render(); return; }
+  if (t.dataset.goto != null) {
+    // "1:pickup-addr" = Where, Pickup address. From the final review, the next Next brings them straight back to it.
+    const [gs, gp] = String(t.dataset.goto).split(':');
+    if (STEPS[step] === 'Pay' && !existing) returnToReview = true;
+    step = +gs; sub = gp || ''; render(); return;
+  }
   if (t.dataset.wallet) return pay(CFG.stripe ? 'stripe' : t.dataset.wallet);
   const sg = t.closest('[data-seg]'); const hp = sg && sg.dataset.seg.match(/^items\.(\d+)\.hangPick$/);
   if (hp) { const it = S.items[+hp[1]]; const v = t.dataset.v; if (v === 'standard') { it.hangHeight = 'standard'; it.hangWhere = ''; } else { it.hangHeight = 'higher'; it.hangWhere = v; } set(sg.dataset.seg, v); render(); return; }
@@ -1566,8 +1676,7 @@ app.addEventListener('click', async (e) => {
     return;
   }
   if (t.dataset.changePickup != null) {
-    const el = app.querySelector('[data-reqblock="date"]');
-    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    sub = 'date'; render();
     return;
   }
   if (t.dataset.level) { S.shipping.serviceLevel = t.dataset.level; persist(); render(); return; }
@@ -1655,18 +1764,52 @@ window.addEventListener('popstate', (e) => {
   const st = e.state && e.state.cadStep;
   if (st == null || busy || STEPS[step] === 'Done' || confirmed) return;
   const maxStep = orderId || existing ? STEPS.indexOf('Pay') : STEPS.indexOf('Pay') - 1; // never jump forward into payment without an order
-  poppingStep = true; step = Math.max(0, Math.min(st, maxStep)); render(); poppingStep = false;
+  poppingStep = true;
+  const ns = Math.max(0, Math.min(st, maxStep));
+  sub = ns === st ? (e.state.cadSub || '') : '__last';
+  step = ns; render(); poppingStep = false;
 });
-$('#backBtn').addEventListener('click', () => { step = Math.max(0, step - 1); render(); });
+// Back: one screen at a time, then the last screen of the step before. Everything typed stays (it is all kept in the page state).
+$('#backBtn').addEventListener('click', () => {
+  const ids = panelIds(); const i = ids.indexOf(sub);
+  if (i > 0) { sub = ids[i - 1]; render(); return; }
+  if (step === 0) return;
+  step -= 1; sub = '__last'; render();
+});
 const needLine = $('#needLine');
 if (needLine) needLine.addEventListener('click', () => revealFirstMissing());
 
-$('#nextBtn').addEventListener('click', async () => {
-  if (busy || quotePending) return;
-  if (!canContinue()) { revealFirstMissing(); return; }
+let returnToReview = false;
+// After Edit on the final review: check the booking is still complete and go straight back to the review.
+async function backToReview() {
+  busy = true; updateNext();
+  try {
+    if (!isShip() && S.service) {
+      const r = await api('/api/availability', payload());
+      if (r.ok && r.j && r.j.days) {
+        avail = r.j;
+        if (S.schedule.date && ![...avail.days, ...avail.rush].some((d) => d.date === S.schedule.date)) { S.schedule.date = ''; S.rush = false; S.schedule.deliveryDate = ''; persist(); }
+        if (needsTwoDates() && S.schedule.date) await loadDelivery();
+      }
+    }
+  } finally { busy = false; }
+  for (const n of ['What', 'Where', 'When']) {
+    if (n === 'When' && !isShip() && !avail) continue;
+    if (missingFields(n).length) { step = STEPS.indexOf(n); sub = '__missing'; render(); return; }
+  }
+  returnToReview = false;
+  step = STEPS.indexOf('Pay'); sub = '__last'; render();
+}
+async function goNext() {
+  if (busy) return;
   const name = STEPS[step];
+  const ids = panelIds(); const idx = ids.indexOf(sub); const last = ids.length < 2 || idx >= ids.length - 1;
+  if (name === 'Pay' && last && quotePending) return;
+  if (missingNow().length) { revealFirstMissing(); return; }
+  if (returnToReview && name !== 'Pay') return backToReview();
+  if (!last) { sub = ids[idx + 1]; render(); return; }
   if (name === 'Pay') return pay(CFG.stripe ? 'stripe' : payMethod);
-  if (name === 'Where' && isShip()) { step++; render(); return; }
+  if (name === 'Where' && isShip()) { step++; sub = ''; render(); return; }
   if (name === 'Where') {
     busy = true; updateNext();
     try {
@@ -1678,8 +1821,18 @@ $('#nextBtn').addEventListener('click', async () => {
     if (!avail || !avail.days) return;
   }
   if (name === 'When' && !avail && !isShip()) return;
-  step++; render();
+  step++; sub = ''; render();
   if (STEPS[step] === 'When' && needsTwoDates() && S.schedule.date) loadDelivery();
+}
+$('#nextBtn').addEventListener('click', goNext);
+// Enter = Next (never on the payment screen, so a stray Enter can't charge anyone; never inside a text box that needs line breaks).
+app.addEventListener('keydown', (e) => {
+  if (e.key !== 'Enter' || e.isComposing || e.shiftKey) return;
+  const t = e.target;
+  if (!t || !t.matches || !t.matches('input:not([type=checkbox]):not([type=radio]):not([type=file]):not([type=button]), select')) return;
+  if (STEPS[step] === 'Pay' && isLastPanel()) return;
+  e.preventDefault();
+  goNext();
 });
 
 // ---------- boot ----------
@@ -1711,6 +1864,8 @@ $('#nextBtn').addEventListener('click', async () => {
     step = saved;
     if (step >= STEPS.indexOf('When') && !isShip() && !(avail && avail.days)) step = STEPS.indexOf('Where');
     if (step === STEPS.indexOf('Pay') && !isShip() && !S.schedule.date) step = STEPS.indexOf('When');
+    // Same screen they were on, unless the step had to move.
+    sub = step === saved ? (sessionStorage.getItem('cad-sub') || '') : '__last';
   }
   render();
   if (S.member && S.memberCode) checkMemberCode();

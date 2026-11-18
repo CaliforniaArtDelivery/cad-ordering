@@ -7,7 +7,7 @@
 <title>Book with California Art Delivery</title>
 <link rel="icon" type="image/png" href="/cad-logo.jpg">
 <link rel="apple-touch-icon" href="/cad-logo.jpg">
-<link rel="stylesheet" href="/styles.css?v=31">
+<link rel="stylesheet" href="/styles.css?v=32">
 </head>
 <body>
 <noscript><div style="padding:24px;max-width:560px;margin:24px auto;font:16px/1.5 system-ui,sans-serif;border:1px solid #d9d5cb;border-radius:12px;background:#fff"><b>JavaScript is turned off.</b><br>Online booking needs it. Please turn it on in your browser settings, or call us: North &amp; Central (831) 596-1139 · South (949) 765-5255.</div></noscript>
@@ -17,7 +17,7 @@
     <div class="brand"><img class="logo" src="/cad-logo.jpg" width="1023" height="928" alt="California Art Delivery"></div>
     <div class="steps-label" id="stepsLabel"></div>
   </div>
-  <div class="progress" id="progress" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+  <div class="progress" id="progress" role="progressbar" aria-label="Booking progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><i></i></div>
 </header>
 <main id="app" class="app"></main>
 <footer class="dock" id="dock">
@@ -29,12 +29,12 @@
     </div>
     <div class="dock-actions">
       <button class="btn back" id="backBtn" type="button" aria-label="Back">Back</button>
-      <button class="btn primary" id="nextBtn" type="button">Continue</button>
+      <button class="btn primary" id="nextBtn" type="button">Next</button>
     </div>
   </div>
   <div class="est-note" id="estNote" hidden></div>
 </footer>
 <script src="/access.js?v=31"></script>
-<script src="/app.js?v=31"></script>
+<script src="/app.js?v=33"></script>
 </body>
 </html>

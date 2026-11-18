@@ -11,7 +11,7 @@ const S = {
   payer: 'client', card: '', exp: '', cvc: '', payError: '', quoteBusy: false,
   pickupDate: '', deliveryDate: '', puDays: [], deDays: [], quote: null, submitting: false, errors: [], showErrors: false,
 };
-let uid = 1, cat = 'All', quoteTok = 0, availTok = 0, qTimer = 0, aTimer = 0;
+let uid = 1, cat = 'All', quoteTok = 0, availTok = 0, qTimer = 0, aTimer = 0, availPending = false;
 
 const ACC = () => new Set(CFG.kinds.accents);
 const isMirror = (kind) => kind === 'Mirror';
@@ -95,35 +95,35 @@ async function runQuote() {
 }
 function problems() {
   const out = [];
-  const add = (msg, sel) => out.push({ msg, sel });
+  const add = (msg, sel, ask) => out.push({ msg, sel, ask: ask || `Please fill in: ${msg}.` });
   const q = S.quote || {};
-  if (!S.placedBy) add('Choose who is placing the order', '#placedBy');
-  else if (S.placedBy === 'Other' && !S.placedOther.trim()) add('Type the name of who is placing the order', '#placedOther');
-  if (!S.items.length) add('Add at least one item', '#sec-items');
+  if (!S.placedBy) add('Choose who is placing the order', '#placedBy', 'Please choose who is placing the order.');
+  else if (S.placedBy === 'Other' && !S.placedOther.trim()) add('Type the name of who is placing the order', '#placedOther', 'Please type your name.');
+  if (!S.items.length) add('Add at least one item', '#sec-items', 'Please add at least one item.');
   const d = delivery();
-  if (!d.name) add('Client name', '#dName');
-  if (d.phone.replace(/\D/g, '').length < 7) add('Client phone', '#dPhone');
-  if (!/\S+@\S+\.\S+/.test(d.email)) add('Client email', '#dEmail');
+  if (!d.name) add('Client name', '#dName', 'Please enter the client’s name.');
+  if (d.phone.replace(/\D/g, '').length < 7) add('Client phone', '#dPhone', 'Please enter the client’s phone number.');
+  if (!/\S+@\S+\.\S+/.test(d.email)) add('Client email', '#dEmail', 'Please enter a valid email address.');
   const c2 = d.client2;
   if (c2) {
-    if (!c2.name) add('Second client name', '#c2Name');
-    if (!c2.phone && !c2.email) add('Second client phone or email', '#c2Phone');
-    else if (c2.phone && c2.phone.replace(/\D/g, '').length < 7) add('Second client phone', '#c2Phone');
-    else if (c2.email && !/\S+@\S+\.\S+/.test(c2.email)) add('Second client email', '#c2Email');
+    if (!c2.name) add('Second client name', '#c2Name', 'Please enter the second client’s name.');
+    if (!c2.phone && !c2.email) add('Second client phone or email', '#c2Phone', 'Please add a phone or email for the second client.');
+    else if (c2.phone && c2.phone.replace(/\D/g, '').length < 7) add('Second client phone', '#c2Phone', 'Please enter a full phone number.');
+    else if (c2.email && !/\S+@\S+\.\S+/.test(c2.email)) add('Second client email', '#c2Email', 'Please enter a valid email address.');
   }
-  if (!d.street) add('Delivery street address', '#dStreet');
-  if (!d.city) add('City', '#dCity');
-  if (!/^\d{5}(-\d{4})?$/.test(d.zip)) add('ZIP code', '#dZip');
+  if (!d.street) add('Delivery street address', '#dStreet', 'Please enter the street address.');
+  if (!d.city) add('City', '#dCity', 'Please enter the city.');
+  if (!/^\d{5}(-\d{4})?$/.test(d.zip)) add('ZIP code', '#dZip', 'Please enter a 5-digit ZIP code.');
   const a = access();
-  if (!a.mode) add('How we get in at delivery', '#aMode');
-  if (a.mode === 'stairs' && !a.flights) add('Flights of stairs', '#aFlights');
-  if (a.mode === 'stairs' && a.flights === '4plus' && !(parseInt(a.flightsCount, 10) >= 4)) add('How many flights (4 or more)', '#aFlightsN');
-  if (a.mode === 'stairs' && a.flights && S.quote && S.quote.stairsFollowUp) { if (!a.shape) add('Are the stairs straight or do they turn', '#aShape'); if (!a.tight) add('Any tight turns or narrow doorways', '#aTight'); }
-  if (a.mode === 'elevator' && !a.floor) add('Elevator floor', '#aFloor');
-  if (a.mode === 'elevator' && !a.elevatorType) add('Which elevator (freight or passenger)', '#aElevType');
-  if (a.mode === 'elevator' && !a.elevSteps) add('Any steps before or after the elevator', '#aElevSteps');
-  if (a.mode === 'elevator' && a.elevSteps === 'yes' && !(parseInt(a.elevStepsN, 10) >= 1)) add('How many steps', '#aElevStepsN');
-  if (!q.special && !outOfState() && /^\d{5}/.test(d.zip) && (!S.pickupDate || !S.deliveryDate)) add('Pickup and delivery days', '#sec-dates');
+  if (!a.mode) add('How we get in at delivery', '#aMode', 'Please tell us how we get in.');
+  if (a.mode === 'stairs' && !a.flights) add('Flights of stairs', '#aFlights', 'Please choose how many flights of stairs.');
+  if (a.mode === 'stairs' && a.flights === '4plus' && !(parseInt(a.flightsCount, 10) >= 4)) add('How many flights (4 or more)', '#aFlightsN', 'Please enter the number of flights (4 or more).');
+  if (a.mode === 'stairs' && a.flights && S.quote && S.quote.stairsFollowUp) { if (!a.shape) add('Are the stairs straight or do they turn', '#aShape', 'Please tell us if the stairs are straight or turn.'); if (!a.tight) add('Any tight turns or narrow doorways', '#aTight', 'Please tell us about tight turns or narrow doorways.'); }
+  if (a.mode === 'elevator' && !a.floor) add('Elevator floor', '#aFloor', 'Please enter the floor.');
+  if (a.mode === 'elevator' && !a.elevatorType) add('Which elevator (freight or passenger)', '#aElevType', 'Please choose which elevator.');
+  if (a.mode === 'elevator' && !a.elevSteps) add('Any steps before or after the elevator', '#aElevSteps', 'Please tell us if there are steps before or after the elevator.');
+  if (a.mode === 'elevator' && a.elevSteps === 'yes' && !(parseInt(a.elevStepsN, 10) >= 1)) add('How many steps', '#aElevStepsN', 'Please enter how many steps.');
+  if (!q.special && !outOfState() && /^\d{5}/.test(d.zip) && (!S.pickupDate || !S.deliveryDate)) add('Pickup and delivery days', '#sec-dates', 'Please pick a pickup day and a delivery day.');
   return out;
 }
 
@@ -145,8 +145,9 @@ async function submitPin(e) {
 }
 const payerInfo = () => (S.payer === 'palomas' ? { name: "Paloma's Home Furnishings", email: CFG.pay.partnerEmail } : { name: delivery().name, email: delivery().email });
 function payerLineHtml() { const p = payerInfo(); return p.name || p.email ? `Payer: <b>${esc(p.name || '—')}</b>${p.email ? ' · ' + esc(p.email) : ''}` : 'Payer: fill in the client name and email above.'; }
+const isHeavyReview = () => !!(S.quote && S.quote.special && S.quote.review === 'heavy');
 function shippingButton() {
-  return `<button type="button" class="btn primary wide" id="place" ${S.submitting ? 'disabled' : ''}>${S.submitting ? 'Sending…' : 'Request shipping quote'}</button><p class="billing">No payment is taken online.</p>`;
+  return `<button type="button" class="btn primary wide" id="place" ${S.submitting ? 'disabled' : ''}>${S.submitting ? 'Sending…' : isHeavyReview() ? 'Send for team review' : 'Request shipping quote'}</button><p class="billing">No payment is taken online.</p>`;
 }
 function payBlock(q) {
   const pay = q.payment || {}; const deposit = pay.paymentPlan === 'deposit';
@@ -180,11 +181,13 @@ function renderSummary() {
   const barTotal = $('#barTotal');
   if (!S.items.length || !q || q.empty) {
     box.innerHTML = `<p class="empty">Add an item to see pricing.</p>`;
-    $('#bar').hidden = true; return;
+    $('#barTot').hidden = true; return;
   }
   let html = '';
   if (q.special) {
-    html = `<div class="special"><b>Delivery outside California is quoted as Shipping.</b><br>${esc('Our team will email your shipping quote. No charge until you approve it.')}</div>`;
+    html = isHeavyReview()
+      ? `<div class="special"><b>A piece over 500 lb needs a quick team review.</b><br>${esc(q.quoteNote || 'Our team will email your quote. No charge until you approve it.')}</div>`
+      : `<div class="special"><b>Delivery outside California is quoted as Shipping.</b><br>${esc('Our team will email your shipping quote. No charge until you approve it.')}</div>`;
     barTotal.textContent = 'Quote'; 
   } else {
     const extras = q.volumeOff > 0 || q.courtesyOff > 0;
@@ -203,7 +206,7 @@ function renderSummary() {
     if (q.notes && q.notes.length) html += q.notes.filter((n) => !/access/i.test(n)).map((n) => `<p class="mini">${esc(n)}</p>`).join('');
     barTotal.textContent = S.quoteBusy ? 'Updating…' : usd(q.total);
   }
-  $('#bar').hidden = false;
+  $('#barTot').hidden = false;
   const errs = S.showErrors ? problems() : [];
   if (errs.length) html += `<div class="errs" role="alert"><b>Still needed:</b>${errs.map((e) => esc(e.msg)).join(' · ')}</div>`;
   html += q.special ? shippingButton() : payBlock(q);
@@ -215,9 +218,9 @@ function renderDatesVisibility() {
   const d = delivery();
   const ok = /^\d{5}/.test(d.zip) && !outOfState() && !(S.quote && S.quote.special);
   $('#datesBox').hidden = !ok || !S.puDays.length;
-  $('#datesSub').textContent = outOfState() || (S.quote && S.quote.special)
+  $('#datesSub').textContent = isHeavyReview() ? 'This order goes to our team for review first, so no days are needed yet. We will email the quote.' : outOfState() || (S.quote && S.quote.special)
     ? 'Delivery outside California is quoted as Shipping, so no dates are needed. We will email the quote.'
-    : /^\d{5}/.test(d.zip) ? 'Pick a pickup day, then a delivery day. We pre-selected the earliest.' : 'Enter the delivery ZIP above and the available days appear here. We pre-select the earliest.';
+    : /^\d{5}/.test(d.zip) ? 'Pick a pickup day, then a delivery day. We pre-selected the earliest.' : 'Enter the delivery ZIP on the address step and the available days appear here. We pre-select the earliest.';
 }
 const dayCard = (d, on, i, kind) => { const [w, m, n] = String(d.label).replace(',', '').split(' '); return `<button type="button" class="day ${on ? 'on' : ''} ${i === 0 ? 'early' : ''}" data-${kind}="${d.date}"><div class="dw">${esc(w)}</div><div class="dd">${esc(m)} ${esc(n)}</div><div class="rg">${esc(d.shortLabel || d.region || '')}</div></button>`; };
 const SHOW_FIRST = 3; // the next 3 days, then "Show more dates" (up to 14) and "Later date"
@@ -244,10 +247,10 @@ function renderDays() {
   $('#dateSummary').textContent = S.pickupDate && S.deliveryDate ? `Pickup ${lab(S.puDays, S.pickupDate) || S.pickupDate} · Delivery ${lab(S.deDays, S.deliveryDate) || S.deliveryDate}` : '';
   renderDatesVisibility();
 }
-function scheduleAvail() { clearTimeout(aTimer); aTimer = setTimeout(refreshDates, 250); }
+function scheduleAvail() { availPending = true; clearTimeout(aTimer); aTimer = setTimeout(refreshDates, 250); }
 async function refreshDates() {
   const tok = ++availTok; const d = delivery();
-  if (!/^\d{5}/.test(d.zip) || outOfState()) { S.puDays = []; S.deDays = []; S.pickupDate = ''; S.deliveryDate = ''; renderDays(); return; }
+  if (!/^\d{5}/.test(d.zip) || outOfState()) { S.puDays = []; S.deDays = []; S.pickupDate = ''; S.deliveryDate = ''; renderDays(); availPending = false; return; }
   const { ok, j } = await api('/api/palomas/availability', { ...payload(), leg: 'pickup', from: S.puFrom });
   if (tok !== availTok) return;
   S.puDays = ok ? (j.days || []) : [];
@@ -255,12 +258,12 @@ async function refreshDates() {
   await refreshDelivery(tok);
 }
 async function refreshDelivery(tok = availTok) {
-  if (!S.pickupDate) { S.deDays = []; S.deliveryDate = ''; renderDays(); return; }
+  if (!S.pickupDate) { S.deDays = []; S.deliveryDate = ''; renderDays(); availPending = false; return; }
   const { ok, j } = await api('/api/palomas/availability', { ...payload(), leg: 'dropoff', pickupDate: S.pickupDate, from: S.deFrom });
   if (tok !== availTok) return;
   S.deDays = ok ? (j.days || []) : [];
   if (!S.deDays.some((x) => x.date === S.deliveryDate)) S.deliveryDate = (S.deDays[0] || {}).date || '';
-  renderDays(); renderSummary();
+  renderDays(); renderSummary(); availPending = false;
 }
 
 /* ---------- submit ---------- */
@@ -270,7 +273,9 @@ async function place(mode = 'now', wallet = '') {
   const errs = problems();
   if (errs.length) {
     renderSummary(); renderItems();
-    const el = $(errs[0].sel); if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); if (el.focus && el.tagName !== 'SECTION') el.focus({ preventScroll: true }); }
+    const sid = stepOfSel(errs[0].sel);
+    if (sid !== STEP_IDS[stepI]) showStep(STEP_IDS.indexOf(sid));
+    showStepErrors(problemsFor(STEP_IDS[stepI]));
     markBad(errs); return;
   }
   const special = !!(S.quote && S.quote.special);
@@ -294,10 +299,11 @@ function showDone(j, how) {
   clearTimeout(draftTimer); try { sessionStorage.removeItem(DRAFT_KEY); } catch (_) { /* ignore */ }
   const o = j.order || {}; const q = j.quote || {}; const d = delivery();
   const shipping = o.status === 'pending_approval';
+  const heavy = o.reviewReason === 'heavy';
   const day = (s) => (s ? new Date(s + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' }) : '');
   $('#main').innerHTML = `<div class="done"><div class="ck">✓</div>
-    <h2>${shipping ? 'Shipping quote requested' : how === 'link' ? 'Payment link sent' : 'Delivery locked in'}</h2>
-    <p class="sub">Order <b>${esc(o.id || j.id)}</b>${shipping ? ' · Our team will email your shipping quote. No charge until you approve it.' : how === 'link' ? ` · we emailed ${esc(d.email)} a payment link. <b>Awaiting payment — not scheduled until paid.</b> We'll send a reminder each day until it's paid.` : ' · paid, and we have it from here.'}</p>
+    <h2>${shipping ? (heavy ? 'Sent for team review' : 'Shipping quote requested') : how === 'link' ? 'Payment link sent' : 'Delivery locked in'}</h2>
+    <p class="sub">Order <b>${esc(o.id || j.id)}</b>${shipping ? (heavy ? ' · Our team reviews the heavy piece and will email your quote. No charge until you approve it.' : ' · Our team will email your shipping quote. No charge until you approve it.') : how === 'link' ? ` · we emailed ${esc(d.email)} a payment link. <b>Awaiting payment — not scheduled until paid.</b> We'll send a reminder each day until it's paid.` : ' · paid, and we have it from here.'}</p>
     <div class="box">
       <p><b>Placed by</b> ${esc(S.placedBy === 'Other' ? S.placedOther : S.placedBy)}</p>
       <p><b>Pickup</b> ${esc(S.pickup === 'salinas' ? 'Salinas warehouse, 329 Rianda St' : 'Carmel-by-the-Sea showroom, Ocean Ave at Mission St')}${S.pickupDate && !shipping ? ' · ' + esc(day(S.pickupDate)) : ''}</p>
@@ -311,6 +317,114 @@ function showDone(j, how) {
     <button class="btn primary" id="again" type="button">Place another order</button></div>`;
   $('#bar').hidden = true; window.scrollTo({ top: 0, behavior: 'smooth' });
   $('#again').onclick = () => location.reload();
+}
+
+/* ---------- small steps (a few questions per screen, Next / Back) ---------- */
+const STEP_IDS = ['start', 'items', 'client', 'address', 'access', 'notes', 'dates', 'review'];
+let stepI = 0, returnToReview = false, stepReady = false;
+const stepOfSel = (sel) => { const el = $(sel); const st = el && el.closest ? el.closest('[data-step]') : null; return st ? st.dataset.step : 'review'; };
+const problemsFor = (id) => problems().filter((p) => stepOfSel(p.sel) === id);
+const firstProblemStep = () => { const ps = problems(); if (!ps.length) return STEP_IDS.length - 1; return Math.min(...ps.map((p) => STEP_IDS.indexOf(stepOfSel(p.sel)))); };
+function clearStepErrors() {
+  document.querySelectorAll('[data-stepmsg]').forEach((e) => e.remove());
+  document.querySelectorAll('#form .bad').forEach((e) => e.classList.remove('bad'));
+}
+function showStepErrors(errs, { quiet = false } = {}) {
+  clearStepErrors();
+  if (!errs.length) return;
+  const general = [];
+  errs.forEach((e) => {
+    const el = $(e.sel);
+    if (el && /^(INPUT|SELECT|TEXTAREA)$/.test(el.tagName) && !el.closest('[hidden]')) {
+      el.classList.add('bad');
+      const f = el.closest('.field') || el.parentElement;
+      f.insertAdjacentHTML('beforeend', `<p class="req-msg" data-stepmsg>${esc(e.ask)}</p>`);
+    } else general.push(e.ask);
+  });
+  if (general.length) {
+    const secs = [...document.querySelectorAll(`#form [data-step="${STEP_IDS[stepI]}"]`)]; const last = secs[secs.length - 1];
+    if (last) last.insertAdjacentHTML('beforeend', `<div class="errs" role="alert" data-stepmsg>${general.map(esc).join('<br>')}</div>`);
+  }
+  if (quiet) return;
+  const first = document.querySelector('[data-stepmsg]'); const fel = $(errs[0].sel);
+  const target = (fel && fel.closest && !fel.closest('[hidden]') && fel) || first;
+  if (target && target.scrollIntoView) target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  if (fel && fel.focus && /^(INPUT|SELECT|TEXTAREA)$/.test(fel.tagName)) fel.focus({ preventScroll: true });
+}
+function refreshStepErrors() { if (document.querySelector('[data-stepmsg]')) showStepErrors(problemsFor(STEP_IDS[stepI]), { quiet: true }); }
+function showStep(i, { push = true } = {}) {
+  i = Math.max(0, Math.min(STEP_IDS.length - 1, i));
+  const first = !stepReady, changed = first || i !== stepI;
+  stepI = i; stepReady = true;
+  const id = STEP_IDS[i], final = id === 'review';
+  document.querySelectorAll('[data-step]').forEach((el) => { el.hidden = el.dataset.step !== id; });
+  $('#main').classList.toggle('single', !final);
+  document.body.classList.toggle('compact', i > 0);
+  $('#backBtn').hidden = i === 0; $('#nextBtn').hidden = final;
+  const pct = Math.round(((i + 1) / STEP_IDS.length) * 100);
+  $('#pbar i').style.width = pct + '%'; $('#pbar').setAttribute('aria-valuenow', String(pct));
+  clearStepErrors();
+  if (final) { returnToReview = false; renderReview(); renderSummary(); }
+  if (changed) {
+    try { if (push) history.pushState({ palStep: i }, ''); else history.replaceState({ palStep: i }, ''); } catch (_) { /* ignore */ }
+    if (!first) window.scrollTo({ top: Math.max(0, $('#main').offsetTop - 12), behavior: 'auto' });
+  }
+  saveDraft();
+}
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+async function waitSettled() { for (let t = 0; t < 4000 && (S.quoteBusy || availPending); t += 60) await sleep(60); }
+const customPending = () => !$('#customForm').hidden && ['#cName', '#cL', '#cW', '#cH', '#cWt'].some((id) => $(id).value.trim());
+async function goNext() {
+  if (S.submitting) return;
+  const id = STEP_IDS[stepI]; if (id === 'review') return;
+  await waitSettled();
+  if (id === 'items' && customPending()) {
+    const err = $('#cErr'); err.hidden = false; err.textContent = 'You started a custom item. Tap “Add item” to include it, or clear the form.'; $('#cAdd').focus({ preventScroll: false }); return;
+  }
+  const errs = problemsFor(id);
+  if (errs.length) { showStepErrors(errs); return; }
+  if (returnToReview || stepI + 1 === STEP_IDS.length - 1) {
+    // Going to the final review: make sure every screen is complete first.
+    const all = problems();
+    if (all.length) { const sid = stepOfSel(all[0].sel); showStep(STEP_IDS.indexOf(sid)); showStepErrors(problemsFor(sid)); return; }
+    showStep(STEP_IDS.length - 1); return;
+  }
+  showStep(stepI + 1);
+}
+function goBack() { if (stepI > 0) showStep(stepI - 1); }
+function accessSummary() {
+  const a = access(); const lab = (list, k) => ((list || []).find(([v]) => v === k) || [k, k])[1];
+  const parts = [lab(CFG.access, a.mode) || 'Not answered'];
+  if (a.mode === 'stairs') {
+    if (a.flights) parts.push(lab(CFG.flights, a.flights) + (a.flights === '4plus' && a.flightsCount ? ` (${a.flightsCount})` : ''));
+    if (a.shape) parts.push(a.shape === 'turns' ? 'stairs turn' : 'straight stairs');
+    if (a.tight) parts.push(a.tight === 'yes' ? 'tight turns or narrow doorways' : 'no tight spots');
+  }
+  if (a.mode === 'elevator') {
+    if (a.floor) parts.push(`floor ${a.floor}`);
+    if (a.elevatorType) parts.push(a.elevatorType === 'freight' ? 'freight elevator' : a.elevatorType === 'passenger' ? 'passenger elevator' : 'elevator type not sure');
+    if (a.elevSteps) parts.push(a.elevSteps === 'yes' ? `${a.elevStepsN || ''} steps by the elevator`.trim() : a.elevSteps === 'no' ? 'no steps by the elevator' : 'steps by the elevator not sure');
+    if (a.elevatorReserve) parts.push('elevator reserved in advance');
+  }
+  return parts.join(' · ');
+}
+function renderReview() {
+  const d = delivery(), who = S.placedBy === 'Other' ? S.placedOther : S.placedBy;
+  const row = (label, html, to) => `<div class="rv"><div class="rv-l">${label}</div><div class="rv-v">${html}</div><button type="button" class="linkbtn rv-e" data-edit="${to}" aria-label="Edit ${esc(label)}">Edit</button></div>`;
+  const day = (arr, v) => (arr.find((x) => x.date === v) || {}).label || v;
+  const noDates = outOfState() || (S.quote && S.quote.special);
+  const items = S.items.map((i) => `${i.qty} × ${esc(i.name)}${i.custom ? ` <span class="muted">(custom${i.w && i.d && i.h ? `, ${esc(i.w)} × ${esc(i.d)} × ${esc(i.h)} in` : ''})</span>` : ''}`).join('<br>');
+  const extra = [d.client2 ? `${esc(d.client2.name)}${d.client2.phone ? ' · ' + esc(d.client2.phone) : ''}${d.client2.email ? ' · ' + esc(d.client2.email) : ''}` : ''].filter(Boolean).join('<br>');
+  const a = access();
+  $('#reviewBody').innerHTML = [
+    row('Placed by', `${esc(who || '—')}<br><span class="muted">Pickup: ${esc(S.pickup === 'salinas' ? 'Salinas warehouse' : 'Carmel-by-the-Sea showroom')}</span>`, 'start'),
+    row('Items', items || '—', 'items'),
+    row('Client', `${esc(d.name)}<br><span class="muted">${esc(d.phone)} · ${esc(d.email)}</span>${extra ? `<br><span class="muted">Second client: ${extra}</span>` : ''}`, 'client'),
+    row('Address', `${esc(d.street)}${d.unit ? ', ' + esc(d.unit) : ''}<br>${esc(d.city)}, ${esc(d.state)} ${esc(d.zip)}`, 'address'),
+    row('Access', esc(accessSummary()) + (((S.quote && S.quote.accessReview) || (a => a.mode === 'not_sure' || (a.mode === 'elevator' && (a.elevatorType === 'not_sure' || a.elevSteps === 'not_sure')))(access())) ? '<br><span class="muted">Access still needs confirmation by our team. We’ll get your approval before charging any extra fee.</span>' : ''), 'access'),
+    row('Notes', d.notes || a.hours ? `${a.hours ? 'Access hours: ' + esc(a.hours) + (d.notes ? '<br>' : '') : ''}${esc(d.notes)}` : '<span class="muted">None</span>', 'notes'),
+    row('Days', noDates ? `<span class="muted">${isHeavyReview() ? 'Team review first, no days to pick yet' : 'Quoted as shipping, no days to pick'}</span>` : `Pickup ${esc(day(S.puDays, S.pickupDate) || '—')}<br>Delivery ${esc(day(S.deDays, S.deliveryDate) || '—')}`, 'dates'),
+  ].join('');
 }
 
 /* ---------- wiring ---------- */
@@ -450,9 +564,27 @@ function bind() {
     else if (e.target.id === 'cardExp') S.exp = e.target.value;
     else if (e.target.id === 'cardCvc') S.cvc = e.target.value;
   });
-  $('#barBtn').addEventListener('click', (e) => { e.preventDefault(); $('#summary').scrollIntoView({ behavior: 'smooth', block: 'start' }); });
   $('#form').addEventListener('submit', (e) => e.preventDefault());
-  $('#form').addEventListener('keydown', (e) => { if (e.key === 'Enter' && e.target.tagName === 'INPUT') e.preventDefault(); });
+  $('#form').addEventListener('keydown', (e) => {
+    // Enter = Next (Add item inside the custom item form; nothing in the search box; never on the payment screen).
+    if (e.key !== 'Enter' || e.isComposing) return;
+    const t = e.target;
+    if (!t || t.tagName !== 'INPUT' || /^(checkbox|radio|file|button)$/.test(t.type)) return;
+    e.preventDefault();
+    if (t.closest('#customForm')) { $('#cAdd').click(); return; }
+    if (t.id === 'search' || STEP_IDS[stepI] === 'review') return;
+    goNext();
+  });
+  $('#nextBtn').addEventListener('click', goNext);
+  $('#backBtn').addEventListener('click', goBack);
+  $('#skipLink').addEventListener('click', (e) => { e.preventDefault(); showStep(STEP_IDS.indexOf('client')); });
+  $('#reviewBody').addEventListener('click', (e) => { const b = e.target.closest('[data-edit]'); if (!b) return; returnToReview = true; showStep(STEP_IDS.indexOf(b.dataset.edit)); });
+  window.addEventListener('popstate', (e) => {
+    const n = e.state && e.state.palStep; if (n == null || S.submitting) return;
+    showStep(Math.min(n, firstProblemStep()), { push: false });
+  });
+  // Once a screen has shown what's missing, keep it honest as the customer fixes things.
+  ['input', 'change', 'click'].forEach((ev) => $('#form').addEventListener(ev, () => setTimeout(refreshStepErrors, 0)));
 }
 
 /* ---------- keep the draft across a refresh / accidental back (sessionStorage, this tab only) ---------- */
@@ -464,13 +596,13 @@ function saveDraft() {
   draftTimer = setTimeout(() => {
     try {
       const f = {}; DRAFT_FIELDS.forEach((id) => { const el = $('#' + id); if (el) f[id] = el.value; });
-      sessionStorage.setItem(DRAFT_KEY, JSON.stringify({ items: S.items, pickup: S.pickup, client2: !$('#client2').hidden, f, uid }));
+      sessionStorage.setItem(DRAFT_KEY, JSON.stringify({ items: S.items, pickup: S.pickup, client2: !$('#client2').hidden, f, uid, step: stepI }));
     } catch (_) { /* storage full or blocked: ignore */ }
   }, 250);
 }
 function restoreDraft() {
   let d = null; try { d = JSON.parse(sessionStorage.getItem(DRAFT_KEY) || 'null'); } catch (_) { d = null; }
-  if (!d || !Array.isArray(d.items)) return;
+  if (!d || !Array.isArray(d.items)) return 0;
   S.items = d.items.filter((i) => i && typeof i === 'object'); uid = Math.max(uid, d.uid || 1, ...S.items.map((i) => (i.uid || 0) + 1));
   if (d.pickup) { const r = document.querySelector(`input[name=pickup][value="${d.pickup}"]`); if (r) { r.checked = true; S.pickup = d.pickup; document.querySelectorAll('.radio').forEach((l) => l.classList.toggle('on', l.querySelector('input').checked)); } }
   if (d.client2) { $('#client2').hidden = false; $('#addClient').hidden = true; }
@@ -480,13 +612,15 @@ function restoreDraft() {
   $('#aMode').dispatchEvent(new Event('change')); if ($('#aFlights').value) $('#aFlights').dispatchEvent(new Event('change'));
   ['aElevSteps'].forEach((id) => { if ($('#' + id).value) $('#' + id).dispatchEvent(new Event('change')); });
   if (S.items.length) itemsChanged(true); scheduleAvail();
+  return Math.max(0, Math.min(parseInt(d.step, 10) || 0, STEP_IDS.length - 2));
 }
 
 (async function init() {
   const r = await fetch('/api/palomas/config'); CFG = await r.json();
   if (CFG.pay.testMode) { S.card = '4242 4242 4242 4242'; S.exp = '12 / 34'; S.cvc = '123'; }
   bind(); renderCats(); renderCatalog(); renderItems(); renderSummary();
-  restoreDraft();
+  const resume = restoreDraft() || 0;
+  showStep(Math.min(resume, firstProblemStep()), { push: false });
   ['input', 'change', 'click'].forEach((ev) => document.addEventListener(ev, (e) => { if (e.target && e.target.closest && e.target.closest('#form')) saveDraft(); }));
 })();
 })();
