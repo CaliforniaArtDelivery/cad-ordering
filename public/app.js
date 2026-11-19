@@ -1889,7 +1889,7 @@ async function uploadPhotos(i, files) {
   const fd = new FormData(); [...files].forEach((f) => fd.append('photos', f));
   let r;
   r = await uploadFiles(fd); if (!r) return;
-  S.items[i].photos = [...(S.items[i].photos || []), ...r.files]; persist(); renderWhenIdle();
+  S.items[i].photos = [...(S.items[i].photos || []), ...r.files]; persist(); updateNext(); renderWhenIdle(); // Next frees up right away, even if the screen redraw waits for a text box to lose focus
 }
 
 const showErr = (msg) => { const el = $('#err'); if (el) el.textContent = msg; };
