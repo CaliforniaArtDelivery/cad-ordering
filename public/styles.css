@@ -301,3 +301,10 @@ details.qrow>summary::-webkit-details-marker{display:none}
 .vc-btns{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 .vc-all{width:100%;margin-top:4px}
 .vc-fine{margin:8px 0 0}
+/* Confirmation: collapsible piece list */
+.your-pieces{padding:0}
+.your-pieces>summary{list-style:none;cursor:pointer;padding:16px 18px;font-weight:700;display:flex;justify-content:space-between;align-items:center;min-height:48px}
+.your-pieces>summary::-webkit-details-marker{display:none}
+.your-pieces>summary::after{content:"+";font-size:22px;line-height:1}
+.your-pieces[open]>summary::after{content:"–"}
+.yp-list{padding:0 18px 10px}

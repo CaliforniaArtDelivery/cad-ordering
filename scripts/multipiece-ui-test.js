@@ -64,6 +64,7 @@ exports.uiTests = async (H) => {
     const st = await state();
     ok((await rowCount()) === 4, 'draft with qty 3 + 1 loads as 4 separate pieces', await rowCount());
     ok((await page.locator('[data-piece-row] .pc-title').allTextContents()).join('|') === 'Piece 1 — Old canvas|Piece 2 — Old canvas|Piece 3 — Old canvas|Piece 4 — Single', 'labels: Piece 1–3 Old canvas, Piece 4 Single');
+    ok(st.items.map((i) => !!i.checkValue).join() === 'false,true,true,false', 'the two expanded copies of the old draft are flagged Check value; the original entry and the single piece are not', st.items.map((i) => i.checkValue));
     const ids = await page.$$eval('[data-piece-id]', (e) => e.map((x) => x.dataset.pieceId));
     await page.evaluate(() => { const o = JSON.parse(sessionStorage.getItem('cad-order')); sessionStorage.setItem('cad-order', JSON.stringify(o)); });
     ok(new Set(ids).size === 4 && (st.items || []).every((i) => !('qty' in i)), 'unique ids and no qty field in the saved draft', ids);
@@ -280,8 +281,7 @@ exports.uiTests = async (H) => {
   }
 
   // ---------------- 10: the whole way to the review, pay once ----------------
-  hdr('UI 10: review screen and double-click Pay');
-  {
+  async function toReview() {
     const VAL = { 'contact.name': 'Jordan Lee', 'contact.email': 'jordan@example.com', 'contact.phone': '3105550199', 'pickup.street': '8678 Melrose Ave', 'pickup.city': 'West Hollywood', 'pickup.zip': '90069', 'pickup.contactName': 'Andrea B', 'pickup.contactPhone': '3105550101', 'dropoff.street': '1200 Summit Ridge Dr', 'dropoff.city': 'Beverly Hills', 'dropoff.zip': '90210', 'dropoff.contactName': 'Jordan Lee', 'dropoff.contactPhone': '3105550199' };
     await next(); // list -> Where
     for (let n = 0; n < 40 && (await panel()) !== 'review'; n++) {
@@ -295,6 +295,11 @@ exports.uiTests = async (H) => {
       if (await page.locator('[data-deldate]:visible').count()) { await page.click('[data-deldate]:visible >> nth=0'); await page.waitForTimeout(250); }
       await next();
     }
+  }
+
+  hdr('UI 10: review screen and double-click Pay');
+  {
+    await toReview();
     ok((await panel()) === 'review', 'reached the final review', await panel());
     const txt = (await page.textContent('[data-panel="review"]')).replace(/\s+/g, ' ');
     ok(txt.includes('Each piece is listed and priced separately. Please check the dimensions, declared value, handling requirements, and photos for every piece.'), 'review shows the check-every-piece sentence');
@@ -320,6 +325,54 @@ exports.uiTests = async (H) => {
     // refresh after booking shows the confirmation, never the draft again
     await page.reload(); await page.waitForTimeout(800);
     ok(orders().length === before + 1 && /You’re booked/.test(await page.textContent('#app')), 'refresh after booking shows the confirmation and books nothing new');
+  }
+
+  // ---------------- 11: copied values must be confirmed before Pay (Dot) ----------------
+  hdr('UI 11: copied values block Pay until confirmed; bulk confirm, per-piece confirm, edit clears the flag');
+  {
+    await freshStart();
+    await fillPiece(0, { desc: 'Master', value: 12000 });
+    await page.click('[data-piece-row="0"] [data-dupopen]'); await page.waitForSelector('#dup-n');
+    await page.fill('#dup-n', '4'); await page.click('#dupGo'); await page.waitForTimeout(400);
+    ok((await rowCount()) === 5 && (await page.locator('[data-checkvalue]').count()) === 4, 'Duplicate x4: five pieces, four flagged Check value');
+    ok(!(await blocked()), 'the other steps are not blocked by Check value flags (Next works from the list)');
+    ok((await page.locator('[data-checkvalues="list"]').count()) === 1 && /Confirm all 4 values/.test(await page.textContent('[data-checkvalues="list"] [data-valall]')), 'the list shows a "Confirm all 4 values" button');
+    ok(/declared value shown for each of these pieces is correct/.test(await page.textContent('[data-checkvalues="list"]')), 'the wording says what is being confirmed: each piece\'s declared value is correct');
+    await shot('14-bulk-confirm-list');
+    await toReview();
+    ok((await panel()) === 'review', 'customer can go through every other step to the review with values unconfirmed', await panel());
+    ok((await page.locator('[data-checkvalues="review"] [data-vc]').count()) === 4 && (await blocked()), 'review lists the 4 unconfirmed values and Pay is blocked');
+    ok(/Payment is on hold/.test(await page.textContent('[data-checkvalues="review"]')), 'the card explains payment is on hold');
+    const before = orders().length;
+    await page.click('#nextBtn', { force: true }); await page.waitForTimeout(500);
+    ok((await panel()) === 'review' && orders().length === before, 'pressing Pay does nothing: no order created while a value is unconfirmed', orders().length - before);
+    ok(/confirm the declared values? of the 4 copied pieces/i.test(await page.textContent('[data-panel="review"]')), 'and says which fields are missing');
+    await shot('15-blocked-pay-review');
+    // edit one value: clears that flag
+    await page.click('[data-vc] >> nth=0 >> text=Edit value'); await page.waitForTimeout(300);
+    ok(/^p\dc$/.test(await panel()), 'Edit value opens that piece\'s value screen', await panel());
+    await page.fill('input[data-path$=".value"]:visible', '13000'); await next();
+    ok((await panel()) === 'review' && (await page.locator('[data-checkvalues="review"] [data-vc]').count()) === 3, 'editing the value clears its flag and returns to the review (3 left)');
+    // per-piece confirm
+    await page.click('[data-vc] >> nth=0 >> text=Value is right'); await page.waitForTimeout(250);
+    ok((await page.locator('[data-checkvalues="review"] [data-vc]').count()) === 2 && (await blocked()), 'per-piece confirm clears one (2 left), still blocked');
+    ok(/Confirm all 2 values/.test(await page.textContent('[data-valall]')), 'bulk button now reads Confirm all 2 values');
+    await page.click('[data-valall]'); await page.waitForTimeout(300);
+    ok((await page.locator('[data-checkvalues]').count()) === 0 && !(await blocked()), 'Confirm all clears the rest; Pay is available');
+    const st = await state();
+    ok(st.items.every((i) => !i.checkValue) && st.items[1].value !== undefined, 'no piece is flagged any more in the saved draft');
+    await page.click('#nextBtn'); await page.waitForFunction(() => /You’re booked/.test(document.body.textContent), null, { timeout: 15000 }).catch(() => {});
+    await sleep(400);
+    const o = orders().pop();
+    ok(orders().length === before + 1 && o.items.length === 5 && o.items.every((i) => !i.checkValue) && o.payment && o.payment.status === 'paid', 'Pay now creates one paid order with five pieces and no unconfirmed flags', o && o.items.map((i) => i.checkValue));
+    ok(/Your pieces \(5\)/.test(await page.textContent('#app')), 'confirmation page has a "Your pieces (5)" section');
+    const det = await page.$('[data-yourpieces]');
+    ok(det && !(await det.evaluate((d) => d.open)), 'it is collapsed by default');
+    await det.evaluate((d) => { d.open = true; }); await page.waitForTimeout(200);
+    const pt = (await page.textContent('[data-yourpieces]')).replace(/\s+/g, ' ');
+    ok([1, 2, 3, 4, 5].every((n) => new RegExp(`Piece ${n}\\b`).test(pt)) && /Master/.test(pt) && /72 × 60 × 2/.test(pt) && /\$12,000/.test(pt) && /\$13,000/.test(pt), 'opened, it lists Piece 1–5 with description, dimensions and declared value', pt.slice(0, 400));
+    await page.evaluate(() => document.querySelector('[data-yourpieces]').scrollIntoView()); await page.waitForTimeout(200);
+    await shot('16-confirmation-your-pieces');
   }
 
   ok(pageErrors.length === 0, 'no JavaScript errors in the browser during any of this', pageErrors);

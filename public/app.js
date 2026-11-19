@@ -877,6 +877,15 @@ const valueConfirmCard = (where) => {
 };
 const reviewPieces = () => `<div class="sum-row piece-review-note"><span class="mini" data-piece-note>Each piece is listed and priced separately. Please check the dimensions, declared value, handling requirements, and photos for every piece.</span></div>`
   + S.items.map((it, i) => `<div class="sum-row" data-review-piece="${i}"><span><b>${esc(pieceTitle0(it, i))}</b><br><span class="muted">${esc([pieceFacts(it), framingText(it), (it.photos || []).length ? `${it.photos.length} photo${it.photos.length === 1 ? '' : 's'}` : ''].filter(Boolean).join(' · '))}</span>${it.checkValue ? '<br><span class="tag warn">Check value</span>' : ''}</span><span>${editBtn(`0:p${i}a`)}</span></div>`).join('');
+// Confirmation page: every piece, by number (collapsed until opened).
+const yourPieces = (o) => {
+  const list = (o.items || []);
+  if (!list.length) return '';
+  return `<details class="your-pieces card" data-yourpieces><summary>Your pieces (${list.length})</summary><div class="yp-list">${list.map((it, i) => {
+    const dims = [it.w, it.h, it.d].filter(Boolean).join(' × ');
+    return `<div class="sum-row" data-yp="${i}"><span><b>Piece ${i + 1}</b>${String(it.description || '').trim() ? ' — ' + esc(String(it.description).trim()) : ''}<br><span class="muted">${esc([TYPE_LABEL(it.type), dims && dims + ' in'].filter(Boolean).join(' · '))}</span></span><span class="amt">${num(it.value) > 0 ? fmt(num(it.value)) : '—'}${num(it.value) > 0 ? '<br><span class="muted">declared value</span>' : ''}</span></div>`;
+  }).join('')}</div></details>`;
+};
 // ---------- views ----------
 const roleLabel = (key) => (key === 'pickup' ? 'Pickup contact role' : S.service === 'install_only' ? 'Install contact role' : 'Delivery contact role');
 const views = {
@@ -1150,6 +1159,7 @@ const views = {
           <div class="sum-row"><span>At destination</span><span>${esc(levelText((o.shipping || {}).serviceLevel))}</span></div>
           <div class="sum-row"><span>Price</span><span>Custom quote from Samantha</span></div>
         </div>
+        ${yourPieces(o)}
         <button type="button" class="btn ghost full" id="newOrder">Start a new booking</button>`;
     }
     if (o.status === 'pending_approval') {
@@ -1163,6 +1173,7 @@ const views = {
           ${q.reviewOnly ? `<div class="sum-row"><span>Estimated price</span><span class="amt"><b>${fmt(q.total)}</b></span></div>` : q.tripPremium ? `<div class="sum-row"><span>Regular rate</span><span class="amt">${fmt(q.regularTotal || q.total)}</span></div>
           <div class="sum-row"><span>Estimated range</span><span class="amt"><b>${fmt(q.quoteRange.low)}–${fmt(q.quoteRange.high)}</b></span></div>` : '<div class="sum-row"><span>Price</span><span>Priced by CAD</span></div>'}
         </div>
+        ${yourPieces(o)}
         <button type="button" class="btn ghost full" id="newOrder">Start a new booking</button>`;
     }
     const p = o.payment || {};
@@ -1179,6 +1190,7 @@ const views = {
       <div class="total"><span>${accessTbc(o.quote) ? CADAccess.TBC_TOTAL : 'Order total'}</span><span class="amt">${fmt(o.quote.total)}</span></div>
       ${accessTbc(o.quote) ? `<p class="mini access-tbc" data-access-tbc><b>${esc(CADAccess.PRICE_NOTE)}</b></p>` : ''}${feeNoteHtml(o.quote)}</div>
       ${ach ? '<p class="mini">Your job is confirmed. The bank transfer shows as processing until it clears.</p>' : ''}
+      ${yourPieces(o)}
       <button type="button" class="btn ghost full" id="newOrder">Start a new booking</button>`;
   },
 };
