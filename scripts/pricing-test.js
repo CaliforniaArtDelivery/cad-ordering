@@ -291,6 +291,29 @@ check(q('pickup_delivery', [{ qty: 1, type: 'sculpture', weightUnsure: true, val
   check(near(low.total, 400.02) && lines2(low, /protection/i)[0].amount === 0.02, '$1 value: 1.5% rounds to $0.02, no minimum fee', low.lines);
   check(near(zero.total, 400) && !zero.protection && !lines2(zero, /protection/i).length, '$0 value in the engine: no protection line and no built-in amount (the form and server refuse $0; only a custom request has no value)', zero.lines);
 }
+// ---- Dot, Nov 18 2026: each painting over $50,000 gets its own moving-price line; ordinary paintings stay grouped ----
+{
+  const P = (v, d) => ({ type: 'painting', framed: 'no', w: 30, h: 40, d: 2, value: v, description: d });
+  for (const svc of ['pickup_delivery', 'delivery_install', 'install_only']) {
+    const plain = q(svc, [P(5000, 'a'), P(6000, 'b'), P(7000, 'c')]);
+    const mixed = q(svc, [P(5000, 'a'), P(75000, 'b'), P(7000, 'c')]);
+    const transport = svc !== 'install_only';
+    const own = mixed.lines.filter((l) => /^Piece 2 — Painting (delivery|installation)/.test(l.label));
+    check(own.length === (svc === 'delivery_install' ? 2 : 1), `${svc}: the $75,000 painting has its own line${svc === 'delivery_install' ? 's (delivery and installation)' : ''}`, mixed.lines);
+    check(!mixed.lines.some((l) => /Piece 2\b/.test(l.label) && /protection|0\.75|high-value/i.test(l.label)) && !(mixed.notes || []).some((n) => /protection|0\.75|50,000/i.test(n)), `${svc}: no extra wording on the over-$50,000 line`, mixed.lines);
+    const group = mixed.lines.filter((l) => /× 2/.test(l.label) && /Pieces 1, 3/.test(l.label));
+    check(group.length === own.length, `${svc}: ordinary paintings stay grouped as "× 2 (Pieces 1, 3)"`, mixed.lines);
+    const protLines = mixed.lines.filter((l) => /^Required declared value protection/.test(l.label));
+    const moveNow = mixed.total - protLines.reduce((a, l) => a + l.amount, 0), movePlain = plain.total - plain.lines.filter((l) => /^Required declared value protection/.test(l.label)).reduce((a, l) => a + l.amount, 0);
+    check(near(moveNow, movePlain + 562.5), `${svc}: moving total is exactly the grouped price + $562.50 (0.75% of $75,000) – carving the line out changes nothing else`, [moveNow, movePlain]);
+  }
+  const solo = q('pickup_delivery', [P(75000, 'solo')]);
+  check(solo.lines.length === 1 && /^Piece 1 — Painting delivery$/.test(solo.lines[0].label) && near(solo.total, solo.lines[0].amount), 'one $75,000 painting: a single plain line, 0.75% built in', solo.lines);
+  const two = q('pickup_delivery', [P(60000, 'x'), P(80000, 'y')]);
+  check(two.lines.length === 2 && two.lines.every((l) => /^Piece [12] — Painting delivery$/.test(l.label)), 'two over-$50,000 paintings: one line each, no empty group line', two.lines);
+  const edge = q('pickup_delivery', [P(50000, 'e'), P(50001, 'f')]);
+  check(edge.lines.some((l) => /^Piece 2 — Painting delivery$/.test(l.label)) && !edge.lines.some((l) => /^Piece 1 — Painting delivery$/.test(l.label)) && edge.lines.filter((l) => /^Required declared value protection/.test(l.label)).length === 1, '$50,000 stays grouped with protection; $50,001 gets its own line', edge.lines);
+}
 // ---- (retired) Nov 16 tiered high-value markup replaced by the 0.75% rule above ----
 check(!('highValueFloor' in config.pricing.valuation), 'the 1.5% high-value minimum is no longer the rule (Chad, Nov 16 2026)');
 const kinds = [
