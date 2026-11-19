@@ -812,18 +812,31 @@ const gapPanelFor = (i, g) => {
   if (/^(Size|Framed|Glass|Frame type)/.test(lab)) return pieceHasSize(S.items[i], shipService()) ? `p${i}b` : `p${i}c`;
   return `p${i}c`;
 };
+// Long orders: finished pieces collapse to one short row (title + value), so the list stays easy to scan. Pieces that need something stay open.
+const COMPACT_AT = 8;
+const openRows = new Set();
+const longList = () => S.items.length > COMPACT_AT;
+const listSummary = () => {
+  if (!longList()) return '';
+  const bad = S.items.filter((it, i) => itemGapList(it, i, 'What').length).length, chk = S.items.filter((it) => it.checkValue).length;
+  const total = S.items.reduce((a, it) => a + (num(it.value) > 0 ? num(it.value) : 0), 0);
+  return `<p class="mini pc-summary" data-pcsummary><b>${S.items.length} pieces</b> · ${S.items.length - bad} complete${bad ? ` · <b>${bad} need${bad === 1 ? 's' : ''} details</b>` : ''}${chk ? ` · <b>${chk} to check</b>` : ''} · ${fmt(total)} total declared value. Tap Details on a piece to see its full line.</p>`;
+};
 const pieceListRow = (it, i) => {
   const id = esc(it.id);
   const gaps = itemGapList(it, i, 'What');
   const confirm = removeAskId === it.id && S.items.length > 1
     ? `<div class="pc-confirm" role="alert"><span>Remove ${esc(pieceTitle0(it, i))}?</span><span class="pc-confirm-btns"><button type="button" class="btn primary danger" data-removeyes="${id}">Yes, remove</button><button type="button" class="btn ghost" data-removeno>Keep it</button></span></div>` : '';
   const dup = dupAsk === it.id ? dupDialog(it) : '';
-  return `<div class="pc ${gaps.length ? 'incomplete' : ''}" data-piece-id="${id}" data-piece-row="${i}">
+  const compact = longList() && !gaps.length && !it.checkValue && !confirm && !dup && !openRows.has(it.id);
+  const toggle = longList() && !gaps.length && !it.checkValue ? `<span class="dot">·</span><button type="button" class="link" data-pcopen="${id}" aria-expanded="${compact ? 'false' : 'true'}">${compact ? 'Details' : 'Hide details'}</button>` : '';
+  return `<div class="pc ${gaps.length ? 'incomplete' : ''} ${compact ? 'compact' : ''}" data-piece-id="${id}" data-piece-row="${i}">
     <div class="pc-main"><b class="pc-title">${esc(pieceTitle0(it, i))}</b>
+      ${compact ? `<span class="muted pc-val">${num(it.value) > 0 ? fmt(num(it.value)) : ''}</span>` : ''}
       <span class="muted pc-facts">${esc(pieceFacts(it))}</span>
       ${it.checkValue ? '<span class="tag warn" data-checkvalue>Check value</span>' : ''}
       ${gaps.length ? `<span class="tag bad">Needs details</span> <button type="button" class="link" data-fixpiece="${i}" data-fixpanel="${gapPanelFor(i, gaps[0])}">${esc(gaps[0].msg)}</button>` : ''}</div>
-    <div class="pc-actions">${editBtn(`0:p${i}a`)}<span class="dot">·</span><button type="button" class="link" data-dupopen="${id}">Duplicate</button>${S.items.length > 1 ? `<span class="dot">·</span><button type="button" class="link muted" data-removeask="${id}">Remove</button>` : ''}</div>
+    <div class="pc-actions">${editBtn(`0:p${i}a`)}<span class="dot">·</span><button type="button" class="link" data-dupopen="${id}">Duplicate</button>${S.items.length > 1 ? `<span class="dot">·</span><button type="button" class="link muted" data-removeask="${id}">Remove</button>` : ''}${toggle}</div>
     ${confirm}${dup}</div>`;
 };
 const dupMax = () => Math.max(0, MAX_PIECES - S.items.length);
@@ -925,6 +938,7 @@ const views = {
       });
       panels.push(panel('pieces-more', `<h1>Anything else to ${svcVerbShort()}?</h1><p class="sub">${S.items.length === 1 ? 'You’ve added one piece.' : `You’ve added ${S.items.length} pieces.`} Each piece is listed and priced separately. Add more, copy a piece, or tap Next to continue.</p>
         ${flaggedPieces().length > 1 ? valueConfirmCard('list') : ''}
+        ${listSummary()}
         <div class="card pc-list" data-pclist>${S.items.map((it, i) => pieceListRow(it, i)).join('')}</div>
         <button type="button" class="add" id="addItem">＋ Add another piece</button>
         ${quickEditBlock()}
@@ -1830,6 +1844,7 @@ app.addEventListener('click', async (e) => {
   if (t.dataset.dupopen != null) { dupAsk = t.dataset.dupopen; dupCount = 1; dupPhotos = false; removeAskId = ''; render(); const n = $('#dup-n'); if (n) { n.scrollIntoView({ block: 'center' }); n.focus(); n.select(); } return; }
   if (t.dataset.dupcancel != null) { dupAsk = null; render(); return; }
   if (t.dataset.dupgo != null) { createCopies(t.dataset.dupgo); return; }
+  if (t.dataset.pcopen != null) { const k = t.dataset.pcopen; if (openRows.has(k)) openRows.delete(k); else openRows.add(k); render(); return; }
   if (t.dataset.valall != null) { S.items.forEach((it) => { it.checkValue = false; }); persist(); render(); return; }
   if (t.dataset.valok != null) { const it = S.items.find((x) => x.id === t.dataset.valok); if (it) { it.checkValue = false; persist(); render(); } return; }
   if (t.dataset.fixpiece != null) { returnToList = true; step = 0; sub = t.dataset.fixpanel || `p${t.dataset.fixpiece}a`; keepAttempt = true; render(); return; }

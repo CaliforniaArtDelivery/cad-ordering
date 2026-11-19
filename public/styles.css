@@ -308,3 +308,19 @@ details.qrow>summary::-webkit-details-marker{display:none}
 .your-pieces>summary::after{content:"+";font-size:22px;line-height:1}
 .your-pieces[open]>summary::after{content:"–"}
 .yp-list{padding:0 18px 10px}
+/* Long lists: finished pieces collapse to one short row */
+.pc.compact{padding:6px 0}
+.pc.compact .pc-main{flex-wrap:nowrap;align-items:baseline;gap:8px}
+.pc.compact .pc-title{flex:1 1 auto;min-width:0;font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pc.compact .pc-facts{display:none}
+.pc-val{flex:none;font-size:14px;font-variant-numeric:tabular-nums}
+.pc:not(.compact) .pc-val{display:none}
+.pc.compact .pc-actions .edit,.pc.compact .pc-actions .link{min-height:40px;font-size:15px}
+.pc-summary{margin:0 0 8px}
+/* Short screens (phone with the keyboard open): a slimmer bottom bar so fields keep their room */
+@media (max-height:480px){
+  .dock{gap:2px;padding-top:6px;padding-bottom:calc(6px + var(--sab))}
+  .est-label,.est-note{display:none}
+  .est-total{font-size:18px}
+  .need-line{min-height:32px;padding:2px 0;font-size:14px}
+}
