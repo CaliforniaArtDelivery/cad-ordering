@@ -17,7 +17,7 @@ exports.uiTests = async (H) => {
 
   const settle = () => page.waitForFunction(() => !/Updating estimate/.test((document.querySelector('#estLabel') || {}).textContent || ''), null, { timeout: 10000 }).catch(() => {});
   const blocked = async () => { await settle(); return page.$eval('#nextBtn', (b) => !!(b.disabled || b.getAttribute('aria-disabled') === 'true' || b.classList.contains('is-wait'))); };
-  const next = async () => { await settle(); await page.click('#nextBtn:not([disabled]):not([aria-disabled="true"])'); await page.waitForTimeout(350); };
+  const next = async () => { await settle(); try { await page.click('#nextBtn:not([disabled]):not([aria-disabled="true"])', { timeout: 8000 }); } catch (e) { throw new Error('Next was blocked on ' + (await panel()) + ': ' + (await page.evaluate(() => { const b = document.querySelector('#nextBtn'); return b.className + ' | ' + (document.querySelector('.dock') || document.body).innerText.slice(0, 300); }))); } await page.waitForTimeout(350); };
   const panel = () => page.evaluate(() => { const p = [...document.querySelectorAll('[data-panel]')].find((x) => !x.hidden); return p ? p.dataset.panel : ''; });
   const state = () => page.evaluate(() => JSON.parse(sessionStorage.getItem('cad-order') || 'null'));
   const fill = (p, v) => page.fill(`[data-path="${p}"]`, String(v));

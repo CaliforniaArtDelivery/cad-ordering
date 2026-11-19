@@ -68,7 +68,7 @@ Each piece has Duplicate and Remove. Custom crating is a toggle (not for Install
 ## 4. Review & pay
 - Promise card on top (date + window, or pickup + delivery dates).
 - Summary with Edit links, per-site access and install details.
-- Price lines, mandatory **Declared value protection (1.5%)** on pieces up to $50K and **High-value handling** lines above $50K (see Declared value rules), total, and the payment plan (under $3K paid in full; $3K+ is 50% now and the balance at pickup, or at installation for install only).
+- Price lines, mandatory **Declared value protection (1.5%)** on pieces up to $50K and pieces above $50K priced with 0.75% of their value built in (no separate line; see Declared value rules), total, and the payment plan (under $3K paid in full; $3K+ is 50% now and the balance at pickup, or at installation for install only).
 - Who's paying: "Referring partner" only appears when a referral was entered.
 - Short cancellation note.
 - Payment: Apple Pay / Google Pay / Card / Bank (ACH), save for next time, and a dock button reading "Pay $X". It confirms instantly; ACH shows as "ACH processing".
@@ -90,19 +90,10 @@ Step 4 shows "Review your request", the quoted range and "no payment due yet", a
 ## Declared value rules (Chad; in-California white-glove jobs only)
 - Declared value per piece is **required** on every item.
 - Pieces valued **$50,000 or less**: declared value protection at 1.5% of value is **mandatory** (no toggle). Line: "Declared value protection (1.5%) on $X".
-- Pieces **over $50,000**: no protection offered. Instead a per-piece line "High-value handling +X% · [piece] ($value)" on that piece's normal price (for paintings, its share of the painting delivery/installation table price):
-
-  | Value per piece | Markup |
-  |---|---|
-  | over $50,000 | +100% (×2) |
-  | over $100,000 | +200% (×3) |
-  | over $300,000 | +300% (×4) |
-  | over $500,000 | +400% (×5) |
-  | over $750,000 | +500% (×6) |
-  | over $1,000,000 | +600% (×7) |
-
-  With a note: "CAD doesn't offer declared value protection on pieces valued over $50,000… Please cover them with your own fine art insurance."
-- The markup is added after the furniture & décor 10% discount and is not discounted.
+- Pieces **over $50,000** (Chad, Nov 18 2026): price = that piece's normal price + **0.75% of its declared value**, rolled into ONE price. No separate line, no "protection" wording, no note. (For paintings the amount is added into the painting delivery/installation line.) The old tiered high-value markup (+100% to +600%) is retired. Examples: $50,001 → +$375.01, $75,000 → +$562.50, $500,000 → +$3,750.
+- The $50,000 line is intentional and not smoothed: exactly $50,000 → $750 protection line; $50,001 → $375.01 built in. The threshold is per piece, never from the order total.
+- Checkout small print: "Declared value protection applies to pieces valued up to $50,000."
+- **One piece per entry (Nov 18 2026):** there is no quantity box. Each piece has its own dimensions, framing, value, weight and photos, and is labeled Piece 1, Piece 2… everywhere. Duplicate asks how many copies (and whether to reuse photos); copies keep the value but are flagged "check value". Old saved orders with a quantity are expanded into separate pieces.
 - Shipping quotes (Shipping service or out of state): none of the above; "Fully insured through our shipping partners."
 
 ## Out-of-state rule (Chad)
