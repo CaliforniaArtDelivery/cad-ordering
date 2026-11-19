@@ -1,6 +1,6 @@
 // Regression checks for the Nov 16, 2026 pre-flight audit (AUDIT_FINDINGS.md). API + library level, no browser.
 // Standalone: node scripts/audit-regression.js (server on BASE_URL, started with STORAGE_DIR, ADMIN_KEY and TEST_MODE=1).
-// Also run at the end of scripts/e2e.js; every failure goes into the same errors list.
+// (The old scripts/e2e.js that used to call this was retired; run it standalone against a server as described above.)
 const fs = require('fs');
 const path = require('path');
 const ROOT = path.join(__dirname, '..');

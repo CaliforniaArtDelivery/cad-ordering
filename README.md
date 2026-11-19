@@ -6,7 +6,9 @@ Mobile-first, 4-step booking flow (What are we delivering? (heading follows the 
 ```bash
 npm install
 npm start              # http://localhost:3000   admin: http://localhost:3000/admin?key=<your ADMIN_KEY>
-npm run e2e            # headless end-to-end test (needs Playwright, a dev dependency), writes screenshots/
+npm run e2e            # headless browser + API suite for the one-piece order flow (needs Playwright), writes screenshots to $SHOTS
+npm run smoke          # production-like local smoke test: quote, order, test-mode payment, confirmation, emails, admin, schedule sheet
+npm run test:all       # pricing, browser/API suite, smoke, date-guard rules, sheet bridge
 ```
 Env vars: `PORT`, `BASE_URL`, `ADMIN_KEY` (required for admin: a long random value, 16+ characters; there is no default and admin stays off without it), `TEST_MODE=1` (allows the mock card / ACH / wallet payment step; without it and without Stripe, payments are refused), `STRIPE_SECRET_KEY` (**sk_test_ only**, live keys are refused).
 
