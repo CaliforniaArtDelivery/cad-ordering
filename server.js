@@ -21,7 +21,7 @@ if (!ADMIN_ON) console.warn('Admin is OFF: set ADMIN_KEY to a long random value 
 // Stripe, payments are refused instead of silently confirming jobs.
 const TEST_MODE = /^(1|true|yes)$/i.test(String(process.env.TEST_MODE || ''));
 const storage = require('./lib/storage');
-const { TYPES, framingErrors, itemLine, isHungItem, routeDecorMirror } = require('./lib/itemtypes');
+const { TYPES, framingErrors, itemLine, isHungItem, routeDecorMirror, expandPieces, hasMultiQty, piecesOf, pieceLabel, MAX_PIECES } = require('./lib/itemtypes');
 const { lookupMember, resolveMember } = require('./lib/members');
 const ACCESS = require('./public/access');
 const ORDERS = path.join(storage.dir('data'), 'orders.json');
@@ -34,7 +34,9 @@ if (key.startsWith('sk_test_')) stripe = require('stripe')(key);
 else if (key) console.warn('STRIPE_SECRET_KEY is not a test key (sk_test_…). Refusing; using mock payments.');
 console.log(stripe ? 'Payments: Stripe Checkout (TEST mode) — card + ACH' : TEST_MODE ? 'Payments: MOCK (TEST_MODE=1) — card + ACH' : 'Payments: OFF (no Stripe key and TEST_MODE is not set)');
 
-const load = () => (fs.existsSync(ORDERS) ? JSON.parse(fs.readFileSync(ORDERS, 'utf8')) : []);
+// Older saved orders may carry a quantity on a piece. Reading them expands that into separate pieces (one entry = one piece), so nothing downstream ever sees qty > 1.
+const migratePieces = (o) => { if (o && !o.partnerOrder && hasMultiQty(o.items)) o.items = expandPieces(o.items); return o; };
+const load = () => (fs.existsSync(ORDERS) ? JSON.parse(fs.readFileSync(ORDERS, 'utf8')).map(migratePieces) : []);
 const save = (orders) => fs.writeFileSync(ORDERS, JSON.stringify(orders, null, 2));
 const findOrder = (id) => load().find((o) => o.id === id);
 const update = (id, fn) => { const all = load(); const o = all.find((x) => x.id === id); if (!o) return null; fn(o); save(all); return o; };
@@ -167,14 +169,18 @@ const reviewAlert = (o) => teamAlert(`REVIEW NEEDED: online request ${o.id} (${(
 function validate(o) {
   const errs = [];
   if (!Array.isArray(o.items)) o.items = [];
-  o.items = o.items.filter((it) => it && typeof it === 'object');
-  if (o.items.length > 60) errs.push('no more than 60 pieces per order');
-  if (o.items.some((it) => Number(String(it.qty ?? '').replace(/,/g, '')) > 500)) errs.push('a quantity of 500 or fewer for each piece (call us for larger jobs)');
+  // One authoritative piece model: every entry is exactly ONE piece with its own id. A legacy quantity (qty > 1) is expanded into
+  // separate pieces here, before anything is validated, priced, stored, emailed or written to the schedule.
+  o.items = expandPieces(o.items.filter((it) => it && typeof it === 'object'));
+  if (o.items.length > MAX_PIECES) errs.push(`no more than ${MAX_PIECES} pieces per order`);
+  // Name the piece in each error ("Piece 3 — Canvas"), so a long order says exactly which piece is incomplete.
+  const forPieces = (what, pred) => { const bad = o.items.map((it, i) => (pred(it, i) ? pieceLabel(it, i) : null)).filter(Boolean); if (bad.length) errs.push(`${what} for ${bad.slice(0, 4).join('; ')}${bad.length > 4 ? ` and ${bad.length - 4} more` : ''}`); };
   if (o.contact && typeof o.contact !== 'object') o.contact = null;
   if (!SERVICES[o.service] || SERVICES[o.service].legacy) errs.push('service');
-  if (!o.items || !o.items.length || o.items.some((it) => !String(it.description || '').trim())) errs.push('items');
-  if ((o.items || []).some((it) => !TYPES[it.type || 'painting'])) errs.push('item type');
-  if (framingErrors(o.items || [])) errs.push('Framed? (and Glass? / Frame type when they apply) for paintings, photographs and other wall art');
+  if (!o.items || !o.items.length) errs.push('items');
+  else forPieces('a description', (it) => !String(it.description || '').trim());
+  forPieces('a valid item type', (it) => !TYPES[it.type || 'painting']);
+  forPieces('Framed? (and Glass? / Frame type when they apply)', (it) => framingErrors([it]));
   const siteContact = (a) => a && String(a.contactName || '').trim() && String(a.contactPhone || '').trim();
   if (SERVICES[o.service]?.needsPickup) {
     if (!o.pickup?.street) errs.push('pickup');
@@ -203,7 +209,7 @@ function validate(o) {
   // Photo rules: required for items over 500 lb or of unknown weight, and 'other' items and special-handling pieces. Technical carries and high installs are below.
   const numVal = (s) => { const n = Number(String(s ?? '').replace(/,/g, '')); return Number.isFinite(n) ? n : 0; };
   const needsPhoto = (it) => numVal(it.weight) > 500 || !!it.weightUnsure || it.type === 'other' || !!it.fragile;
-  if ((o.items || []).some((it) => needsPhoto(it) && !(it.photos || []).length)) errs.push('photos (items over 500 lb or of unknown weight, unusual pieces or special handling)');
+  forPieces('photos (pieces over 500 lb or of unknown weight, unusual pieces or special handling)', (it) => needsPhoto(it) && !(it.photos || []).length);
   if (SERVICES[o.service]?.install) {
     (o.items || []).forEach((it) => {
       if (isHungItem(it) && it.hangHeight === 'higher' && it.hangWhere === 'stairwell' && !((it.hangPhotos || []).length)) errs.push('photos of the stairwell');
@@ -213,24 +219,24 @@ function validate(o) {
   if (ship) {
     // Samantha prices shipping without follow-up, so collect what she needs.
     if (!String(o.dropoff?.country || 'United States').trim()) errs.push('destination country');
-    if ((o.items || []).some((it) => (!(it.weightUnsure || numVal(it.weight) > 0) || !(['custom', 'furniture'].includes(it.type) || ['w', 'h', 'd'].every((k) => Number(it[k]) > 0))))) errs.push('piece dimensions and weight');
-    if ((o.items || []).some((it) => !(numVal(it.value) > 0))) errs.push('declared value for every piece (for the shipping insurance)');
+    forPieces('dimensions and weight', (it) => (!(it.weightUnsure || numVal(it.weight) > 0) || !(['custom', 'furniture'].includes(it.type) || ['w', 'h', 'd'].every((k) => Number(it[k]) > 0))));
+    forPieces('a declared value (for the shipping insurance)', (it) => !(numVal(it.value) > 0));
     if (!o.shipping?.serviceLevel) errs.push('destination service level');
     if (!o.shipping?.shipBy && !o.shipping?.flexible) errs.push('ship date or flexibility');
   } else {
     if (!o.schedule?.date) errs.push('schedule');
     // In-California white-glove jobs: every piece needs a declared value (protection / high-value handling depend on it).
-    if ((o.items || []).some((it) => it.type !== 'custom' && !(numVal(it.value) > 0))) errs.push('declared value for every piece');
+    // $0 (or blank) is never accepted as a declared value; only a custom request, which CAD always quotes itself, has none.
+    forPieces('a declared value above $0', (it) => it.type !== 'custom' && !(numVal(it.value) > 0));
     const twoDates = SERVICES[o.service]?.needsPickup && SERVICES[o.service]?.needsDropoff;
     if (twoDates && (!o.schedule?.deliveryDate || o.schedule.deliveryDate < o.schedule.date)) errs.push('delivery date');
     else errs.push(...scheduleErrors(o));
     // Same item rules as the order form (public/app.js missingFields).
     const items = o.items || [];
-    if (items.some((it) => !(numVal(it.qty) > 0))) errs.push('quantity for every piece');
     const needsDims = (it) => !['custom', 'furniture'].includes(it.type || 'painting');
-    if (items.some((it) => needsDims(it) && !['w', 'h', 'd'].every((k) => numVal(it[k]) > 0))) errs.push('size in inches (W × H × D) for every piece');
-    if (items.some((it) => ['sculpture', 'other'].includes(it.type) && !(it.weightUnsure || numVal(it.weight) > 0))) errs.push('weight (or “Not sure”) for sculpture and other pieces');
-    if (items.some((it) => needsStairwellFit(it, o) && !it.fitsStairwell)) errs.push('stairwell fit confirmation for pieces over 80 inches');
+    forPieces('size in inches (W × H × D)', (it) => needsDims(it) && !['w', 'h', 'd'].every((k) => numVal(it[k]) > 0));
+    forPieces('a weight (or “Not sure”)', (it) => ['sculpture', 'other'].includes(it.type) && !(it.weightUnsure || numVal(it.weight) > 0));
+    forPieces('a stairwell fit confirmation (pieces over 80 inches)', (it) => needsStairwellFit(it, o) && !it.fitsStairwell);
   }
   // On-site contact role at every stop, worded for the person on site (it may or may not be the booker).
   const stops = [];
@@ -683,7 +689,7 @@ const admin = (req, res, next) => {
   if (!ADMIN_ON) return res.status(503).json({ error: 'Admin is turned off on this server (ADMIN_KEY is not set).' });
   return adminKeyOk(req.query.key || req.get('x-admin-key')) ? next() : res.status(401).json({ error: 'admin key required' });
 };
-app.get('/api/admin/orders', admin, (_, res) => res.json({ orders: load().map((o) => ({ ...o, itemLines: (o.items || []).map(itemLine), ...(o.service === 'crating_shipping' ? { shippingLines: require('./lib/shiptext').lines(o) } : {}) })), columns: schedule.COLUMNS, letters: schedule.LETTERS }));
+app.get('/api/admin/orders', admin, (_, res) => res.json({ orders: load().map((o) => ({ ...o, itemLines: piecesOf(o).map((it, i) => (o.partnerOrder ? itemLine(it) : require('./lib/itemtypes').pieceDetail(it, i))), ...(o.service === 'crating_shipping' ? { shippingLines: require('./lib/shiptext').lines(o) } : {}) })), columns: schedule.COLUMNS, letters: schedule.LETTERS }));
 app.get('/api/admin/schedule.csv', admin, (_, res) => {
   const rows = [schedule.COLUMNS, ...load().filter((o) => o.status === 'confirmed').flatMap(schedule.rowsForOrder)];
   res.type('text/csv').set('Content-Disposition', 'attachment; filename="cad-schedule-2026-online-orders.csv"').send(schedule.toCsv(rows));

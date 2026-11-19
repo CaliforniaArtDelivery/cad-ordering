@@ -37,7 +37,10 @@ const migrateAddr = (a = {}) => {
     notes: extras.join(' · '),
   };
 };
-const emptyItem = () => ({ qty: 1, type: 'painting', furnitureKind: 'Sofa', sizeClass: 'medium', description: '', w: '', h: '', d: '', weight: '', framed: '', glazing: '', frameType: '', framedGlass: false, fragile: false, weightUnsure: false, fitsStairwell: false, hangHeight: 'standard', centerHeight: '', hangWhere: '', hangWhereOther: '', hangBottomFt: '', hangPhotos: [], crateStatus: 'not_sure', value: '', photos: [] });
+let pcSeq = 0;
+const newPieceId = () => 'pc' + Date.now().toString(36) + (pcSeq++).toString(36) + Math.random().toString(36).slice(2, 6);
+// One entry = one piece, with a permanent internal id (labels like "Piece 3" renumber after a removal; the id never does).
+const emptyItem = () => ({ id: newPieceId(), checkValue: false, type: 'painting', furnitureKind: 'Sofa', sizeClass: 'medium', description: '', w: '', h: '', d: '', weight: '', framed: '', glazing: '', frameType: '', framedGlass: false, fragile: false, weightUnsure: false, fitsStairwell: false, hangHeight: 'standard', centerHeight: '', hangWhere: '', hangWhereOther: '', hangBottomFt: '', hangPhotos: [], crateStatus: 'not_sure', value: '', photos: [] });
 
 let CFG = null;
 let step = 0;
@@ -54,7 +57,24 @@ const fresh = () => ({
   shipping: { serviceLevel: '', shipBy: '', arriveBy: '', flexible: false, customs: { name: '', phone: '', email: '' } },
 });
 const S = Object.assign(fresh(), JSON.parse(sessionStorage.getItem('cad-order') || 'null') || {});
-S.items = (S.items && S.items.length ? S.items : [emptyItem()]).map((it) => ({ ...emptyItem(), ...it }));
+// A draft saved before this change may carry a quantity: expand it into separate pieces (and repair missing / repeated ids), so a refresh never shows or books one piece as ten.
+const MAX_PIECES = 60;
+const normalizePieces = (list) => {
+  const out = [], seen = new Set();
+  (Array.isArray(list) ? list : []).forEach((it) => {
+    if (!it || typeof it !== 'object') return;
+    const n = Math.max(1, Math.min(MAX_PIECES, parseInt(String(it.qty ?? '').replace(/,/g, ''), 10) || 1));
+    for (let k = 0; k < n; k++) {
+      const c = { ...emptyItem(), ...JSON.parse(JSON.stringify(it)) }; delete c.qty;
+      if (k > 0 || !c.id || seen.has(c.id)) c.id = newPieceId() + out.length;
+      seen.add(c.id); out.push(c);
+    }
+  });
+  return out.length ? out.slice(0, MAX_PIECES) : [emptyItem()];
+};
+S.items = normalizePieces(S.items);
+// Save the expanded pieces (with their new ids) right away, so a second refresh shows exactly the same pieces.
+if (sessionStorage.getItem('cad-order')) { try { sessionStorage.setItem('cad-order', JSON.stringify(S)); } catch (_) { /* storage full or blocked: the in-memory copy still works */ } }
 S.pickup = migrateAddr(S.pickup);
 S.dropoff = migrateAddr(S.dropoff);
 // Saved before the access rebuild: nothing was really chosen, so ask again rather than keep old defaults.
@@ -143,7 +163,7 @@ const fmtNum = (s) => {
   const grouped = (i || '0').replace(/\B(?=(\d{3})+(?!\d))/g, ',');
   return (neg ? '-' : '') + grouped + (d != null ? '.' + d : '');
 };
-const COMMA_PATH = /\.(value|weight|qty)$/;
+const COMMA_PATH = /\.(value|weight)$/;
 const DEC_PATH = /\.(weight|value)$/;
 const formatGrouped = (raw, allowDecimal) => {
   const s = uncomma(raw);
@@ -336,7 +356,12 @@ const decorKindOptions = () => {
 };
 
 // ---------- field helpers ----------
-const pieceName = (i) => `Piece ${Number(i) + 1}`;
+// "Piece 2" (one piece) or "Piece 2 (Oil on canvas)" (several), so a long order always says which piece a question is about.
+const pieceName = (i) => {
+  const it = S.items[Number(i)]; const d = String((it && it.description) || '').trim();
+  return `Piece ${Number(i) + 1}${S.items.length > 1 && d ? ` (${d.length > 24 ? d.slice(0, 22) + '…' : d})` : ''}`;
+};
+const pieceTitle0 = (it, i) => `Piece ${i + 1}${String(it.description || '').trim() ? ' — ' + String(it.description).trim() : ''}`;
 const qualifyLabel = (path, label) => {
   if (!label) return label;
   const m = String(path).match(/^items\.(\d+)\.(value|weight)$/);
@@ -408,8 +433,9 @@ const input = (path, label, opts = {}) => {
   const val = comma ? esc(commaDisplay(path, get(path))) : phone ? esc(formatPhone(get(path))) : esc(get(path));
   const lab = qualifyLabel(path, label);
   const mode = opts.mode || (comma ? (DEC_PATH.test(path) ? 'decimal' : 'numeric') : (phone ? 'tel' : ''));
-  return `<div class="field">${lab ? `<label class="f" for="f-${path}">${lab}${opts.req ? ' <span class="req">Required</span>' : ''}</label>` : ''}
-  <input id="f-${path}" type="${typ}" data-path="${path}" inputmode="${mode}" value="${val}" placeholder="${esc(opts.ph || '')}" ${opts.attrs || ''} ${comma ? 'data-comma="1"' : ''} ${phone ? 'data-phone="1"' : ''}></div>`;
+  const idp = opts.idp || 'f-';
+  return `<div class="field">${lab ? `<label class="f" for="${idp}${path}">${lab}${opts.req ? ' <span class="req">Required</span>' : ''}</label>` : ''}
+  <input id="${idp}${path}" type="${typ}" data-path="${path}" inputmode="${mode}" value="${val}" placeholder="${esc(opts.ph || '')}" ${opts.attrs || ''} ${comma ? 'data-comma="1"' : ''} ${phone ? 'data-phone="1"' : ''}></div>`;
 };
 const select = (path, label, options, opts = {}) => {
   const lab = label ? `<label class="f" for="f-${path}">${label}${opts.req ? ' <span class="req">Required</span>' : ''}</label>` : '';
@@ -458,7 +484,7 @@ const hangSummary = (it, i) => {
 const hangPieceBlock = (it, i) => {
   if (!isHung(it)) return '';
   const p = 'items.' + i;
-  const title = pieceName(i) + (it.description ? ' — ' + esc(it.description) : '');
+  const title = esc(pieceTitle0(it, i));
   const higher = it.hangHeight === 'higher';
   const photos = (it.hangPhotos || []).map((ph2) => '<img src="' + esc(ph2) + '" alt="">').join('');
   const stairwell = higher && it.hangWhere === 'stairwell';
@@ -642,19 +668,19 @@ const itemPhotoReason = (it) => (num(it.weight) > HEAVY_LB ? 'Photo required for
 const photosOk = (it) => !itemPhotoReason(it) || (it.photos || []).length > 0;
 const sitePhotosOk = () => true;
 const hangPhotosOk = (it) => it.hangHeight !== 'higher' || it.hangWhere !== 'stairwell' || (it.hangPhotos || []).length > 0;
-const valueHint = (it) => (shipService() ? 'Its current value. Our shipping partner uses it for coverage.'
-  : num(it.value) > 50000 ? 'Its current value.'
+const valueHint = (it) => (shipService() ? 'The value of this one piece. Our shipping partner uses it for coverage.'
+  : num(it.value) > 50000 ? 'The value of this one piece.'
   : num(it.value) > 0 ? `Required declared value protection: 1.5% of this piece’s declared value (${fmt(Math.round(num(it.value) * 1.5) / 100)} per piece).`
   : PROTECTION_HINT);
 // Declared value protection (Chad + Dot, Nov 16 2026): required, 1.5% of each ELIGIBLE piece's declared value
 // (pieces valued $50,000 or less). Never optional, never called insurance or full coverage.
 // Over $50,000: no protection line, no note, no special hint (Chad, Nov 16 2026). The value is just for our records.
-const PROTECTION_HINT = 'Its current value. Pieces valued up to $50,000 carry required declared value protection: 1.5% of their declared value.';
+const PROTECTION_HINT = 'The value of this one piece. Pieces valued up to $50,000 carry required declared value protection: 1.5% of their declared value.';
 const protectionNote = (q) => (q && q.protection && q.protection.amount > 0
   ? 'Required declared value protection is 1.5% of the declared value of each eligible piece (valued up to $50,000), included in the price above.'
   : '');
 const PROTECTION_DOCK = 'Includes required declared value protection';
-const PROTECTION_TERMS = 'Declared value protection applies to pieces with a declared value up to $50,000.';
+const PROTECTION_TERMS = 'Declared value protection applies to pieces valued up to $50,000.';
 const weightRequired = (it) => shipService() || it.type === 'sculpture' || it.type === 'other';
 const weightOk = (it) => !weightRequired(it) || !!it.weightUnsure || num(it.weight) > 0;
 function updateItemHints(i) {
@@ -737,6 +763,8 @@ const dimsBlock = (i) => { const p = `items.${i}`; return `<label class="f">Size
         <p class="mini" style="margin:-4px 0 10px">Approximate inches are fine.</p>`; };
 const pieceHasSize = (it, ship) => ship || needsDims(it);
 const pieceSize = (it, i, ship) => (pieceHasSize(it, ship) ? dimsBlock(i) + (FRAMING_TYPES.includes(it.type || 'painting') ? framingBlock(it, i) : '') : '');
+// A copied piece keeps its value but asks the customer to look at it again.
+const checkValueNote = (it) => (it.checkValue ? `<p class="mini warn-line" data-checkvalnote="${esc(it.id)}">This piece was copied. Please check its value. <button type="button" class="link" data-valok="${esc(it.id)}">Value is right</button></p>` : '');
 const pieceCare = (item, i, ship) => {
   const type = item.type || 'painting';
   const p = `items.${i}`;
@@ -744,11 +772,11 @@ const pieceCare = (item, i, ship) => {
   let h;
   if (ship) {
     h = `${weightField(item, i, { required: true })}
-    ${input(`${p}.value`, 'Declared value ($)', { ph: 'e.g. 12,000', attrs: 'inputmode="numeric"', req: true })}
+    ${input(`${p}.value`, 'Declared value ($)', { ph: 'e.g. 12,000', attrs: 'inputmode="numeric"', req: true })}${checkValueNote(item)}
     ${handlingBlock(item, i)}`;
   } else {
     const value = input(`${p}.value`, 'Declared value per piece ($)', { ph: 'e.g. 12,000', attrs: 'inputmode="numeric"', req: true })
-      + `<p class="mini" style="margin:-4px 0 8px" data-valhint="${i}">${valueHint(item)}</p>`;
+      + `<p class="mini" style="margin:-4px 0 8px" data-valhint="${i}">${valueHint(item)}</p>` + checkValueNote(item);
     h = `${needsWeight ? weightField(item, i, { required: true }) : ''}
         ${type === 'custom' ? '' : value}
         ${type === 'other' ? '<p class="mini" style="margin:0 0 6px">Priced by weight from our sculpture rates. The price covers pickup, delivery and placement wherever you want it. CAD may adjust the final quote after seeing photos.</p>' : ''}
@@ -764,10 +792,80 @@ const pieceCare = (item, i, ship) => {
         <div class="photos">${(item.photos || []).map((ph2) => `<img src="${esc(ph2)}" alt="">`).join('')}
           <label class="upload">＋ Photos<span data-photolbl="${i}">${itemPhotoReason(item) ? req : ' (optional)'}</span><input type="file" accept="image/*" multiple data-upload="${i}"></label></div>`;
 };
-const pieceTag = (it, i) => (S.items.length > 1 ? `<p class="piece-tag">Piece ${i + 1}${it.description ? ` · ${esc(it.description)}` : ''}</p>` : '');
+const pieceTag = (it, i) => (S.items.length > 1 ? `<p class="piece-tag">${esc(pieceTitle0(it, i))}</p>` : '');
 // What, Where, When, Pay: edit links jump straight to a screen ("1:pickup-addr" = Where, Pickup address).
 const editBtn = (target, label = 'Edit') => `<button type="button" class="edit" data-goto="${target}">${label}</button>`;
 
+// ---------- piece list: Edit · Duplicate · Remove, Quick edit pieces ----------
+// UI-only state (never saved): which piece is asking to be removed / duplicated, and which Quick edit rows are open.
+let removeAskId = '', dupAsk = null, dupCount = 1, quickOpen = false;
+const openQuick = new Set();
+const pieceFacts = (it) => {
+  const dims = [it.w, it.h, it.d].filter(Boolean).join(' × ');
+  return [TYPE_LABEL(it.type), dims && dims + ' in', it.weightUnsure ? 'weight not sure' : (it.weight ? fmtNum(it.weight) + ' lb' : ''), num(it.value) > 0 ? fmt(num(it.value)) : '', it.fragile ? 'special handling' : ''].filter(Boolean).join(' · ');
+};
+// The panel that holds a missing answer, so "fix it" lands on the right screen.
+const gapPanelFor = (i, g) => {
+  const lab = (g && g.label) || '';
+  if (/^Description/.test(lab)) return `p${i}a`;
+  if (/^(Size|Framed|Glass|Frame type)/.test(lab)) return pieceHasSize(S.items[i], shipService()) ? `p${i}b` : `p${i}c`;
+  return `p${i}c`;
+};
+const pieceListRow = (it, i) => {
+  const id = esc(it.id);
+  const gaps = itemGapList(it, i, 'What');
+  const confirm = removeAskId === it.id && S.items.length > 1
+    ? `<div class="pc-confirm" role="alert"><span>Remove ${esc(pieceTitle0(it, i))}?</span><span class="pc-confirm-btns"><button type="button" class="btn primary danger" data-removeyes="${id}">Yes, remove</button><button type="button" class="btn ghost" data-removeno>Keep it</button></span></div>` : '';
+  const dup = dupAsk === it.id ? dupDialog(it) : '';
+  return `<div class="pc ${gaps.length ? 'incomplete' : ''}" data-piece-id="${id}" data-piece-row="${i}">
+    <div class="pc-main"><b class="pc-title">${esc(pieceTitle0(it, i))}</b>
+      <span class="muted pc-facts">${esc(pieceFacts(it))}</span>
+      ${it.checkValue ? '<span class="tag warn" data-checkvalue>Check value</span>' : ''}
+      ${gaps.length ? `<span class="tag bad">Needs details</span> <button type="button" class="link" data-fixpiece="${i}" data-fixpanel="${gapPanelFor(i, gaps[0])}">${esc(gaps[0].msg)}</button>` : ''}</div>
+    <div class="pc-actions">${editBtn(`0:p${i}a`)}<span class="dot">·</span><button type="button" class="link" data-dupopen="${id}">Duplicate</button>${S.items.length > 1 ? `<span class="dot">·</span><button type="button" class="link muted" data-removeask="${id}">Remove</button>` : ''}</div>
+    ${confirm}${dup}</div>`;
+};
+const dupMax = () => Math.max(0, MAX_PIECES - S.items.length);
+const dupLabel = (n) => `Create ${n} piece${n === 1 ? '' : 's'}`;
+const dupDialog = (it) => {
+  const max = dupMax();
+  if (max < 1) return `<div class="pc-dup"><p class="mini">An order can have up to ${MAX_PIECES} pieces.</p><button type="button" class="btn ghost" data-dupcancel>Close</button></div>`;
+  const n = Math.min(Math.max(1, dupCount), max);
+  const hasPhotos = (it.photos || []).length > 0;
+  return `<div class="pc-dup" data-dupdialog>
+    <label class="f" for="dup-n">How many additional pieces would you like to create?</label>
+    <input id="dup-n" type="number" min="1" max="${max}" inputmode="numeric" value="${n}" data-dupn>
+    <p class="mini">We’ll copy the details from this piece. You can edit each copy before submitting your request.</p>
+    ${hasPhotos ? `<label class="toggle"><span>Use this piece’s photos on the copies<small>Leave off to add each piece’s own photos.</small></span><span class="sw"><input type="checkbox" id="dup-photos" data-dupphotos><i></i></span></label>` : '<p class="mini">Photos aren’t copied. Each piece gets its own photos when they’re needed.</p>'}
+    <div class="pc-dup-btns"><button type="button" class="btn primary" id="dupGo" data-dupgo="${esc(it.id)}">${dupLabel(n)}</button><button type="button" class="btn ghost" data-dupcancel>Cancel</button></div>
+  </div>`;
+};
+// Quick edit pieces: every piece as a collapsed row; open one to change its basics without stepping through the screens.
+const quickEditBlock = () => {
+  if (S.items.length < 2) return '';
+  const row = (it, i) => {
+    const p = `items.${i}`; const ip = { idp: 'q-' };
+    const dimsOn = needsDims(it) || shipService();
+    return `<details class="qrow" data-qpiece="${esc(it.id)}" ${openQuick.has(it.id) ? 'open' : ''}>
+      <summary><b>${esc(pieceTitle0(it, i))}</b><span class="muted">${esc(pieceFacts(it))}</span>${it.checkValue ? '<span class="tag warn">Check value</span>' : ''}</summary>
+      <div class="qbody">
+        ${input(`${p}.description`, 'Description', { ...ip })}
+        ${dimsOn ? `<label class="f">Size in inches (W × H × D)</label><div class="row3">${['w', 'h', 'd'].map((k, n2) => input(`${p}.${k}`, '', { ...ip, type: 'number', ph: 'WHD'[n2], attrs: 'inputmode="decimal" aria-label="' + ['Width', 'Height', 'Depth'][n2] + '"' })).join('')}</div>` : ''}
+        ${FRAMING_TYPES.includes(it.type || 'painting') ? `<div class="field"><label class="f">Framed?</label>${seg(`${p}.framed`, [['yes', 'Yes'], ['no', 'No']])}</div>` : ''}
+        ${it.type !== 'custom' ? input(`${p}.value`, 'Declared value ($)', { ...ip, ph: 'e.g. 12,000', attrs: 'inputmode="numeric"' }) : ''}
+        ${it.checkValue ? `<button type="button" class="pill-btn" data-valok="${esc(it.id)}">Value is right</button>` : ''}
+        <div class="field"><div class="qweight"><label class="f" for="q-${p}.weight">Weight (lb)</label><button type="button" class="pill-btn ${it.weightUnsure ? 'on' : ''}" data-weightunsure="${i}">${it.weightUnsure ? '✓ Not sure' : 'Not sure'}</button></div>
+          ${it.weightUnsure ? '<p class="mini">We’ll confirm the weight. A photo of this piece is needed.</p>' : input(`${p}.weight`, '', { ...ip, ph: 'e.g. 40', attrs: 'inputmode="decimal" aria-label="Weight in pounds"' })}</div>
+        ${toggle(`${p}.fragile`, 'Special handling needed', '', true)}
+        ${editBtn(`0:p${i}a`, 'Open all details')}
+      </div></details>`;
+  };
+  return `<details class="quick" data-quick ${quickOpen ? 'open' : ''}><summary>Quick edit pieces</summary><div class="qlist">${S.items.map(row).join('')}</div></details>`;
+};
+
+// Final review: every piece on its own row (never a single "10×" line), with the check-everything reminder.
+const reviewPieces = () => `<div class="sum-row piece-review-note"><span class="mini" data-piece-note>Each piece is listed and priced separately. Please check the dimensions, declared value, handling requirements, and photos for every piece.</span></div>`
+  + S.items.map((it, i) => `<div class="sum-row" data-review-piece="${i}"><span><b>${esc(pieceTitle0(it, i))}</b><br><span class="muted">${esc([pieceFacts(it), framingText(it), (it.photos || []).length ? `${it.photos.length} photo${it.photos.length === 1 ? '' : 's'}` : ''].filter(Boolean).join(' · '))}</span>${it.checkValue ? '<br><span class="tag warn">Check value</span>' : ''}</span><span>${editBtn(`0:p${i}a`)}</span></div>`).join('');
 // ---------- views ----------
 const roleLabel = (key) => (key === 'pickup' ? 'Pickup contact role' : S.service === 'install_only' ? 'Install contact role' : 'Delivery contact role');
 const views = {
@@ -784,13 +882,12 @@ const views = {
       if ((type === 'furniture' || type === 'decor') && !allowedSizes.includes(item.sizeClass)) item.sizeClass = 'medium';
       const kindRow = (type === 'furniture' || type === 'decor') ? `<div class="row keep kind-row">${select(`${p}.furnitureKind`, type === 'decor' ? 'Type of décor' : 'Item', kinds, { rerender: true })}${select(`${p}.sizeClass`, 'Size', sizeOpts)}</div>${type === 'decor' && isAccentKind(item.furnitureKind) ? '<p class="mini" style="margin:-4px 0 10px">Extra small is a small figurine or bud vase. Extra large is a statement piece.</p>' : ''}` : '';
       return `<div class="card"><div class="item-head"><b>Piece ${i + 1}</b><span class="item-actions">
-          <button type="button" class="link" data-dup="${i}">Duplicate</button>
-          ${S.items.length > 1 ? `<button type="button" class="link muted" data-remove="${i}">Remove</button>` : ''}</span></div>
+          ${S.items.length > 1 ? `<button type="button" class="link muted" data-removeask="${esc(item.id)}">Remove this piece</button>` : ''}</span></div>
         <div class="field"><div class="chips" data-itemtype="${i}">${itemTypes().map(([v, l]) => `<button type="button" class="chip ${type === v ? 'on' : ''}" data-v="${v}">${l}</button>`).join('')}</div></div>
         ${type === 'photograph' ? `<p class="mini" style="margin:-4px 0 10px">Prints and photographs${hasInstall() ? '. Hung on a wall, so we can install it.' : ', framed or unframed.'}</p>` : ''}
         ${type === 'wallart' ? `<p class="mini" style="margin:-4px 0 10px">Mixed media, wall sculpture, etc.${hasInstall() ? ' Hung on a wall, so we can install it.' : ''}</p>` : ''}
         ${kindRow}
-        <div class="row qty">${input(`${p}.qty`, 'Qty', { type: 'number', attrs: 'min="1" inputmode="numeric"' })}${input(`${p}.description`, type === 'custom' ? 'Your request' : 'Description', { ph, req: true })}</div>
+        ${input(`${p}.description`, type === 'custom' ? 'Your request' : 'Description of this piece', { ph, req: true })}
         ${type === 'custom' ? '<p class="mini" style="margin:0 0 6px">Tell us what you need in the description. CAD reviews it and sends a custom quote; nothing is charged until you approve it.</p>' : ''}
       </div>`;
     };
@@ -806,9 +903,10 @@ const views = {
         if (pieceHasSize(item, ship)) panels.push(panel(`p${i}b`, `<h1>How big is it?</h1>${pieceTag(item, i)}<div class="card">${pieceSize(item, i, ship)}</div>`));
         panels.push(panel(`p${i}c`, `<h1>${ship ? 'Weight, value and care' : 'Value and care'}</h1>${pieceTag(item, i)}<div class="card">${pieceCare(item, i, ship)}</div>`));
       });
-      panels.push(panel('pieces-more', `<h1>Anything else to ${svcVerbShort()}?</h1><p class="sub">${S.items.length === 1 ? 'You’ve added one piece.' : `You’ve added ${S.items.length} pieces.`} Add more, or tap Next to continue.</p>
-        <div class="card">${S.items.map((it, i) => `<div class="sum-row"><span>${esc(fmtNum(it.qty) || it.qty)}× ${esc(it.description || 'Piece ' + (i + 1))}<br><span class="muted">${esc(TYPE_LABEL(it.type))}</span></span><span>${editBtn(`0:p${i}a`)}</span></div>`).join('')}</div>
+      panels.push(panel('pieces-more', `<h1>Anything else to ${svcVerbShort()}?</h1><p class="sub">${S.items.length === 1 ? 'You’ve added one piece.' : `You’ve added ${S.items.length} pieces.`} Each piece is listed and priced separately. Add more, copy a piece, or tap Next to continue.</p>
+        <div class="card pc-list" data-pclist>${S.items.map((it, i) => pieceListRow(it, i)).join('')}</div>
         <button type="button" class="add" id="addItem">＋ Add another piece</button>
+        ${quickEditBlock()}
         <p class="mini">${ship ? 'Shipping is for anything going outside California, in the US or overseas, and is always custom quoted. Within California we always provide white-glove delivery. Nothing is charged until you approve Samantha’s quote.' : `${esc(CFG.notice || '')} Jobs with an address outside California are custom quoted as Shipping. Within California we always provide white-glove delivery.`}</p>`));
     }
     return panels.join('');
@@ -932,7 +1030,7 @@ const views = {
     const out = [];
     if (outOfState()) {
       S.items.forEach((it, i) => {
-        const nm = `${esc(fmtNum(it.qty) || it.qty)}× ${esc(it.description || 'Piece ' + (i + 1))}`;
+        const nm = esc(pieceTitle0(it, i));
         out.push(panel(`ship-p${i}b`, `<h1>Shipping details</h1>${oos}<p class="piece-tag">${nm}</p><div class="card">${dimsBlock(i)}${FRAMING_TYPES.includes(it.type || 'painting') ? framingBlock(it, i) : ''}</div>`));
         out.push(panel(`ship-p${i}c`, `<h1>Weight, value and care</h1><p class="piece-tag">${nm}</p><div class="card">${pieceCare(it, i, true)}</div>`));
       });
@@ -966,7 +1064,7 @@ const views = {
       ${promiseCard(crossRegionLine(quoteData && quoteData.regions) || (date && date.routeLabel) || (avail && avail.region ? avail.region + ' route' : 'Route day'), 'margin-top:0', '2:date')}
       <div class="card">
         <div class="sum-row"><span>Service</span><span>${esc(svc().label)}${S.rush ? ' · rush' : ''}${S.dedicated ? ' · dedicated trip' : ''} ${editBtn('0:service')}</span></div>
-        <div class="sum-row"><span>Pieces</span><span>${S.items.map((i) => `${esc(fmtNum(i.qty) || i.qty)}× ${esc(i.description)}<br><span class="muted">${esc([TYPE_LABEL(i.type), framingText(i), i.weightUnsure ? 'weight not sure' : (i.weight ? fmtNum(i.weight) + ' lb' : ''), i.fragile ? 'special handling' : ''].filter(Boolean).join(' · '))}</span>`).join('<br>')} ${editBtn('0:pieces-more')}</span></div>
+        ${reviewPieces()}
         ${svc().needsPickup ? siteRows('Pickup', S.pickup, '1:pickup-addr') : ''}
         ${siteRows(S.service === 'install_only' ? 'Install at' : 'Delivery', S.dropoff, '1:dropoff-addr')}
         <div class="sum-row"><span>Booked by</span><span>${esc(S.contact.name)}<br><span class="muted">${esc(S.contact.email)}</span> ${editBtn('1:you')}</span></div>
@@ -985,7 +1083,7 @@ const views = {
 
   ShipPay() {
     const sh = S.shipping, d = S.dropoff;
-    const declared = S.items.reduce((s, it) => s + num(it.value) * (num(it.qty) || 1), 0);
+    const declared = S.items.reduce((s, it) => s + num(it.value), 0);
     const payerName = S.payer === 'other' ? (S.payerOther.name || 'Someone else') : S.payer === 'partner' ? 'Referring partner' : 'Me';
     const payerCard = `<div class="card">${seg('payer', isBizReferral() ? [['me', 'Me'], ['partner', 'Referring partner'], ['other', 'Someone else']] : [['me', 'Me'], ['other', 'Someone else']])}
         ${S.payer === 'other' ? `<div class="row" style="margin-top:12px">${input('payerOther.name', 'Payer name', { req: true })}${input('payerOther.email', 'Payer email', { type: 'email', req: true, attrs: 'autocapitalize="off" autocomplete="email"' })}</div>
@@ -997,7 +1095,7 @@ const views = {
       <div class="promise quote" style="margin-top:0"><span class="pi">✈</span><span><b>${esc(timingText(sh))}</b><span>${esc(levelText(sh.serviceLevel))}</span></span>${editBtn('2:ship-timing')}</div>
       <div class="card">
         <div class="sum-row"><span>Service</span><span>Shipping ${editBtn('0:service')}</span></div>
-        <div class="sum-row"><span>Pieces</span><span>${S.items.map((i) => `${esc(fmtNum(i.qty) || i.qty)}× ${esc(i.description)}<br><span class="muted">${esc([[i.w, i.h, i.d].filter(Boolean).join(' × ') ? [i.w, i.h, i.d].filter(Boolean).join(' × ') + ' in' : '', i.weightUnsure ? 'weight not sure' : (i.weight ? fmtNum(i.weight) + ' lb' : ''), TYPE_LABEL(i.type), framingText(i), i.fragile ? 'special handling' : ''].filter(Boolean).join(' · '))}</span>`).join('<br>')} ${editBtn('0:pieces-more')}</span></div>
+        ${reviewPieces()}
         <div class="sum-row"><span>Pickup</span><span>${destText(S.pickup)}<br><span class="muted">${esc([S.pickup.contactName, formatPhone(S.pickup.contactPhone)].filter(Boolean).join(' · '))}</span> ${editBtn('1:pickup-addr')}</span></div>
         <div class="sum-row"><span>Destination</span><span>${destText(d)}${d.locationType ? ` · ${esc(d.locationType)}` : ''}<br><span class="muted">${esc([d.contactName, formatPhone(d.contactPhone)].filter(Boolean).join(' · '))}</span> ${editBtn('1:dropoff-addr')}</span></div>
         ${intlDest(d) && (sh.customs.name || sh.customs.phone) ? `<div class="sum-row"><span>Customs contact</span><span>${esc([sh.customs.name, sh.customs.phone, sh.customs.email].filter(Boolean).join(' · '))}</span></div>` : ''}
@@ -1021,7 +1119,7 @@ const views = {
     return panel('review', `<h1>Pay to confirm</h1><p class="sub">${payCanceled ? 'Payment wasn’t completed. Your booking is saved; pay below to confirm it.' : o.approvedAt ? 'Your quote is approved. Your job is booked as soon as payment goes through.' : 'Pay below to confirm your booking.'}</p>
       <div class="promise" style="margin-top:0"><span class="pi">✓</span><span><b>${o.service === 'crating_shipping' ? esc(timingText(o.shipping || {})) : `${esc(longDate(o.schedule.date))}${o.schedule.deliveryDate ? ' · Delivery ' + esc(shortDate(o.schedule.deliveryDate)) : ''}`}</b><span>Order ${esc(o.id)}</span></span></div>
       <div class="card"><div class="sum-row"><span>Service</span><span>${esc(o.serviceLabel)}${o.rush ? ' · rush' : ''}${o.dedicated ? ' · dedicated trip' : ''}</span></div>
-        <div class="sum-row"><span>Pieces</span><span>${(o.items || []).map((i) => `${esc(fmtNum(i.qty) || i.qty)}× ${esc(i.description)}`).join('<br>')}</span></div></div>
+        ${(o.items || []).map((i, n) => `<div class="sum-row"><span><b>${esc(pieceTitle0(i, n))}</b><br><span class="muted">${esc(TYPE_LABEL(i.type))}</span></span><span></span></div>`).join('')}</div>
       ${priceCard(q, false)}
       <h2>Payment</h2>${paymentBlock(q)}
       ${o.service === 'crating_shipping' ? '' : `<p class="mini" data-protection-terms>${PROTECTION_TERMS}</p>`}`);
@@ -1094,12 +1192,11 @@ const contactReady = () => S.contact.name.trim() && /\S+@\S+\.\S+/.test(S.contac
 
 const needsDims = (it) => !['custom', 'furniture'].includes(it.type || 'painting') || shipService();
 const dimsOk = (it) => ['w', 'h', 'd'].every((k) => Number(it[k]) > 0);
-function missingFields(name = STEPS[step]) {
-  const out = [];
-  const add = (sel, label, msg) => { if (sel && label) out.push({ sel, label, msg }); };
-  const itemGaps = (it, i) => {
+// What one piece still needs (each piece on its own: nothing is borrowed from the others).
+function itemGapList(it, i, name) {
+    const out = [];
+    const add = (sel, label, msg) => { if (sel && label) out.push({ sel, label, msg }); };
     const p = pieceName(i);
-    if (!(num(it.qty) > 0)) add(`#f-items.${i}.qty`, `Qty — ${p}`, 'Please enter how many of this piece.');
     if (!String(it.description || '').trim()) add(`#f-items.${i}.description`, `Description — ${p}`, 'Please add a short description of this piece.');
     if (shipService() || (name === 'When' && isShip())) {
       // Out-of-state pieces show weight as required and the server refuses an order without it, so ask for it here too (was only enforced for the Shipping service).
@@ -1116,7 +1213,12 @@ function missingFields(name = STEPS[step]) {
       if (needsFrameType(it) && !FRAME_TYPE_OPTS.some(([v]) => v === it.frameType)) add(`[data-frametype="${i}"]`, `Frame type — ${p}`, 'Please choose a frame type.');
     }
     if (!photosOk(it)) add(`[data-photolbl="${i}"]`, `Photos — ${p}`, 'Please add a photo of this piece.');
-  };
+    return out;
+}
+function missingFields(name = STEPS[step]) {
+  const out = [];
+  const add = (sel, label, msg) => { if (sel && label) out.push({ sel, label, msg }); };
+  const itemGaps = (it, i) => itemGapList(it, i, name).forEach((g) => out.push(g));
   if (name === 'What') {
     if (!S.service) { add('.choices', 'Service type', 'Please choose a service.'); return out; }
     S.items.forEach(itemGaps);
@@ -1547,6 +1649,12 @@ const syncSameAsMe = () => {
 };
 app.addEventListener('input', (e) => {
   if (e.target.id === 'saveMethod') { saveMethod = e.target.checked; return; }
+  if (e.target.dataset.dupn != null) {
+    const n = parseInt(e.target.value, 10);
+    dupCount = Number.isFinite(n) ? Math.min(Math.max(1, n), Math.max(1, dupMax())) : 1;
+    const b = $('#dupGo'); if (b) b.textContent = dupLabel(dupCount);
+    return;
+  }
   const p = e.target.dataset.path; if (!p) return;
   if (e.target.dataset.comma || COMMA_PATH.test(p)) {
     const allowDec = DEC_PATH.test(p);
@@ -1586,12 +1694,20 @@ app.addEventListener('input', (e) => {
   const m = p.match(/^(pickup|dropoff)\.contact(Name|Phone)$/);
   if (m && S[m[1]].sameAsMe) { S[m[1]].sameAsMe = false; persist(); const b = app.querySelector(`[data-same="${m[1]}"]`); if (b) { b.classList.remove('on'); b.textContent = 'Same as me'; } const rw = app.querySelector(`[data-rolewrap="${m[1]}"]`); if (rw) rw.hidden = false; paintButton(); }
   const hint = p.match(/^items\.(\d+)\.(weight|value)$/);
+  if (hint && hint[2] === 'value' && S.items[+hint[1]] && S.items[+hint[1]].checkValue) { S.items[+hint[1]].checkValue = false; persist(); { const pid = S.items[+hint[1]].id; app.querySelectorAll(`[data-checkvalnote="${pid}"], [data-piece-id="${pid}"] [data-checkvalue]`).forEach((el) => el.remove()); } }
   if (hint) updateItemHints(+hint[1]);
+  // Editing a piece in Quick edit: keep the list above it (titles, facts, "Needs details") in step. The quick-edit fields themselves are not re-rendered, so typing keeps its focus.
+  if (/^items\.\d+\./.test(p) && e.target.closest('[data-quick]')) { const L = app.querySelector('[data-pclist]'); if (L) L.innerHTML = S.items.map((it, i) => pieceListRow(it, i)).join(''); }
   updateNext(); refreshQuote();
   const dim = p.match(/^items\.(\d+)\.(w|h)$/);
   if (dim) syncFrameType(+dim[1]);
   if ('rerender' in e.target.dataset) render();
 });
+app.addEventListener('toggle', (e) => {
+  const d = e.target; if (!d || !d.matches) return;
+  if (d.matches('details[data-quick]')) quickOpen = d.open;
+  else if (d.matches('details[data-qpiece]')) { if (d.open) openQuick.add(d.dataset.qpiece); else openQuick.delete(d.dataset.qpiece); }
+}, true);
 app.addEventListener('change', (e) => {
   if (e.target.dataset.path && e.target.tagName === 'SELECT') {
     set(e.target.dataset.path, e.target.value);
@@ -1600,6 +1716,7 @@ app.addEventListener('change', (e) => {
     refreshQuote();
     if ('rerender' in e.target.dataset || mk) render();
   }
+  if (e.target.dataset.dupphotos != null) { dupPhotos = e.target.checked; return; }
   if (e.target.dataset.upload != null) uploadPhotos(+e.target.dataset.upload, e.target.files);
   if (e.target.dataset.wallupload) uploadWallPhotos(e.target.dataset.wallupload, e.target.files);
   if (e.target.dataset.hangupload != null) uploadHangPhotos(+e.target.dataset.hangupload, e.target.files);
@@ -1621,6 +1738,25 @@ function syncOosNote() {
     if (outOfState() && !cur) pn.querySelector('h1').insertAdjacentHTML('afterend', `<p class="note" data-oos>${OOS_NOTE}</p>`);
     else if (!outOfState() && cur) cur.remove();
   });
+}
+let dupPhotos = false;
+// Duplicate: N separate new pieces, each prefilled with this piece's details (value kept but flagged "check value"; photos are not copied unless asked).
+function createCopies(srcId) {
+  const idx = S.items.findIndex((x) => x.id === srcId);
+  const n = Math.min(Math.max(1, dupCount), dupMax());
+  if (idx < 0 || n < 1) { dupAsk = null; render(); return; }
+  const src = S.items[idx];
+  const copies = Array.from({ length: n }, () => {
+    const c = JSON.parse(JSON.stringify(src));
+    c.id = newPieceId(); c.checkValue = num(c.value) > 0;
+    if (!dupPhotos) { c.photos = []; c.hangPhotos = []; }
+    return c;
+  });
+  S.items.splice(idx + 1, 0, ...copies);
+  dupAsk = null; dupCount = 1; dupPhotos = false; removeAskId = '';
+  persist(); sub = 'pieces-more'; render();
+  const first = app.querySelector(`[data-piece-id="${copies[0].id}"]`); if (first) first.scrollIntoView({ block: 'center' });
+  uploadToast(`${n} piece${n === 1 ? '' : 's'} added. Check each copy’s size and value.`);
 }
 const itemKey = () => S.items.map((i) => itemPhotoReason(i) + (num(i.value) > 50000 ? 2 : num(i.value) > 0 ? 1 : 0)).join('|');
 const shipKey = () => `${isShip()}|${intlDest(S.dropoff)}`;
@@ -1656,9 +1792,21 @@ app.addEventListener('click', async (e) => {
     if (it.weightUnsure) it.weight = '';
     persist(); render(); return;
   }
-  if (t.id === 'addItem') { S.items.push(emptyItem()); persist(); sub = `p${S.items.length - 1}a`; render(); return; }
-  if (t.dataset.dup != null) { const src = S.items[+t.dataset.dup]; S.items.splice(+t.dataset.dup + 1, 0, JSON.parse(JSON.stringify(src))); persist(); sub = `p${+t.dataset.dup + 1}a`; render(); return; }
-  if (t.dataset.remove != null) { S.items.splice(+t.dataset.remove, 1); persist(); sub = 'pieces-more'; render(); return; }
+  if (t.id === 'addItem') { returnToList = false; S.items.push(emptyItem()); persist(); sub = `p${S.items.length - 1}a`; render(); return; }
+  // Remove asks first; the quote recalculates right away. Labels renumber, the internal id never changes.
+  if (t.dataset.removeask != null) { if (S.items.length > 1) { removeAskId = t.dataset.removeask; dupAsk = null; sub = 'pieces-more'; render(); const row = app.querySelector(`[data-piece-id="${removeAskId}"]`); if (row) row.scrollIntoView({ block: 'center' }); } return; }
+  if (t.dataset.removeno != null) { removeAskId = ''; render(); return; }
+  if (t.dataset.removeyes != null) {
+    const ix = S.items.findIndex((x) => x.id === t.dataset.removeyes);
+    removeAskId = '';
+    if (ix >= 0 && S.items.length > 1) { const gone = pieceTitle0(S.items[ix], ix); S.items.splice(ix, 1); persist(); sub = 'pieces-more'; render(); uploadToast(`${gone} removed. The price is updated.`); } else render();
+    return;
+  }
+  if (t.dataset.dupopen != null) { dupAsk = t.dataset.dupopen; dupCount = 1; dupPhotos = false; removeAskId = ''; render(); const n = $('#dup-n'); if (n) { n.scrollIntoView({ block: 'center' }); n.focus(); n.select(); } return; }
+  if (t.dataset.dupcancel != null) { dupAsk = null; render(); return; }
+  if (t.dataset.dupgo != null) { createCopies(t.dataset.dupgo); return; }
+  if (t.dataset.valok != null) { const it = S.items.find((x) => x.id === t.dataset.valok); if (it) { it.checkValue = false; persist(); render(); } return; }
+  if (t.dataset.fixpiece != null) { returnToList = true; step = 0; sub = t.dataset.fixpanel || `p${t.dataset.fixpiece}a`; keepAttempt = true; render(); return; }
   if (t.dataset.same) {
     const a = S[t.dataset.same];
     a.sameAsMe = !a.sameAsMe;
@@ -1669,6 +1817,7 @@ app.addEventListener('click', async (e) => {
     // "1:pickup-addr" = Where, Pickup address. From the final review, the next Next brings them straight back to it.
     const [gs, gp] = String(t.dataset.goto).split(':');
     if (STEPS[step] === 'Pay' && !existing) returnToReview = true;
+    returnToList = +gs === 0 && STEPS[step] === 'What' && sub === 'pieces-more' && /^p\d+a$/.test(gp || '');
     step = +gs; sub = gp || ''; render(); return;
   }
   if (t.dataset.wallet) return pay(CFG.stripe ? 'stripe' : t.dataset.wallet);
@@ -1793,6 +1942,8 @@ const needLine = $('#needLine');
 if (needLine) needLine.addEventListener('click', () => revealFirstMissing());
 
 let returnToReview = false;
+// Edit or "fix" on one piece from the list: after that piece's last screen, Next goes back to the list, not on to the next piece.
+let returnToList = false;
 // After Edit on the final review: check the booking is still complete and go straight back to the review.
 async function backToReview() {
   busy = true; updateNext();
@@ -1820,6 +1971,7 @@ async function goNext() {
   if (name === 'Pay' && last && quotePending) return;
   if (missingNow().length) { revealFirstMissing(); return; }
   if (returnToReview && name !== 'Pay') return backToReview();
+  if (returnToList && step === 0 && /^p\d+c$/.test(sub)) { returnToList = false; sub = 'pieces-more'; render(); return; }
   if (!last) { sub = ids[idx + 1]; render(); return; }
   if (name === 'Pay') return pay(CFG.stripe ? 'stripe' : payMethod);
   if (name === 'Where' && isShip()) { step++; sub = ''; render(); return; }

@@ -11,6 +11,10 @@ const check = (cond, msg, extra) => {
 
 const q = (service, items, extra = {}) => quote({ service, items, ...extra });
 const line = (res, re) => (res.lines || []).find((l) => re.test(l.label));
+// Quantity no longer exists on the main site (one entry = one piece): qty in a test fixture means that many separate pieces, each with its own line.
+const near = (a, b) => Math.abs(a - b) < 0.006;
+const lines2 = (res, re) => (res.lines || []).filter((l) => re.test(l.label));
+const sumLines = (res, re) => Math.round((res.lines || []).filter((l) => re.test(l.label)).reduce((t, l) => t + l.amount, 0) * 100) / 100;
 
 check(roundUpTo(112.5, 5) === 115, '112.50 should round up to $115');
 check(roundUpTo(82.5, 5) === 85, '82.50 should round up to $85');
@@ -185,11 +189,11 @@ check(split.total === 305, '60×40 + 61×40 install-only should stay $305', spli
 
 // High-value handling is the +% markup on the piece's normal price only (no 1.5% floor), folded into the normal line.
 const hv = q('install_only', [{ qty: 1, type: 'mirror', w: 60, h: 40, value: 100001, description: 'm' }]);
-check(!line(hv, /High-value/) && !hv.protection && hv.total === 345, 'high-value 60×40 install-only stays $345 with no labeled handling line', hv.lines);
-check(hv.highValueItems && hv.highValueItems[0].perPiece === 230 && hv.highValueItems[0].pct === 200, 'admin still records +200% = $230 on the $115 install', hv.highValueItems);
+check(!line(hv, /High-value/) && !hv.protection && near(hv.total, 865.01), 'over-$50,000 60×40 install-only: $115 + 0.75% of $100,001 ($750.01) = $865.01 in one price, no labeled line', hv.lines);
+check(hv.highValueItems && hv.highValueItems[0].perPiece === 750.01 && hv.highValueItems[0].pct === 0.75, 'admin records the built-in 0.75% = $750.01', hv.highValueItems);
 const hvPd = q('pickup_delivery', [{ qty: 1, type: 'mirror', w: 60, h: 40, value: 100001, description: 'm' }]);
-check(!line(hvPd, /High-value/) && hvPd.total === 900, 'high-value 60×40 pickup+delivery stays $900 with no labeled handling line', hvPd.lines);
-check(hvPd.highValueItems && hvPd.highValueItems[0].perPiece === 600, 'admin still records +200% = $600 on the $300 pickup+delivery', hvPd.highValueItems);
+check(!line(hvPd, /High-value/) && near(hvPd.total, 1050.01), 'over-$50,000 60×40 pickup+delivery: $300 + $750.01 = $1,050.01 in one price', hvPd.lines);
+check(hvPd.highValueItems && hvPd.highValueItems[0].perPiece === 750.01, 'admin records $750.01 for the pickup+delivery piece', hvPd.highValueItems);
 
 const paint60 = q('install_only', [{ qty: 1, type: 'painting', framed: 'no', w: 60, h: 40, description: 'p' }]);
 const paint71 = q('install_only', [{ qty: 1, type: 'painting', framed: 'no', w: 71, h: 40, description: 'p' }]);
@@ -201,13 +205,13 @@ const config = require('../config');
 check(config.pricing.valuation.optional === false && config.pricing.valuation.rate === 0.015 && config.pricing.valuation.maxValue === 50000, 'protection config must be required, 1.5%, up to $50,000', config.pricing.valuation);
 const sc = (value, extra = {}) => q('pickup_delivery', [{ qty: 1, type: 'sculpture', weight: 120, value, description: 's', ...extra }]);
 const at50 = sc(50000), over50 = sc(50001);
-const DVP = /^Required declared value protection: 1\.5% of \$/;
+const DVP = /^Required declared value protection( — Piece \d+[^:]*)?: 1\.5% of \$/;
 const pl = line(at50, DVP);
 check(pl && pl.label === 'Required declared value protection: 1.5% of $50,000' && pl.amount === 750, '$50,000 piece: required protection line, $750', at50.lines);
 check(at50.protection && at50.protection.amount === 750 && at50.protection.eligibleValue === 50000, '$50,000 piece: quote.protection should carry $750 on $50,000 eligible', at50.protection);
 check(!line(at50, /High-value/), '$50,000 piece: no high-value markup', at50.lines);
-check(!line(over50, /declared value protection/i) && !over50.protection && !line(over50, /High-value/) && line(over50, /Sculpture/).amount === 800 && over50.total === 800, '$50,001 piece: no protection line or handling label; $400 move is folded to $800', over50.lines);
-check(over50.highValueItems && over50.highValueItems[0].perPiece === 400, '$50,001: admin still records the $400 markup', over50.highValueItems);
+check(!line(over50, /declared value protection/i) && !over50.protection && !line(over50, /High-value/) && near(line(over50, /Sculpture/).amount, 775.01) && near(over50.total, 775.01), '$50,001 piece: no protection line or handling label; $400 move + $375.01 built in = $775.01', over50.lines);
+check(over50.highValueItems && over50.highValueItems[0].perPiece === 375.01, '$50,001: admin records the built-in $375.01', over50.highValueItems);
 check(!(over50.notes || []).length, '$50,001: no customer note', over50.notes);
 // Dot, Nov 16 2026: protection uses only ELIGIBLE pieces (each <= $50,000, times quantity), never the total declared value.
 const mixedDv = q('pickup_delivery', [
@@ -217,14 +221,14 @@ const mixedDv = q('pickup_delivery', [
   { qty: 4, type: 'painting', framed: 'no', w: 20, h: 20, d: 2, value: 250, description: 'd' },
 ]);
 const mdl = line(mixedDv, DVP);
-check(mdl && mdl.label === 'Required declared value protection: 1.5% of $71,000' && mdl.amount === 1065, 'mixed: 2×$10,000 + $50,000 + 4×$250 = $71,000 eligible → $1,065 (the 3×$60,000 never counts)', mixedDv.lines);
+check(mdl && sumLines(mixedDv, DVP) === 1065 && mixedDv.lines.filter((l) => DVP.test(l.label)).length === 7, 'mixed: 2×$10,000 + $50,000 + 4×$250 = $71,000 eligible → $1,065 (the 3×$60,000 never counts)', mixedDv.lines);
 check(mixedDv.protection && mixedDv.protection.eligibleValue === 71000 && mixedDv.protection.amount === 1065, 'mixed: quote.protection.eligibleValue = $71,000', mixedDv.protection);
-check(!line(mixedDv, /High-value/) && line(mixedDv, /Sculpture:.*· b/).amount === 2400, 'mixed: $60,000 sculptures fold +100% into their own $2,400 line (3 × $800)', mixedDv.lines);
-check((mixedDv.highValueItems || []).length === 1 && mixedDv.highValueItems[0].index === 1 && mixedDv.highValueItems[0].perPiece === 400 && mixedDv.highValueItems[0].qty === 3, 'mixed: admin still records $400 each, × 3', mixedDv.highValueItems);
+check(!line(mixedDv, /High-value/) && sumLines(mixedDv, /Sculpture:.*· b/) === 2550 && mixedDv.lines.filter((l) => /Sculpture:.*· b/.test(l.label)).every((l) => l.amount === 850), 'mixed: each $60,000 sculpture is $400 + 0.75% of $60,000 ($450) = $850 in its own line (3 pieces = $2,550)', mixedDv.lines);
+check((mixedDv.highValueItems || []).length === 3 && mixedDv.highValueItems.every((h) => h.perPiece === 450 && h.qty === 1) && mixedDv.highValueItems.map((h) => h.index).join() === '2,3,4', 'mixed: admin records the built-in $450 for each of the three $60,000 pieces (pieces 3, 4, 5)', mixedDv.highValueItems);
 const onlyHv = q('pickup_delivery', [{ qty: 2, type: 'sculpture', weight: 120, value: 75000, description: 'x' }]);
-check(!line(onlyHv, /declared value protection/i) && !onlyHv.protection && !line(onlyHv, /High-value/) && onlyHv.total === 1600, 'only ineligible pieces: no protection line or handling label, $1,600 total', onlyHv.lines);
+check(!line(onlyHv, /declared value protection/i) && !onlyHv.protection && !line(onlyHv, /High-value/) && near(onlyHv.total, 1925), 'only over-$50,000 pieces: no protection line or handling label; 2 × ($400 + 0.75% of $75,000 = $562.50) = $1,925 total', onlyHv.lines);
 const cents = q('pickup_delivery', [{ qty: 3, type: 'sculpture', weight: 120, value: 12345.67, description: 'x' }]);
-check(line(cents, DVP) && line(cents, DVP).label === 'Required declared value protection: 1.5% of $37,037.01' && line(cents, DVP).amount === 555.56, 'quantity 3 × $12,345.67 → 1.5% of $37,037.01 = $555.56', cents.lines);
+check(cents.lines.filter((l) => DVP.test(l.label)).length === 3 && cents.lines.filter((l) => DVP.test(l.label)).every((l) => l.amount === 185.19 && /Piece [123]/.test(l.label)) && sumLines(cents, DVP) === 555.57 && cents.protection.amount === 555.57, '3 pieces × $12,345.67 → 1.5% each = $185.19 (rounded per piece) = $555.57, one labeled line per piece', cents.lines);
 const instP = q('install_only', [{ qty: 1, type: 'painting', framed: 'no', w: 30, h: 30, value: 2000, description: 'p' }]);
 check(line(instP, DVP) && line(instP, DVP).label === 'Required declared value protection: 1.5% of $2,000' && line(instP, DVP).amount === 30, 'install only also carries the required protection line', instP.lines);
 for (const r of [at50, over50, mixedDv, instP, onlyHv]) for (const t of [...r.lines.map((l) => l.label), ...(r.notes || [])]) check(!/optional|insur|full coverage|fully covered/i.test(t), 'protection wording must not say optional, insurance or full coverage: ' + t);
@@ -267,7 +271,27 @@ helperHold('large 96" sofa', 'pickup_delivery', [{ qty: 1, type: 'furniture', fu
 // Unknown weight is not "heavy": it still can't be priced from the weight card, so it stays a CAD-priced request.
 check(q('pickup_delivery', [{ qty: 1, type: 'sculpture', weightUnsure: true, value: 5000, description: 's' }]).paymentPlan === 'quote', 'unknown sculpture weight stays priced by CAD (no weight to price from)');
 
-// ---- Chad, Nov 16 2026: over $50,000, no declared value protection; high-value handling only ----
+// ---- Chad, Nov 18 2026: over $50,000 = normal moving price + 0.75% of the piece's declared value, one price, nothing shown ----
+{
+  const sc2 = (v) => q('pickup_delivery', [{ type: 'sculpture', weight: 120, value: v, description: 's' }]);
+  const cases = [[50000, 1150, 750], [50001, 775.01, 0], [75000, 962.5, 0], [500000, 4150, 0]];
+  for (const [v, total, protAmt] of cases) {
+    const r = sc2(v);
+    check(near(r.total, total), `$${v.toLocaleString()} 120 lb sculpture totals $${total}`, r.lines);
+    if (protAmt) check(lines2(r, /declared value protection/i).length === 1 && lines2(r, /declared value protection/i)[0].amount === protAmt, `$${v.toLocaleString()} adds a $${protAmt} protection line`, r.lines);
+    else check(!lines2(r, /protection|handling|high-value|0\.75/i).length && !r.protection && !(r.notes || []).some((n) => /protection|0\.75|50,000/i.test(n)), `$${v.toLocaleString()}: ${(total - 400).toFixed(2)} is built in; no separate line, protection wording or note`, [r.lines, r.notes]);
+  }
+  check(near(sc2(50001).total - 400, 375.01) && near(sc2(75000).total - 400, 562.5) && near(sc2(500000).total - 400, 3750), 'built-in amounts: $50,001 → $375.01, $75,000 → $562.50, $500,000 → $3,750');
+  check(!(sc2(75000).lines || []).some((l) => /protection/i.test(l.label)) && sc2(75000).lines.length === 1, 'an over-$50,000 piece is one price line');
+  // threshold is per piece: two pieces at $40,000 (order total $80,000) both keep protection
+  const two = q('pickup_delivery', [{ type: 'sculpture', weight: 120, value: 40000, description: 'a' }, { type: 'sculpture', weight: 120, value: 40000, description: 'b' }]);
+  check(lines2(two, /declared value protection/i).length === 2 && near(two.total, 800 + 1200), 'two $40,000 pieces keep protection (limit is per piece, not per order)', two.lines);
+  // very low and zero values
+  const low = sc2(1), zero = sc2(0);
+  check(near(low.total, 400.02) && lines2(low, /protection/i)[0].amount === 0.02, '$1 value: 1.5% rounds to $0.02, no minimum fee', low.lines);
+  check(near(zero.total, 400) && !zero.protection && !lines2(zero, /protection/i).length, '$0 value in the engine: no protection line and no built-in amount (the form and server refuse $0; only a custom request has no value)', zero.lines);
+}
+// ---- (retired) Nov 16 tiered high-value markup replaced by the 0.75% rule above ----
 check(!('highValueFloor' in config.pricing.valuation), 'the 1.5% high-value minimum is no longer the rule (Chad, Nov 16 2026)');
 const kinds = [
   ['painting, pickup + delivery', 'pickup_delivery', { type: 'painting', framed: 'no', w: 30, h: 40, d: 2 }],
@@ -283,28 +307,28 @@ const quiet = (r) => !line(r, /High-value/) && !(r.notes || []).some((n) => /pro
 for (const [name, svc, it] of kinds) for (const qty of [1, 3]) {
   const t = (value) => q(svc, [{ qty, description: 'x', ...it, value }]);
   const [a, b, c] = [49999, 50000, 50001].map(t);
-  check(line(a, DVP) && line(a, DVP).amount === Math.round(49999 * 0.015 * qty * 100 + 1e-6) / 100, `${name} × ${qty}: $49,999 includes the 1.5% protection charge`, a.lines);
-  check(line(b, DVP) && line(b, DVP).amount === 750 * qty, `${name} × ${qty}: $50,000 keeps $750 per piece protection`, b.lines);
+  check(line(a, DVP) && sumLines(a, DVP) === Math.round(Math.round(49999 * 0.015 * 100 + 1e-6) * qty) / 100, `${name} × ${qty}: $49,999 includes the 1.5% protection charge`, a.lines);
+  check(line(b, DVP) && sumLines(b, DVP) === 750 * qty && b.lines.filter((l) => DVP.test(l.label)).length === qty, `${name} × ${qty}: $50,000 keeps $750 per piece protection`, b.lines);
   check(quiet(a) && quiet(b), `${name} × ${qty}: $49,999 and $50,000 have no handling line or over-$50,000 note`, [a.lines, a.notes, b.lines, b.notes]);
   check(!line(c, /declared value protection/i) && !c.protection, `${name} × ${qty}: $50,001 gets no protection line`, c.lines);
   check(quiet(c) && (c.highValueItems || []).length && c.highValueItems[0].perPiece > 0, `${name} × ${qty}: $50,001 is quiet for the customer; admin still has the markup`, { l: c.lines, n: c.notes, h: c.highValueItems });
 }
 const flo = q('pickup_delivery', [{ qty: 1, type: 'sculpture', weight: 120, value: 50001, description: 's' }]);
-check(!line(flo, /High-value|declared value protection/i) && !flo.protection && line(flo, /Sculpture/).amount === 800 && flo.total === 800 && quiet(flo), '$50,001 120 lb sculpture: $400 move folded to $800, no protection line or note', flo.lines);
+check(!line(flo, /High-value|declared value protection/i) && !flo.protection && near(line(flo, /Sculpture/).amount, 775.01) && near(flo.total, 775.01) && quiet(flo), '$50,001 120 lb sculpture: $400 move + $375.01 built in = $775.01, no protection line or note', flo.lines);
 const floQty = q('pickup_delivery', [{ qty: 2, type: 'sculpture', weight: 120, value: 50001, description: 's' }]);
-check(!line(floQty, /declared value protection|High-value/i) && !floQty.protection && line(floQty, /Sculpture/).amount === 1600 && floQty.total === 1600, 'qty 2 × $50,001 120 lb sculpture: folded to $1,600, no protection line', floQty.lines);
+check(!line(floQty, /declared value protection|High-value/i) && !floQty.protection && near(sumLines(floQty, /Sculpture/), 1550.02) && near(floQty.total, 1550.02), '2 pieces × $50,001 120 lb sculpture: $775.01 each, no protection line', floQty.lines);
 const big = q('pickup_delivery', [{ qty: 1, type: 'sculpture', weight: 900, value: 1000001, description: 's' }]);
-check(!line(big, /High-value/) && line(big, /Sculpture/).amount === 7000 && big.total === 7000 && big.highValueItems[0].perPiece === 6000, '$1M+ 900 lb sculpture: +600% folded into the $7,000 sculpture line', big.lines);
+check(!line(big, /High-value/) && near(line(big, /Sculpture/).amount, 8500.01) && near(big.total, 8500.01) && big.highValueItems[0].perPiece === 7500.01, '$1,000,001 900 lb sculpture: $1,000 + 0.75% of $1,000,001 ($7,500.01) = $8,500.01 in the sculpture line', big.lines);
 const big2 = q('pickup_delivery', [{ qty: 1, type: 'sculpture', weight: 900, value: 60000, description: 's' }]);
-check(!line(big2, /High-value/) && line(big2, /Sculpture/).amount === 2000 && big2.total === 2000, '$60,000 900 lb sculpture: +100% folded into the $2,000 sculpture line', big2.lines);
+check(!line(big2, /High-value/) && line(big2, /Sculpture/).amount === 1450 && big2.total === 1450, '$60,000 900 lb sculpture: $1,000 + $450 = $1,450 in the sculpture line', big2.lines);
 
-check(!line(sc(300001), /High-value/) && line(sc(300001), /Sculpture/).amount === 1600 && sc(300001).total === 1600, '$300,001 120 lb sculpture: +300% folded into the $1,600 sculpture line', sc(300001).lines);
+check(!line(sc(300001), /High-value/) && near(line(sc(300001), /Sculpture/).amount, 2650.01) && near(sc(300001).total, 2650.01), '$300,001 120 lb sculpture: $400 + $2,250.01 = $2,650.01 in the sculpture line', sc(300001).lines);
 
 // ---- Decision 3: no sales tax anywhere ----
 const fs = require('fs'), path = require('path');
 for (const r of [at50, over50, mixedDv, instP, s750, p72, shipP]) for (const t of [...r.lines.map((l) => l.label), ...(r.notes || []), r.paymentSummary || '', r.quoteNote || '']) check(!/\btax/i.test(t), 'no tax wording in quotes: ' + t);
 for (const f of ['public/app.js', 'public/index.html', 'public/admin.html', 'lib/email.js', 'lib/pricing.js', 'lib/shiptext.js', 'config.js', 'server.js']) check(!/\btax(es)?\b/i.test(fs.readFileSync(path.join(__dirname, '..', f), 'utf8')), `${f} must not mention tax`);
-const TERMS = 'Declared value protection applies to pieces with a declared value up to $50,000.';
+const TERMS = 'Declared value protection applies to pieces valued up to $50,000.';
 const appJs = fs.readFileSync(path.join(__dirname, '..', 'public/app.js'), 'utf8');
 check(appJs.includes('data-protection-terms') && appJs.includes(TERMS), 'checkout small print must include the exact protection terms sentence');
 for (const f of ['public/app.js', 'public/index.html', 'lib/email.js']) {

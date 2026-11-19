@@ -288,7 +288,7 @@ const readOrders = () => JSON.parse(fs.readFileSync(path.join(DATA_ROOT, 'data',
   await expect(/data-path="declaredValueProtection"/, 'in-CA jobs must not offer an optional protection toggle', true);
   await expect(/Required declared value protection: 1\.5% of \$135,000/, 'required protection line missing (3 × $45,000 eligible pieces)');
   // Chad, Nov 16 2026: protection is a required 1.5% charge, worded honestly on the review and in the bar.
-  await expect(/Declared value protection applies to pieces with a declared value up to \$50,000\./, 'checkout should include the protection terms sentence');
+  await expect(/Declared value protection applies to pieces valued up to \$50,000\./, 'checkout should include the protection terms sentence');
   { const note = ((await page.textContent('[data-protection-note]').catch(() => '')) || '').trim();
     if (note !== 'Required declared value protection is 1.5% of the declared value of each eligible piece (valued up to $50,000), included in the price above.') errors.push('review: protection note wording: ' + note);
     const dn = await page.$eval('#estNote', (e) => (e.hidden ? '' : e.textContent.trim())).catch(() => '');
@@ -347,7 +347,7 @@ const readOrders = () => JSON.parse(fs.readFileSync(path.join(DATA_ROOT, 'data',
   await expect(/protection not offered|isn’t eligible for declared value protection/, 'review must not say protection is not offered', true);
   { const note = ((await page.textContent('[data-protection-note]').catch(() => '')) || '').trim();
     if (note) errors.push('review must not show an over-$50K protection note: ' + note); }
-  await expect(/Declared value protection applies to pieces with a declared value up to \$50,000\./, 'checkout should include the protection terms sentence');
+  await expect(/Declared value protection applies to pieces valued up to \$50,000\./, 'checkout should include the protection terms sentence');
   await expect(/Required declared value protection: 1\.5% of/, 'no protection line on a piece over $50K', true);
   await expect(/insurance/i, 'over-$50K review must not mention insurance', true);
   if (await page.$eval('#estNote', (e) => !e.hidden).catch(() => false)) errors.push('bar must not mention protection when no piece carries it (quote over $50K)');
