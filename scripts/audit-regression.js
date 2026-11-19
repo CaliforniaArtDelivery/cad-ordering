@@ -320,17 +320,21 @@ async function run(BASE, errors, { dataRoot = process.env.STORAGE_DIR || ROOT, a
     const mix = await ok('mixed eligible and ineligible pieces', post('/api/orders', base({ items: [item({ description: tag(), qty: 2, value: '10000' }), item({ description: tag(), qty: 1, value: '60000' }), item({ description: tag(), qty: 3, value: '50000' })] })));
     if (mix.j.id) {
       const ql = mix.j.quote.lines || [];
-      const dl = ql.find((l) => /^Required declared value protection: /.test(l.label));
-      if (!dl || dl.label !== 'Required declared value protection: 1.5% of $170,000' || dl.amount !== 2550) errors.push('eligible-only protection: 2 × $10,000 + 3 × $50,000 = $170,000 → $2,550 (the $60,000 piece excluded): ' + JSON.stringify(dl));
-      const hl = ql.find((l) => /High-value handling/i.test(l.label));
-      if (hl) errors.push('customer quote must not show a high-value handling line: ' + JSON.stringify(hl));
+      const dls = ql.filter((l) => /^Required declared value protection/.test(l.label));
+      const dsum = Math.round(dls.reduce((a, l) => a + l.amount, 0) * 100) / 100;
+      // One piece per entry (Nov 18 2026): the legacy quantities were expanded to 6 pieces; each eligible piece has its own named line.
+      if (dls.length !== 5 || dsum !== 2550 || !dls.every((l) => /Piece \d/.test(l.label))) errors.push('eligible-only protection: 5 per-piece lines adding to $2,550 (the $60,000 piece excluded): ' + JSON.stringify(dls));
+      if (!mix.j.quote.protection || mix.j.quote.protection.amount !== 2550 || mix.j.quote.protection.eligibleValue !== 170000) errors.push('quote.protection should record $2,550 on $170,000: ' + JSON.stringify(mix.j.quote.protection));
+      const hl = ql.find((l) => /High-value handling|0\.75/i.test(l.label));
+      if (hl) errors.push('customer quote must not show a high-value / 0.75% line: ' + JSON.stringify(hl));
       const hv = (mix.j.quote.highValueItems || [])[0];
-      if (!hv || hv.perPiece !== 87.5 || hv.qty !== 1) errors.push('admin should still record +100% = $87.50 on the $60,000 piece: ' + JSON.stringify(mix.j.quote.highValueItems));
+      if (!hv || hv.perPiece !== 450 || hv.qty !== 1 || hv.index !== 2) errors.push('admin should record the built-in 0.75% = $450 on the $60,000 piece (Piece 3): ' + JSON.stringify(mix.j.quote.highValueItems));
       const del = ql.find((l) => /^Painting delivery/.test(l.label));
-      if (!del || del.amount !== 612.5) errors.push('the $87.50 markup should be folded into Painting delivery × 6 ($612.50): ' + JSON.stringify(del));
+      if (!del || del.amount !== 975) errors.push('the $450 built-in amount should be inside Painting delivery × 6 ($525 + $450 = $975): ' + JSON.stringify(del));
       await post(`/api/orders/${mix.j.id}/pay`, { method: 'card', card: '4242424242424242' });
       const m = text(mails(mix.j.id, 'confirmation')[0] || '');
-      if (!m.includes('Required declared value protection: $2,550 (1.5% of $170,000 in eligible pieces).')) errors.push('eligible-only protection: email line wrong: ' + (m.match(/Required declared value protection[^.]{0,120}\./) || [''])[0]);
+      if (!/Required declared value protection[^\n]*\$2,550/.test(m)) errors.push('eligible-only protection: email should total $2,550: ' + (m.match(/Required declared value protection[^.]{0,160}\./) || [''])[0]);
+      if (/protection[^.]{0,80}Piece 3\b/.test(m)) errors.push('email must not list a protection line for the $60,000 piece');
       if (/\$230,000/.test(m)) errors.push('email must never show the total declared value incl. ineligible pieces as the protection base');
     }
   }
