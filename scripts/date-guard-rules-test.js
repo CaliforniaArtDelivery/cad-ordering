@@ -105,7 +105,7 @@ const ord = (o = {}) => ({ service: 'pickup_delivery', pickup: addr('8678 Melros
   console.log('\n[C] Closed dates stay closed');
   const closed = ['2026-11-23', '2026-11-24', '2026-11-25', '2026-11-30', '2026-12-28', '2026-12-29', '2026-12-30'];
   ok(closed.every((d) => cal.find((r) => r[0] === d) ? cal.find((r) => r[0] === d)[2] === 'CLOSED' : true), 'Nov 23, 24, 25, 30 and Dec 28-30 are seeded CLOSED');
-  const probe = await Promise.all(['LA', 'SD', 'Coachella'].map((z) => avail({ service: 'pickup_delivery', pickup: { zip: z === 'LA' ? '90069' : z === 'SD' ? '92101' : '92262', city: z === 'LA' ? 'West Hollywood' : z === 'SD' ? 'San Diego' : 'Palm Springs' }, dropoff: { zip: '90210', city: 'Beverly Hills' }, items: [{ qty: 1, type: 'painting', framed: 'no', description: 'p' }] })));
+  const probe = await Promise.all(['LA', 'SD', 'Coachella'].map((z) => avail({ service: 'pickup_delivery', pickup: { zip: z === 'LA' ? '90069' : z === 'SD' ? '92101' : '92262', city: z === 'LA' ? 'West Hollywood' : z === 'SD' ? 'San Diego' : 'Palm Springs' }, dropoff: { street: '100 Main St', zip: '90210', city: 'Beverly Hills' }, items: [{ qty: 1, type: 'painting', framed: 'no', description: 'p' }] })));
   ok(probe.every((p) => p.days.every((d) => !closed.includes(d.date))), 'the site never offers a closed date');
 
   console.log('\n[D] Remote area: pencil-in request, date held, nothing charged, team alerted, approve -> pay -> sheet');

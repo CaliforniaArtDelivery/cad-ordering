@@ -8,7 +8,7 @@ const STEP_TITLES = { What: 'What', Where: 'Where', When: 'When', Pay: 'Review &
 
 const emptyAddr = () => ({
   street: '', city: '', state: 'CA', zip: '', country: 'United States', locationType: '', business: '',
-  contactName: '', contactPhone: '', contactRole: '', contactRoleOther: '', sameAsMe: false, hours: '',
+  contactName: '', contactPhone: '', contactRole: '', contactRoleOther: '', sameAsMe: true, hours: '',
   accessMode: '', stairFlights: '', stairDir: '', stairTurns: '', stairPhotos: [],
   serviceElevator: '', dock: '', elevatorStairs: '', doorway: '', doorPhotos: [], narrowestIn: '', accessReview: false,
   floor: '', loadingDock: false, elevator: false, stairs: 0, steps: false, stairKind: '',
@@ -26,7 +26,7 @@ const migrateAddr = (a = {}) => {
   return {
     ...emptyAddr(),
     street: a.street || '', city: a.city || '', state: a.state || 'CA', zip: a.zip || '', country: a.country || 'United States', locationType: a.locationType || '', business: a.business || '',
-    contactName: a.contactName || '', contactPhone: a.contactPhone || '', contactRole: a.contactRole || '', contactRoleOther: a.contactRoleOther || '', sameAsMe: !!a.sameAsMe, hours: a.hours || '',
+    contactName: a.contactName || '', contactPhone: a.contactPhone || '', contactRole: a.contactRole || '', contactRoleOther: a.contactRoleOther || '', sameAsMe: a.sameAsMe === undefined ? true : !!a.sameAsMe, hours: a.hours || '',
     accessMode: a.accessMode || '', stairFlights: a.stairFlights ?? '', stairDir: a.stairDir || '', stairTurns: a.stairTurns || '', stairPhotos: a.stairPhotos || [],
     serviceElevator: a.serviceElevator || '', dock: a.dock || '', elevatorStairs: a.elevatorStairs || (a.elevatorSteps === 'steps' ? 'steps' : ''), doorway: a.doorway || '', doorPhotos: a.doorPhotos || [], narrowestIn: a.narrowestIn ?? '', accessReview: !!a.accessReview,
     floor: a.floor || '', loadingDock: !!(a.loadingDock || a.parking === 'Loading dock'), elevator: !!a.elevator,
@@ -110,6 +110,7 @@ let busy = false;
 const persist = () => { if (STEPS[step] === 'Done') return; sessionStorage.setItem('cad-order', JSON.stringify(S)); sessionStorage.setItem('cad-step', String(step)); };
 // What actually gets priced / booked: drop fields that don't apply to the chosen service.
 const payload = () => {
+  applySameAsMe('pickup'); applySameAsMe('dropoff'); // default on-site contact = the booker
   const o = JSON.parse(JSON.stringify(S));
   const sv = (CFG && CFG.services[o.service]) || {};
   // "Same as me": no role is sent; the server uses the booker's own "I am a…" (never a silent default).
@@ -427,6 +428,9 @@ const syncHeardPayload = (o) => {
   o.heard = h;
 };
 
+const V = window.CADValidate; // shared address + size checks (public/validate.js)
+// Size boxes start blank. No spinner arrows (tapping one on an empty box fills in 1), and a realistic minimum per side.
+const dimAttrs = (k, label) => `inputmode="decimal" min="${V.MIN_DIM[k]}" step="any" class="dim" aria-label="${label}"`;
 const input = (path, label, opts = {}) => {
   const comma = opts.comma || COMMA_PATH.test(path);
   const phone = opts.phone || PHONE_PATH.test(path);
@@ -729,8 +733,8 @@ const weightField = (item, i, { required = false, approx = false } = {}) => {
 const shipExtras = (item, i) => {
   const p = `items.${i}`;
   return `<label class="f">Size in inches (W × H × D)${req}</label>
-    <div class="row3">${input(`${p}.w`, '', { type: 'number', ph: 'W', attrs: 'inputmode="decimal" aria-label="Width"' })}${input(`${p}.h`, '', { type: 'number', ph: 'H', attrs: 'inputmode="decimal" aria-label="Height"' })}${input(`${p}.d`, '', { type: 'number', ph: 'D', attrs: 'inputmode="decimal" aria-label="Depth"' })}</div>
-    <p class="mini" style="margin:-4px 0 10px">Approximate inches are fine.</p>
+    <div class="row3">${input(`${p}.w`, '', { type: 'number', ph: 'W', attrs: dimAttrs('w', 'Width') })}${input(`${p}.h`, '', { type: 'number', ph: 'H', attrs: dimAttrs('h', 'Height') })}${input(`${p}.d`, '', { type: 'number', ph: 'D', attrs: dimAttrs('d', 'Depth') })}</div>
+    <p class="mini" style="margin:-4px 0 10px">Approximate inches are fine (at least ${V.MIN_DIM.w} × ${V.MIN_DIM.h} × ${V.MIN_DIM.d}).</p>
     ${weightField(item, i, { required: true })}
     ${input(`${p}.value`, 'Declared value ($)', { ph: 'e.g. 12,000', attrs: 'inputmode="numeric"', req: true })}
     ${framingBlock(item, i)}
@@ -756,8 +760,8 @@ const isLastPanel = () => { const ids = panelIds(); return ids.length < 2 || ids
 const isFirstPanel = () => { const ids = panelIds(); return ids.length < 2 || ids.indexOf(sub) <= 0; };
 // Pieces: up to three short screens each (what it is, how big, value and handling).
 const dimsBlock = (i) => { const p = `items.${i}`; return `<label class="f">Size in inches (W × H × D)${req}</label>
-        <div class="row3">${input(`${p}.w`, '', { type: 'number', ph: 'W', attrs: 'inputmode="decimal" aria-label="Width"' })}${input(`${p}.h`, '', { type: 'number', ph: 'H', attrs: 'inputmode="decimal" aria-label="Height"' })}${input(`${p}.d`, '', { type: 'number', ph: 'D', attrs: 'inputmode="decimal" aria-label="Depth"' })}</div>
-        <p class="mini" style="margin:-4px 0 10px">Approximate inches are fine.</p>`; };
+        <div class="row3">${input(`${p}.w`, '', { type: 'number', ph: 'W', attrs: dimAttrs('w', 'Width') })}${input(`${p}.h`, '', { type: 'number', ph: 'H', attrs: dimAttrs('h', 'Height') })}${input(`${p}.d`, '', { type: 'number', ph: 'D', attrs: dimAttrs('d', 'Depth') })}</div>
+        <p class="mini" style="margin:-4px 0 10px">Approximate inches are fine (at least ${V.MIN_DIM.w} × ${V.MIN_DIM.h} × ${V.MIN_DIM.d}).</p>`; };
 const pieceHasSize = (it, ship) => ship || needsDims(it);
 const pieceSize = (it, i, ship) => (pieceHasSize(it, ship) ? dimsBlock(i) + (FRAMING_TYPES.includes(it.type || 'painting') ? framingBlock(it, i) : '') : '');
 // A copied piece keeps its value but asks the customer to look at it again.
@@ -860,7 +864,7 @@ const quickEditBlock = () => {
       <summary><b>${esc(pieceTitle0(it, i))}</b><span class="muted">${esc(pieceFacts(it))}</span>${it.checkValue ? '<span class="tag warn">Check value</span>' : ''}</summary>
       <div class="qbody">
         ${input(`${p}.description`, 'Description', { ...ip })}
-        ${dimsOn ? `<label class="f">Size in inches (W × H × D)</label><div class="row3">${['w', 'h', 'd'].map((k, n2) => input(`${p}.${k}`, '', { ...ip, type: 'number', ph: 'WHD'[n2], attrs: 'inputmode="decimal" aria-label="' + ['Width', 'Height', 'Depth'][n2] + '"' })).join('')}</div>` : ''}
+        ${dimsOn ? `<label class="f">Size in inches (W × H × D)</label><div class="row3">${['w', 'h', 'd'].map((k, n2) => input(`${p}.${k}`, '', { ...ip, type: 'number', ph: 'WHD'[n2], attrs: dimAttrs(k, ['Width', 'Height', 'Depth'][n2]) })).join('')}</div>` : ''}
         ${FRAMING_TYPES.includes(it.type || 'painting') ? `<div class="field"><label class="f">Framed?</label>${seg(`${p}.framed`, [['yes', 'Yes'], ['no', 'No']])}</div>` : ''}
         ${it.type !== 'custom' ? input(`${p}.value`, 'Declared value ($)', { ...ip, ph: 'e.g. 12,000', attrs: 'inputmode="numeric"' }) : ''}
         ${it.checkValue ? `<button type="button" class="pill-btn" data-valok="${esc(it.id)}">Value is right</button>` : ''}
@@ -948,6 +952,8 @@ const views = {
   },
 
   Where() {
+    // "Same as me" is the default on-site contact, so keep its name and mobile in step with the booker's before the panels draw.
+    applySameAsMe('pickup'); applySameAsMe('dropoff');
     const oos = () => (outOfState() ? `<p class="note" data-oos>${OOS_NOTE}</p>` : '');
     const addrPanel = (key, optional = false) => {
       const a = get(key);
@@ -957,7 +963,7 @@ const views = {
         ${key === 'dropoff' && shipService() && intlDest(a)
           ? `<div class="field"><label class="f" for="f-${key}.street">Full address${req}</label><textarea id="f-${key}.street" data-path="${key}.street" placeholder="Street, building, postal code, city, region">${esc(a.street)}</textarea></div>${input(`${key}.city`, 'City', { ph: 'e.g. London', req: true })}`
           : `${input(`${key}.street`, 'Street address', { ph: key === 'pickup' ? '2 Henry Adams St' : '8678 Melrose Ave', attrs: 'autocomplete="street-address"', req: !optional })}
-        <div class="row keep addr3">${input(`${key}.city`, 'City', { ph: key === 'pickup' ? 'San Francisco' : 'West Hollywood', req: !optional })}${input(`${key}.state`, 'State', { ph: 'CA', attrs: 'autocomplete="address-level1" maxlength="14"' })}${input(`${key}.zip`, 'ZIP', { ph: key === 'pickup' ? '94103' : '90069', attrs: 'inputmode="numeric" maxlength="10"' })}</div>`}
+        <div class="row keep addr3">${input(`${key}.city`, 'City', { ph: key === 'pickup' ? 'San Francisco' : 'West Hollywood', req: !optional })}${input(`${key}.state`, 'State', { ph: 'CA', attrs: 'autocomplete="address-level1" maxlength="14"' })}${input(`${key}.zip`, 'ZIP', { ph: key === 'pickup' ? '94103' : '90069', req: !optional, attrs: 'inputmode="numeric" autocomplete="postal-code" maxlength="10"' })}</div>`}
         ${key === 'dropoff' && shipService() ? `<div class="field" style="margin-top:4px"><label class="f">Destination type</label>${seg(`${key}.locationType`, [['residential', 'Residential'], ['commercial', 'Commercial']])}</div>` : ''}
         ${input(`${key}.business`, 'Business or gallery (optional)', { ph: 'e.g. gallery, showroom, hotel' })}
       </div>`);
@@ -1229,7 +1235,7 @@ const siteReady = (a, required) => (required ? filled(a) && hasContact(a) : !fil
 const contactReady = () => S.contact.name.trim() && /\S+@\S+\.\S+/.test(S.contact.email) && String(S.contact.phone || '').replace(/\D/g, '').length >= 7;
 
 const needsDims = (it) => !['custom', 'furniture'].includes(it.type || 'painting') || shipService();
-const dimsOk = (it) => ['w', 'h', 'd'].every((k) => Number(it[k]) > 0);
+const dimsOk = (it) => !V.dimProblem(it);
 // What one piece still needs (each piece on its own: nothing is borrowed from the others).
 function itemGapList(it, i, name) {
     const out = [];
@@ -1244,7 +1250,7 @@ function itemGapList(it, i, name) {
       if (it.type !== 'custom' && !(num(it.value) > 0)) add(`#f-items.${i}.value`, `Declared value — ${p}`, 'Please enter the value of this piece.');
       if (!weightOk(it)) add(`[data-weight="${i}"]`, `Weight — ${p}`, 'Please enter the weight, or tap Not sure.');
     }
-    if (needsDims(it)) { const miss = ['w', 'h', 'd'].find((k) => !(Number(it[k]) > 0)); if (miss) add(`#f-items.${i}.${miss}`, `Size — ${p}`, 'Please enter the width, height and depth in inches.'); }
+    if (needsDims(it)) { const dp = V.dimProblem(it); if (dp) add(`#f-items.${i}.${dp.key}`, `Size — ${p}`, dp.message); }
     if (FRAMING_TYPES.includes(it.type || 'painting')) {
       if (it.framed !== 'yes' && it.framed !== 'no') add(`[data-framing="${i}"]`, `Framed? — ${p}`, 'Please tell us if this piece is framed.');
       else if (needsGlass(it) && !['yes', 'no'].includes(it.glazing)) add(`[data-glass="${i}"]`, `Glass — ${p}`, 'Please tell us if this piece has a glass front.');
@@ -1280,8 +1286,8 @@ function missingFields(name = STEPS[step]) {
       const a = S[key] || {};
       if (!required && !filled(a)) return;
       if (key === 'dropoff' && shipService() && !String(a.country || '').trim()) add('#f-dropoff.country', 'Country', 'Please enter the country.');
-      if (!String(a.street || '').trim()) add(`#f-${key}.street`, `Street address — ${title}`, `Please enter the ${title.toLowerCase()} street address.`);
-      if (!String(a.city || '').trim()) add(`#f-${key}.city`, `City — ${title}`, `Please enter the ${title.toLowerCase()} city.`);
+      // Street (with a number), a plausible city and a 5-digit ZIP (or ZIP+4): the same checks the server runs (public/validate.js).
+      V.addressProblems(a, title).forEach((pr) => add(`#f-${key}.${pr.field}`, `${{ street: 'Street address', city: 'City', zip: 'ZIP' }[pr.field]} — ${title}`, pr.message));
       if (!String(a.contactName || '').trim()) add(`#f-${key}.contactName`, `On-site name — ${title}`, 'Please enter the on-site contact’s name.');
       if (!String(a.contactPhone || '').trim()) add(`#f-${key}.contactPhone`, `On-site mobile — ${title}`, 'Please enter the on-site contact’s mobile number.');
       if (a.sameAsMe) { /* role = the booker's own "I am a…" (required above); no role field */ }
@@ -1599,13 +1605,16 @@ function render() {
   }
   if (name === 'Pay' && !existing && !isShip()) wrapPriceCard();
   if (name === 'Pay') returnToReview = false;
-  // A slim progress bar (no step count): where this screen sits in the whole booking.
+  // A slim progress bar plus the "Step X of Y" label: where this screen sits in the whole booking.
   const pIds = panelIds();
   const pIdx = Math.max(0, pIds.indexOf(sub)), pLen = Math.max(1, pIds.length);
   const pct = name === 'Done' ? 100 : Math.max(5, Math.min(100, Math.round(((Math.min(step, 3) + (pIdx + 1) / pLen) / 4) * 100)));
   const bar = $('#progress i'); if (bar) bar.style.width = pct + '%';
   const pg = $('#progress'); if (pg) pg.setAttribute('aria-valuenow', String(pct));
-  $('#stepsLabel').textContent = name === 'Done' ? (confirmed && confirmed.status === 'pending_approval' ? 'Quote requested' : 'Confirmed') : '';
+  // "Step X of Y" counts the booking's main steps. Shipping and out-of-state quotes skip the date step, so they show one fewer.
+  const mainSteps = STEPS.slice(0, 4).filter((n) => !(n === 'When' && isShip()));
+  const stepNo = mainSteps.indexOf(name) + 1;
+  $('#stepsLabel').textContent = name === 'Done' ? (confirmed && confirmed.status === 'pending_approval' ? 'Quote requested' : 'Confirmed') : (stepNo ? `Step ${stepNo} of ${mainSteps.length}` : '');
   $('#backBtn').classList.toggle('hide', (step === 0 && isFirstPanel()) || name === 'Done' || !!existing);
   const noDock = name === 'Done';
   $('#dock').classList.toggle('hide', noDock);
@@ -2070,7 +2079,7 @@ async function goNext() {
     busy = true; updateNext();
     try {
       const { ok, j } = await api('/api/availability', payload());
-      if (!ok) return;
+      if (!ok) { const nl = $('#needLine'); if (nl && j && j.error) { nl.textContent = j.error; nl.hidden = false; } return; }
       avail = j;
       if (S.schedule.date && ![...avail.days, ...avail.rush].some((d) => d.date === S.schedule.date)) { S.schedule.date = ''; S.rush = false; persist(); }
     } finally { busy = false; updateNext(); }

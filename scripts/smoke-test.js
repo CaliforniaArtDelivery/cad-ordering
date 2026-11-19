@@ -66,7 +66,7 @@ const startServer = async (storage, env) => {
     const home = await get('/'); const js = await get('/app.js'); const css = await get('/styles.css'); const cfg = await get('/api/config');
     ok(home.status === 200 && js.status === 200 && css.status === 200 && /Your pieces \(/.test(js.t) && /Confirm all/.test(js.t), 'home page, app.js and styles are served (new build)');
     ok(cfg.j && cfg.j.testMode === true, 'payments run in TEST mode (mock card, no real money)');
-    const la = { service: 'pickup_delivery', pickup: { zip: '90069', city: 'West Hollywood' }, dropoff: { zip: '90210', city: 'Beverly Hills' }, items: [paint('p', 100)] };
+    const la = { service: 'pickup_delivery', pickup: { street: '8678 Melrose Ave', zip: '90069', city: 'West Hollywood' }, dropoff: { street: '1200 Summit Ridge Dr', zip: '90210', city: 'Beverly Hills' }, items: [paint('p', 100)] };
     const av = (await post('/api/availability', la)).j;
     const D = av.days[0].date;
     ok(!!D, `an open delivery date is offered (${D})`);

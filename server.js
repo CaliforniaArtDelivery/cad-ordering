@@ -24,6 +24,7 @@ const storage = require('./lib/storage');
 const { TYPES, framingErrors, itemLine, isHungItem, routeDecorMirror, expandPieces, hasMultiQty, legacyQtyRecord, legacyNote, piecesOf, pieceLabel, MAX_PIECES } = require('./lib/itemtypes');
 const { lookupMember, resolveMember } = require('./lib/members');
 const ACCESS = require('./public/access');
+const VALID = require('./public/validate');
 const ORDERS = path.join(storage.dir('data'), 'orders.json');
 const CUSTOMERS = path.join(storage.dir('data'), 'customers.json');
 
@@ -139,6 +140,8 @@ app.post('/api/member-code', (req, res) => {
 app.post('/api/availability', (req, res) => {
   const o = req.body;
   const svc = SERVICES[o.service] || SERVICES.pickup_delivery;
+  const badAddr = badAddresses(o, svc);
+  if (badAddr.length) return res.status(400).json({ error: 'Please check the ' + badAddr.join(' and ') + ' address: a street number, a city and a 5-digit ZIP code are required. No route was assigned.', invalid: badAddr, days: [], rush: [] });
   // leg=dropoff: delivery dates for the delivery address, on or after the pickup date (same day allowed).
   if (o.leg === 'dropoff' && o.dropoff && o.schedule && o.schedule.date) {
     const from = new Date(o.schedule.date + 'T12:00:00Z');
@@ -178,6 +181,20 @@ const reviewAlert = (o) => teamAlert(`REVIEW NEEDED: online request ${o.id} (${(
   + (o.needsManualReview ? `NEEDS MANUAL REVIEW: ${o.manualReviewReason}\n` : '')
   + `Confirm within 1 business day, then approve it in the admin page so the client gets the payment link.`);
 
+// Short "Missing: ..." phrases for an address that fails the shared checks (public/validate.js). The street-required case is
+// already reported as 'pickup' / 'dropoff', so only the other problems are named here.
+function addressErrors(a, where) {
+  const word = { street: 'a street number in the street address', city: 'a valid city', zip: 'a valid 5-digit ZIP code' };
+  return VALID.addressProblems(a).filter((p) => !(p.field === 'street' && !String((a || {}).street || '').trim())).map((p) => `${where} ${word[p.field]}`);
+}
+// An address that fails the checks never gets a route or dates (Samantha, Nov 19: 123456 as a ZIP still returned a route).
+const badAddresses = (o, svc) => {
+  const bad = [];
+  if (svc.needsPickup && VALID.addressProblems(o.pickup).length) bad.push('pickup');
+  if (svc.needsDropoff && VALID.addressProblems(o.dropoff).length) bad.push('dropoff');
+  return bad;
+};
+
 function validate(o) {
   const errs = [];
   if (!Array.isArray(o.items)) o.items = [];
@@ -199,12 +216,15 @@ function validate(o) {
   forPieces('a valid item type', (it) => !TYPES[it.type || 'painting']);
   forPieces('Framed? (and Glass? / Frame type when they apply)', (it) => framingErrors([it]));
   const siteContact = (a) => a && String(a.contactName || '').trim() && String(a.contactPhone || '').trim();
+  // Address checks (Samantha, Nov 19): street (with a number), a plausible city and a 5-digit ZIP (or ZIP+4) at every stop.
   if (SERVICES[o.service]?.needsPickup) {
     if (!o.pickup?.street) errs.push('pickup');
+    errs.push(...addressErrors(o.pickup, 'pickup'));
     if (!siteContact(o.pickup)) errs.push('pickup contact');
   }
   if (SERVICES[o.service]?.needsDropoff) {
     if (!o.dropoff?.street) errs.push('dropoff');
+    errs.push(...addressErrors(o.dropoff, 'dropoff'));
     if (!siteContact(o.dropoff)) errs.push('dropoff contact');
   }
   // Access (Chad): "How do we get in?" is required at every stop, plus the follow-ups and photos it triggers.
@@ -236,7 +256,7 @@ function validate(o) {
   if (ship) {
     // Samantha prices shipping without follow-up, so collect what she needs.
     if (!String(o.dropoff?.country || 'United States').trim()) errs.push('destination country');
-    forPieces('dimensions and weight', (it) => (!(it.weightUnsure || numVal(it.weight) > 0) || !(['custom', 'furniture'].includes(it.type) || ['w', 'h', 'd'].every((k) => Number(it[k]) > 0))));
+    forPieces('dimensions and weight (sizes of at least 4 × 4 × 1 inches)', (it) => (!(it.weightUnsure || numVal(it.weight) > 0) || !(['custom', 'furniture'].includes(it.type) || !VALID.dimProblem(it))));
     forPieces('a declared value (for the shipping insurance)', (it) => !(numVal(it.value) > 0));
     if (!o.shipping?.serviceLevel) errs.push('destination service level');
     if (!o.shipping?.shipBy && !o.shipping?.flexible) errs.push('ship date or flexibility');
@@ -251,7 +271,7 @@ function validate(o) {
     // Same item rules as the order form (public/app.js missingFields).
     const items = o.items || [];
     const needsDims = (it) => !['custom', 'furniture'].includes(it.type || 'painting');
-    forPieces('size in inches (W × H × D)', (it) => needsDims(it) && !['w', 'h', 'd'].every((k) => numVal(it[k]) > 0));
+    forPieces('size in inches (W × H × D, at least 4 × 4 × 1)', (it) => needsDims(it) && !!VALID.dimProblem(it));
     forPieces('a weight (or “Not sure”)', (it) => ['sculpture', 'other'].includes(it.type) && !(it.weightUnsure || numVal(it.weight) > 0));
     forPieces('a stairwell fit confirmation (pieces over 80 inches)', (it) => needsStairwellFit(it, o) && !it.fitsStairwell);
   }

@@ -327,3 +327,7 @@ details.qrow>summary::-webkit-details-marker{display:none}
   .est-total{font-size:18px}
   .need-line{min-height:32px;padding:2px 0;font-size:14px}
 }
+
+/* Size boxes (W x H x D): no spinner arrows, so an empty box can't be nudged to 1 (Samantha, Nov 19). */
+input.dim::-webkit-outer-spin-button,input.dim::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
+input.dim{-moz-appearance:textfield;appearance:textfield}

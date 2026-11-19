@@ -65,11 +65,11 @@ const snapshotMain = (bridge) => JSON.stringify(bridge.sheet('SCHEDULE 2026').ce
   const guard0 = await (await fetch(BASE + '/api/admin/date-guard?key=' + ADMIN)).json();
   ok(guard0.guard.mode === 'strict' && guard0.guard.fetchedAt, 'server runs in strict mode with a fresh calendar');
   const avail = async (b) => (await post('/api/availability', b)).j;
-  const la = { service: 'pickup_delivery', pickup: { zip: '90069', city: 'West Hollywood' }, dropoff: { zip: '90210', city: 'Beverly Hills' }, items: [{ qty: 1, type: 'painting', framed: 'no', description: 'p' }] };
+  const la = { service: 'pickup_delivery', pickup: { street: '100 Main St', zip: '90069', city: 'West Hollywood' }, dropoff: { street: '100 Main St', zip: '90210', city: 'Beverly Hills' }, items: [{ qty: 1, type: 'painting', framed: 'no', description: 'p' }] };
   const a1 = await avail(la);
   ok(a1.days.length > 0 && a1.days.every((d) => { const c = cal.find((x) => x[0] === d.date); return c && c[2] === 'OPEN' && c[3].split(',').includes('LA'); }), `every offered LA date is OPEN + serves LA in the calendar (${a1.days.map((d) => d.date).slice(0, 4).join(', ')}...)`);
   ok(!a1.days.some((d) => ['2026-11-23', '2026-11-24', '2026-11-25', '2026-11-30', '2026-12-28', '2026-12-29', '2026-12-30'].includes(d.date)), 'dates the sheet shows off/re-routed are never offered');
-  const fridays = (await avail({ ...la, pickup: { zip: '94110', city: 'San Francisco' }, dropoff: { zip: '94110', city: 'San Francisco' } })).days;
+  const fridays = (await avail({ ...la, pickup: { street: '100 Main St', zip: '94110', city: 'San Francisco' }, dropoff: { street: '100 Main St', zip: '94110', city: 'San Francisco' } })).days;
   ok(fridays.length > 0 && !fridays.some((d) => new Date(d.date + 'T12:00:00Z').getUTCDay() === 5), 'no Friday offered while the calendar has Fridays CLOSED');
   const D1 = a1.days[0].date, D2 = a1.days[1].date, D3 = a1.days[2].date, D4 = a1.days[3].date, DB = a1.days[4].date;
 
@@ -249,7 +249,7 @@ const snapshotMain = (bridge) => JSON.stringify(bridge.sheet('SCHEDULE 2026').ce
     ok(pv.length === 0, `${name}: verifier clean ${JSON.stringify(pv.slice(0, 3))}`);
   }
   // week boundary: Sunday NorCal -> next Monday delivery
-  const sun = (await avail({ ...la, pickup: { zip: '93401', city: 'San Luis Obispo' }, dropoff: { zip: '93101', city: 'Santa Barbara' } })).days;
+  const sun = (await avail({ ...la, pickup: { street: '100 Main St', zip: '93401', city: 'San Luis Obispo' }, dropoff: { street: '100 Main St', zip: '93101', city: 'Santa Barbara' } })).days;
   ok(sun.length >= 0, `(SLO/SB dates offered: ${sun.slice(0, 3).map((d) => d.date).join(', ') || 'none'})`);
 
   console.log('\n[10] Verifier: edits, cancels, duplicates (Apps Script verifyAll) + reconciliation');
