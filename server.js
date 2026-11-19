@@ -112,7 +112,8 @@ const upload = multer({
 });
 
 app.get('/api/config', (_, res) => res.json({
-  company: config.company, services: OFFERED_SERVICES, timePrefs: config.scheduling.timePrefs,
+  // phone, phoneNorth, and phoneSouth stay in config.js for internal use only and are not sent to the browser.
+  company: (({ phone, phoneNorth, phoneSouth, ...pub }) => pub)(config.company), services: OFFERED_SERVICES, timePrefs: config.scheduling.timePrefs,
   payment: config.payment,
   pricing: {
     quoteMultiplierMin: config.pricing.quoteMultiplierMin,
@@ -138,7 +139,7 @@ app.post('/api/discount-code', (req, res) => {
   const b = req.body || {};
   const ip = req.ip || 'x', now = Date.now();
   const hits = (discountTries.get(ip) || []).filter((t) => now - t < 600000);
-  if (hits.length >= 12) return res.status(429).json({ valid: false, message: 'Too many tries. Please wait a few minutes, or call us.' });
+  if (hits.length >= 12) return res.status(429).json({ valid: false, message: 'Too many tries. Please wait a few minutes, or reach us through our Contact Us page at californiaartdelivery.com/pages/contact.' });
   const code = DISCOUNTS.norm(b.code);
   if (!code) return res.status(400).json({ valid: false, message: 'Enter a discount code.' });
   const hit = DISCOUNTS.lookup(code);
@@ -491,7 +492,7 @@ app.post('/api/orders/:id/pay', async (req, res) => {
   }
 
   // MOCK payment (no Stripe key): card or ACH test details. Only with TEST_MODE=1.
-  if (!TEST_MODE) return res.status(503).json({ error: 'Online payment isn’t available right now. Please call us and we’ll take payment by phone.' });
+  if (!TEST_MODE) return res.status(503).json({ error: 'Online payment isn’t available right now. Please reach us through our Contact Us page at californiaartdelivery.com/pages/contact.' });
   const payMethod = method === 'ach' || method === 'us_bank_account' || method === 'mock_ach' ? 'ach' : 'card';
   if (payMethod === 'ach') {
     const routing = String(req.body.routing || '').replace(/\D/g, '');
@@ -807,7 +808,7 @@ app.use((err, req, res, next) => {
   // Bad JSON, too-large bodies and other client mistakes are a 4xx with a plain message, never a 500.
   if (err && (err.type === 'entity.parse.failed' || err.status === 400)) return res.status(400).json({ error: 'That request couldn’t be read. Please refresh the page and try again.' });
   if (err && err.type === 'entity.too.large') return res.status(413).json({ error: 'That request is too large. Please shorten the notes or remove photos and try again.' });
-  console.error(err); res.status(500).json({ error: 'Something went wrong on our side. Please try again, or call us.' });
+  console.error(err); res.status(500).json({ error: 'Something went wrong on our side. Please try again, or reach us through our Contact Us page at californiaartdelivery.com/pages/contact.' });
 });
 // Schedule-sheet hand-off: status (no personal data) and the start-up reconcile.
 app.get('/api/sync-status', (_, res) => res.json({ ...sheetSync.status(), dayCheck: (({ fetchedAt, stale, error }) => ({ fetchedAt, stale, error }))(require('./lib/sheet-days').snapshot()) }));

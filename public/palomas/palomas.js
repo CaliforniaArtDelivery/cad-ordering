@@ -169,7 +169,7 @@ function payBlock(q) {
       <div class="two"><label class="field"><span class="lbl">Expiry</span><input id="cardExp" type="text" inputmode="numeric" autocomplete="cc-exp" maxlength="7" value="${esc(S.exp)}" placeholder="MM / YY"></label>
       <label class="field"><span class="lbl">CVC</span><input id="cardCvc" type="text" inputmode="numeric" autocomplete="cc-csc" maxlength="4" value="${esc(S.cvc)}" placeholder="123"></label></div></div>`;
   } else if (!offline) h += `<p class="mini" style="margin:8px 0">You'll finish on our secure Stripe checkout page: card, Apple Pay, Google Pay, Link and more.</p>`;
-  else h += `<p class="mini" style="margin:8px 0">Online payment isn't available right now. Please call us.</p>`;
+  else h += `<p class="mini" style="margin:8px 0">Online payment isn't available right now. Please reach us through our <a href="https://californiaartdelivery.com/pages/contact">Contact Us page</a> at californiaartdelivery.com/pages/contact.</p>`;
   if (S.payError) h += `<div class="errs" role="alert"><b>Payment didn't go through.</b>${esc(S.payError)}</div>`;
   h += `<button type="button" class="btn primary wide" id="place" ${S.submitting || offline || S.quoteBusy ? 'disabled' : ''}>${S.submitting ? 'Processing…' : S.quoteBusy ? 'Updating estimate…' : 'Pay &amp; lock in delivery'}</button>`;
   if (S.payer === 'client') h += `<p class="linkrow"><button type="button" class="linkbtn" id="sendLink" ${S.submitting ? 'disabled' : ''}>Client can't pay now? Email them a payment link.</button></p>
