@@ -41,7 +41,8 @@ exports.uiTests = async (H) => {
     else if (s.weight !== undefined) await fill(`items.${i}.weight`, s.weight);
     if (s.fragile) await page.click(`label.toggle:has([data-path="items.${i}.fragile"])`);
     if (s.photo) { await page.setInputFiles(`[data-upload="${i}"]`, PHOTO); await page.waitForFunction((n) => JSON.parse(sessionStorage.getItem('cad-order')).items[n].photos.length > 0, i, { timeout: 8000 }); await page.waitForTimeout(300); }
-    await next();
+    if (s.unsure && !s.photo) { await page.click('#nextBtn', { force: true }); await page.waitForTimeout(350); } // blocked on purpose: Not sure needs a photo
+    else await next();
   }
   const rowCount = () => page.locator('[data-piece-row]').count();
   const freshQuoteMatches = async (label) => {
