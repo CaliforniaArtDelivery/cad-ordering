@@ -67,6 +67,7 @@ const normalizePieces = (list) => {
     for (let k = 0; k < n; k++) {
       const c = { ...emptyItem(), ...JSON.parse(JSON.stringify(it)) }; delete c.qty;
       if (k > 0 || !c.id || seen.has(c.id)) c.id = newPieceId() + out.length;
+      if (k > 0) c.checkValue = true; // an old draft's quantity became separate copies: the customer confirms each copied value before paying
       seen.add(c.id); out.push(c);
     }
   });
@@ -864,6 +865,16 @@ const quickEditBlock = () => {
 };
 
 // Final review: every piece on its own row (never a single "10×" line), with the check-everything reminder.
+// Copied pieces keep their declared value but must be confirmed (or edited) before payment (Dot). Everything else can be filled in meanwhile.
+const flaggedPieces = () => S.items.map((it, i) => [it, i]).filter(([it]) => it.checkValue);
+const valueConfirmCard = (where) => {
+  const f = flaggedPieces(); if (!f.length) return '';
+  return `<div class="card val-confirm" data-checkvalues="${where}"><h2>Confirm declared values (${f.length})</h2>
+    <p class="mini">${f.length === 1 ? 'This piece was copied' : `These ${f.length} pieces were copied`}. Please check ${f.length === 1 ? 'its declared value' : 'each declared value'}, then confirm it. If a value is wrong, tap Edit value instead. Payment is on hold until this is done.</p>
+    <div class="vc-list">${f.map(([it, i]) => `<div class="vc-row" data-vc="${esc(it.id)}"><span class="vc-what"><b>${esc(pieceTitle0(it, i))}</b><br><span class="muted">${num(it.value) > 0 ? fmt(num(it.value)) : 'No value yet'}</span></span><span class="vc-btns"><button type="button" class="pill-btn" data-valok="${esc(it.id)}">Value is right</button>${editBtn(`0:p${i}c`, 'Edit value')}</span></div>`).join('')}</div>
+    ${f.length > 1 ? `<button type="button" class="btn primary vc-all" data-valall>Confirm all ${f.length} values</button>` : ''}
+    <p class="mini vc-fine">${f.length > 1 ? 'Confirm all says: ' : 'Confirming says: '}the declared value shown for ${f.length > 1 ? 'each of these pieces is' : 'this piece is'} correct.</p></div>`;
+};
 const reviewPieces = () => `<div class="sum-row piece-review-note"><span class="mini" data-piece-note>Each piece is listed and priced separately. Please check the dimensions, declared value, handling requirements, and photos for every piece.</span></div>`
   + S.items.map((it, i) => `<div class="sum-row" data-review-piece="${i}"><span><b>${esc(pieceTitle0(it, i))}</b><br><span class="muted">${esc([pieceFacts(it), framingText(it), (it.photos || []).length ? `${it.photos.length} photo${it.photos.length === 1 ? '' : 's'}` : ''].filter(Boolean).join(' · '))}</span>${it.checkValue ? '<br><span class="tag warn">Check value</span>' : ''}</span><span>${editBtn(`0:p${i}a`)}</span></div>`).join('');
 // ---------- views ----------
@@ -904,6 +915,7 @@ const views = {
         panels.push(panel(`p${i}c`, `<h1>${ship ? 'Weight, value and care' : 'Value and care'}</h1>${pieceTag(item, i)}<div class="card">${pieceCare(item, i, ship)}</div>`));
       });
       panels.push(panel('pieces-more', `<h1>Anything else to ${svcVerbShort()}?</h1><p class="sub">${S.items.length === 1 ? 'You’ve added one piece.' : `You’ve added ${S.items.length} pieces.`} Each piece is listed and priced separately. Add more, copy a piece, or tap Next to continue.</p>
+        ${flaggedPieces().length > 1 ? valueConfirmCard('list') : ''}
         <div class="card pc-list" data-pclist>${S.items.map((it, i) => pieceListRow(it, i)).join('')}</div>
         <button type="button" class="add" id="addItem">＋ Add another piece</button>
         ${quickEditBlock()}
@@ -1060,7 +1072,7 @@ const views = {
         ${S.payer === 'partner' && !(isBizReferral() && (S.heard.businessName || S.heard.referrerName || S.partner.name)) ? `<p class="mini">Add the referring partner in <button type="button" class="edit" style="padding:0" data-goto="1:heard">Where</button> so we know who to bill.</p>` : ''}</div>`;
     const payerName = S.payer === 'other' ? (S.payerOther.name || 'Someone else') : S.payer === 'partner' ? 'Referring partner' : 'Me';
     return panel('payer', `<h1>Who’s paying?</h1><p class="sub">Last question before your review.</p>${payerCard}`)
-      + panel('review', `<h1>${sp ? 'Review your request' : 'Review & pay'}</h1><p class="sub">${sp ? 'CAD sets the final price before anything is charged.' : 'Your job is booked as soon as payment goes through. We’ll email your confirmation right away.'}</p>
+      + panel('review', `<h1>${sp ? 'Review your request' : 'Review & pay'}</h1><p class="sub">${sp ? 'CAD sets the final price before anything is charged.' : 'Your job is booked as soon as payment goes through. We’ll email your confirmation right away.'}</p>${valueConfirmCard('review')}
       ${promiseCard(crossRegionLine(quoteData && quoteData.regions) || (date && date.routeLabel) || (avail && avail.region ? avail.region + ' route' : 'Route day'), 'margin-top:0', '2:date')}
       <div class="card">
         <div class="sum-row"><span>Service</span><span>${esc(svc().label)}${S.rush ? ' · rush' : ''}${S.dedicated ? ' · dedicated trip' : ''} ${editBtn('0:service')}</span></div>
@@ -1090,7 +1102,7 @@ const views = {
         ${input('payerOther.phone', 'Payer phone', { type: 'tel', req: true, ph: '(415) 555-0123', attrs: 'autocomplete="tel"' })}` : ''}
         ${S.payer === 'partner' && !(isBizReferral() && (S.heard.businessName || S.heard.referrerName || S.partner.name)) ? `<p class="mini">Add the referring partner in <button type="button" class="edit" style="padding:0" data-goto="1:heard">Where</button> so we know who to bill.</p>` : ''}</div>`;
     return panel('payer', `<h1>Who’s paying?</h1><p class="sub">Last question before your review.</p>${payerCard}`)
-      + panel('review', `<h1>Review your shipping request</h1><p class="sub">Samantha prices shipping and emails you a quote. Nothing is charged until you approve it.</p>
+      + panel('review', `<h1>Review your shipping request</h1><p class="sub">Samantha prices shipping and emails you a quote. Nothing is charged until you approve it.</p>${valueConfirmCard('review')}
       ${outOfState() ? `<p class="note" data-oos>${OOS_NOTE}</p>` : ''}
       <div class="promise quote" style="margin-top:0"><span class="pi">✈</span><span><b>${esc(timingText(sh))}</b><span>${esc(levelText(sh.serviceLevel))}</span></span>${editBtn('2:ship-timing')}</div>
       <div class="card">
@@ -1298,6 +1310,7 @@ function missingFields(name = STEPS[step]) {
   }
   if (name === 'Pay') {
     if (existing) return out;
+    { const nf = S.items.filter((it) => it.checkValue).length; if (nf) add('[data-checkvalues="review"]', 'Declared values', nf === 1 ? 'Please confirm the declared value of the copied piece above (or edit it).' : `Please confirm the declared values of the ${nf} copied pieces above (or edit them).`); }
     if (S.payer === 'other') {
       if (!String(S.payerOther.name || '').trim()) add('#f-payerOther.name', 'Payer name', 'Please enter the payer’s name.');
       if (!/\S+@\S+\.\S+/.test(S.payerOther.email || '')) add('#f-payerOther.email', 'Payer email', 'Please enter the payer’s email.');
@@ -1805,6 +1818,7 @@ app.addEventListener('click', async (e) => {
   if (t.dataset.dupopen != null) { dupAsk = t.dataset.dupopen; dupCount = 1; dupPhotos = false; removeAskId = ''; render(); const n = $('#dup-n'); if (n) { n.scrollIntoView({ block: 'center' }); n.focus(); n.select(); } return; }
   if (t.dataset.dupcancel != null) { dupAsk = null; render(); return; }
   if (t.dataset.dupgo != null) { createCopies(t.dataset.dupgo); return; }
+  if (t.dataset.valall != null) { S.items.forEach((it) => { it.checkValue = false; }); persist(); render(); return; }
   if (t.dataset.valok != null) { const it = S.items.find((x) => x.id === t.dataset.valok); if (it) { it.checkValue = false; persist(); render(); } return; }
   if (t.dataset.fixpiece != null) { returnToList = true; step = 0; sub = t.dataset.fixpanel || `p${t.dataset.fixpiece}a`; keepAttempt = true; render(); return; }
   if (t.dataset.same) {

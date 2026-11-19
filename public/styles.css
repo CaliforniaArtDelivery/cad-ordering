@@ -292,3 +292,12 @@ details.qrow>summary::-webkit-details-marker{display:none}
 .qweight{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:6px}
 .piece-review-note{display:block}
 .piece-review-note .mini{display:block;margin:0}
+/* Confirm copied declared values (Dot): list screen and final review */
+.val-confirm{border:2px solid #e0a800;background:#fffaf0}
+.val-confirm h2{margin:0 0 6px}
+.vc-list{display:grid;gap:8px;margin:10px 0}
+.vc-row{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center;justify-content:space-between;padding:8px 0;border-top:1px solid var(--line)}
+.vc-row:first-child{border-top:0}
+.vc-btns{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.vc-all{width:100%;margin-top:4px}
+.vc-fine{margin:8px 0 0}
