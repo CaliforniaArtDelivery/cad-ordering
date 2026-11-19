@@ -331,7 +331,7 @@ async function run(BASE, errors, { dataRoot = process.env.STORAGE_DIR || ROOT, a
       if (!hv || hv.perPiece !== 450 || hv.qty !== 1 || hv.index !== 2) errors.push('admin should record the built-in 0.75% = $450 on the $60,000 piece (Piece 3): ' + JSON.stringify(mix.j.quote.highValueItems));
       const delLines = ql.filter((l) => /Painting delivery/.test(l.label));
       const own3 = delLines.find((l) => /^Piece 3 — Painting delivery$/.test(l.label));
-      const grp = delLines.find((l) => /× 5 \(Pieces 1–2, 4–6\)/.test(l.label));
+      const grp = delLines.find((l) => /× 5 \(Pieces 1, 2, 4–6\)/.test(l.label));
       if (!own3 || !grp || Math.round((own3.amount + grp.amount) * 100) !== 97500) errors.push('the $60,000 painting (Piece 3) should have its own delivery line with the $450 built in; the other five stay grouped; together $975: ' + JSON.stringify(delLines));
       await post(`/api/orders/${mix.j.id}/pay`, { method: 'card', card: '4242424242424242' });
       const m = text(mails(mix.j.id, 'confirmation')[0] || '');
