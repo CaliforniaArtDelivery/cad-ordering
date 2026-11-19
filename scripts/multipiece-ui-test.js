@@ -367,7 +367,7 @@ exports.uiTests = async (H) => {
     ok(st.items.every((i) => !i.checkValue) && st.items[1].value !== undefined, 'no piece is flagged any more in the saved draft');
     await page.click('#nextBtn'); await page.waitForFunction(() => /You’re booked/.test(document.body.textContent), null, { timeout: 15000 }).catch(() => {});
     await sleep(400);
-    const o = orders().pop();
+    const o = orders()[0]; // newest first
     ok(orders().length === before + 1 && o.items.length === 5 && o.items.every((i) => !i.checkValue) && o.payment && o.payment.status === 'paid', 'Pay now creates one paid order with five pieces and no unconfirmed flags', o && o.items.map((i) => i.checkValue));
     ok(/Your pieces \(5\)/.test(await page.textContent('#app')), 'confirmation page has a "Your pieces (5)" section');
     const det = await page.$('[data-yourpieces]');
