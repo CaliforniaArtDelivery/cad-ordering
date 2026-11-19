@@ -341,8 +341,8 @@ exports.uiTests = async (H) => {
     ok((await rowCount()) === 5 && (await page.locator('[data-checkvalue]').count()) === 4, 'Duplicate x4: five pieces, four flagged Check value');
     ok(!(await blocked()), 'the other steps are not blocked by Check value flags (Next works from the list)');
     ok((await page.locator('[data-checkvalues="list"]').count()) === 1 && /Confirm all 4 values/.test(await page.textContent('[data-checkvalues="list"] [data-valall]')), 'the list shows a "Confirm all 4 values" button');
-    ok(/declared value shown for each of these pieces is correct/.test(await page.textContent('[data-checkvalues="list"]')), 'the wording says what is being confirmed: each piece\'s declared value is correct');
-    await shot('14-bulk-confirm-list');
+    ok(/the declared value shown for each of these pieces is correct/.test(await page.textContent('[data-checkvalues="list"]')), 'the wording says what is being confirmed: each piece\'s declared value is correct');
+    await page.evaluate(() => { document.querySelectorAll('.upload-toast').forEach((t) => { t.hidden = true; }); }); await shot('14-bulk-confirm-list');
     await toReview();
     ok((await panel()) === 'review', 'customer can go through every other step to the review with values unconfirmed', await panel());
     ok((await page.locator('[data-checkvalues="review"] [data-vc]').count()) === 4 && (await blocked()), 'review lists the 4 unconfirmed values and Pay is blocked');
