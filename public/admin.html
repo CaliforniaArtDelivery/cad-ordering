@@ -60,7 +60,7 @@ function draw() {
   ].map(([b, s]) => `<div class="stat"><b>${b}</b><span>${s}</span></div>`).join('');
   document.getElementById('rows').innerHTML = os.map((o) => `<tr class="o" data-id="${o.id}">
     <td><b>${esc(o.id)}</b><br><span class="muted">${new Date(o.createdAt).toLocaleString('en-US',{timeZone:'America/Los_Angeles',month:'short',day:'numeric',hour:'numeric',minute:'2-digit'})} PT</span></td>
-    <td>${o.service === 'crating_shipping' ? '<b>SHIPPING</b>' : esc(o.schedule.date)}<br><span class="muted">${esc(o.schedule.region)}${o.outOfState ? ' · OUT OF STATE' : ''}${o.rush ? ' · RUSH' : ''}${o.dedicated ? ' · DEDICATED' : ''}${o.accessReview ? ' · <b>ACCESS REVIEW</b>' : ''}</span></td>
+    <td>${o.service === 'crating_shipping' ? '<b>SHIPPING</b>' : esc(o.schedule.date)}<br><span class="muted">${esc(o.schedule.region)}${o.outOfState ? ' · OUT OF STATE' : ''}${o.rush ? ' · RUSH' : ''}${o.dedicated ? ' · DEDICATED' : ''}${o.accessReview ? ' · <b>ACCESS REVIEW</b>' : ''}${o.needsManualReview ? ' · <b style="color:#b00020">NEEDS MANUAL REVIEW</b>' : ''}</span></td>
     <td>${esc(o.serviceLabel)}<br><span class="muted">${((n) => n + (n === 1 ? ' piece' : ' pieces'))(o.items.reduce((s, i) => s + Number(i.qty || 1), 0))}</span></td>
     <td>${esc(o.contact.name)}<br><span class="muted">${esc(o.contact.clientType)}${o.partner?.name ? ' · via ' + esc(o.partner.name) : ''}</span></td>
     <td>${esc(o.dropoff.city || o.pickup.city)}${o.dropoff.country && !/^(us|usa|united states)/i.test(o.dropoff.country) ? ', ' + esc(o.dropoff.country) : o.dropoff.state && !/^ca$/i.test(o.dropoff.state) ? ', ' + esc(o.dropoff.state) : ''}</td><td>${estimateCell(o)}</td>
@@ -110,7 +110,8 @@ async function detail(id) {
   const fmtc = (n) => '$' + Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: Number(n) % 1 ? 2 : 0, maximumFractionDigits: 2 });
   const priceBox = (q.lines || []).length && !q.shipping ? `<div class="approve"><h3>Price</h3>${q.lines.map((l) => `<p style="margin:0 0 6px">${esc(l.label)} <b>${l.included ? 'Included' : fmtc(l.amount)}</b></p>`).join('')}
     <p style="margin:8px 0 0">${pr && pr.amount > 0 ? `<b>Required declared value protection:</b> ${fmtc(pr.amount)} (1.5% of ${fmtc(pr.eligibleValue != null ? pr.eligibleValue : pr.declared)} in eligible pieces, each valued up to $50,000). Not optional; included in the total.` : '<b>Required declared value protection:</b> none (no eligible piece valued up to $50,000).'}${(q.highValueItems || []).length ? `<br><b>Over $50,000</b> (0.75% of the piece’s declared value, built into its price): ${q.highValueItems.map((h) => `piece ${h.index + 1}: ${fmtc(h.perPiece)}${h.qty > 1 ? ' × ' + h.qty : ''}`).join(' · ')}` : ''}</p></div>` : '';
-  const itemsBox = o.itemLines ? `<div class="approve"><h3>Pieces</h3>${o.itemLines.map((l) => `<p style="margin:0 0 6px">${esc(l)}</p>`).join('')}</div>` : '';
+  const legacyBox = o.needsManualReview ? `<div class="approve" style="border:2px solid #b00020"><h3 style="color:#b00020">Needs manual review: old quantity entry</h3><p style="margin:0 0 6px">${esc(o.manualReviewReason || '')}</p>${(o.legacyQty || []).map((r) => `<p class="muted" style="margin:0 0 4px">Original entry (qty ${esc(r.qty)}, now Pieces ${esc(r.firstPiece)}–${esc(r.lastPiece)}): <code>${esc(JSON.stringify(r.originalItem))}</code></p>`).join('')}</div>` : '';
+  const itemsBox = legacyBox + (o.itemLines ? `<div class="approve"><h3>Pieces</h3>${o.itemLines.map((l) => `<p style="margin:0 0 6px">${esc(l)}</p>`).join('')}</div>` : '');
   document.getElementById('detail').innerHTML = `
     ${itemsBox}${priceBox}${ship}${approveBox(o)}
     <div class="bar2"><b>Emails</b>

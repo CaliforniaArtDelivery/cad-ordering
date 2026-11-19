@@ -88,6 +88,19 @@ async function apiTests() {
     const st = o.j && o.j.order;
     ok(o.status === 200 && st.items.length === 10 && st.items.every((it) => !('qty' in it) && it.value === 12000) && new Set(st.items.map((it) => it.id)).size === 10, 'server expands qty 10 into 10 stored pieces with unique ids', o.j);
     ok(st && st.quote.total === 3525, 'stored order total is $3,525');
+    ok(st.needsManualReview === true && /quantity 10/.test(st.manualReviewReason) && st.legacyQty.length === 1 && st.legacyQty[0].qty === 10 && st.legacyQty[0].originalItem.qty === 10 && st.legacyQty[0].originalItem.description === 'Canvas' && st.legacyQty[0].firstPiece === 1 && st.legacyQty[0].lastPiece === 10, 'a submitted qty-10 entry keeps its ORIGINAL record (legacyQty/originalItem) and is flagged needs manual review', st.legacyQty);
+    {
+      const adm0 = await adminGet('/api/admin/orders'); const a0 = adm0.j.orders.find((x) => x.id === st.id);
+      ok(a0 && a0.needsManualReview && a0.legacyQty[0].originalItem.qty === 10, 'admin API returns the flag and the original record');
+    }
+    {
+      const clean = await post('/api/orders', await orderBody([paint({ description: 'Clean single' })]));
+      ok(clean.status === 200 && !clean.j.order.needsManualReview && !clean.j.order.legacyQty, 'a normal one-piece order is not flagged');
+      const flagged = await post('/api/orders', await orderBody([paint({ description: 'Needs confirm', checkValue: true })]));
+      ok(flagged.status === 400 && /confirm the declared value for Piece 1/.test(flagged.j.error), 'the server refuses an order while a piece still says check value', flagged.j);
+      const two = await post('/api/orders', await orderBody([paint({ description: 'A' }), paint({ description: 'B', checkValue: true }), paint({ description: 'C', checkValue: true })]));
+      ok(two.status === 400 && /Piece 2.*Piece 3/.test(two.j.error), 'the refusal names every unconfirmed piece', two.j);
+    }
     const adm = await adminGet('/api/admin/orders');
     const ao = adm.j.orders.find((x) => x.id === st.id);
     ok(ao.itemLines.length === 10 && ao.itemLines.every((l, i) => l.startsWith(`Piece ${i + 1} — Canvas`)) && /72 × 60 × 2 in/.test(ao.itemLines[0]) && /\$12,000/.test(ao.itemLines[0]), 'admin shows Piece 1 — Canvas … Piece 10 with size and value each', ao.itemLines);
@@ -203,6 +216,8 @@ async function apiTests() {
     legacy.payment = { status: 'paid', method: 'mock_card', amount: 100, ref: 'mock_legacy' };
     all.unshift(legacy); fs.writeFileSync(f, JSON.stringify(all, null, 2));
     const g = await get('/api/orders/CAD-LEGACY1');
+    ok(g.j.order.needsManualReview === true && g.j.order.legacyQty.length === 2 && g.j.order.legacyQty[0].originalItem.qty === 3 && g.j.order.legacyQty[1].originalItem.qty === 2 && g.j.order.legacyQty[1].firstPiece === 4, 'a STORED qty order keeps the original entries and is flagged needs manual review (not silently converted)', g.j.order.legacyQty);
+    ok(g.j.order.quote.total === JSON.parse(fs.readFileSync(path.join(STORAGE, 'data', 'orders.json'), 'utf8')).find((x) => x.id === 'CAD-LEGACY1').quote.total, 'its stored quote is unchanged');
     ok(g.status === 200 && g.j.order.items.length === 5 && g.j.order.items.every((it) => !it.qty || it.qty === undefined) && new Set(g.j.order.items.map((i) => i.id)).size === 5, 'GET a saved qty order: 5 separate pieces with unique ids', g.j && g.j.order && g.j.order.items);
     const adm = await adminGet('/api/admin/orders');
     const ao = adm.j.orders.find((x) => x.id === 'CAD-LEGACY1');

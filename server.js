@@ -21,7 +21,7 @@ if (!ADMIN_ON) console.warn('Admin is OFF: set ADMIN_KEY to a long random value 
 // Stripe, payments are refused instead of silently confirming jobs.
 const TEST_MODE = /^(1|true|yes)$/i.test(String(process.env.TEST_MODE || ''));
 const storage = require('./lib/storage');
-const { TYPES, framingErrors, itemLine, isHungItem, routeDecorMirror, expandPieces, hasMultiQty, piecesOf, pieceLabel, MAX_PIECES } = require('./lib/itemtypes');
+const { TYPES, framingErrors, itemLine, isHungItem, routeDecorMirror, expandPieces, hasMultiQty, legacyQtyRecord, legacyNote, piecesOf, pieceLabel, MAX_PIECES } = require('./lib/itemtypes');
 const { lookupMember, resolveMember } = require('./lib/members');
 const ACCESS = require('./public/access');
 const ORDERS = path.join(storage.dir('data'), 'orders.json');
@@ -35,7 +35,17 @@ else if (key) console.warn('STRIPE_SECRET_KEY is not a test key (sk_test_…). R
 console.log(stripe ? 'Payments: Stripe Checkout (TEST mode) — card + ACH' : TEST_MODE ? 'Payments: MOCK (TEST_MODE=1) — card + ACH' : 'Payments: OFF (no Stripe key and TEST_MODE is not set)');
 
 // Older saved orders may carry a quantity on a piece. Reading them expands that into separate pieces (one entry = one piece), so nothing downstream ever sees qty > 1.
-const migratePieces = (o) => { if (o && !o.partnerOrder && hasMultiQty(o.items)) o.items = expandPieces(o.items); return o; };
+// A stored order is never silently converted: the original entry (with its quantity) is kept in order.legacyQty and the order is flagged
+// "needs manual review" for the team. Its saved quote and payment are untouched.
+const migratePieces = (o) => {
+  if (o && !o.partnerOrder && hasMultiQty(o.items)) {
+    if (!o.legacyQty) o.legacyQty = legacyQtyRecord(o.items);
+    o.needsManualReview = true;
+    o.manualReviewReason = o.manualReviewReason || 'Legacy quantity: ' + legacyNote(o.legacyQty) + '. Original entry kept in legacyQty. Please confirm each piece\u2019s details and value with the customer.';
+    o.items = expandPieces(o.items);
+  }
+  return o;
+};
 const load = () => (fs.existsSync(ORDERS) ? JSON.parse(fs.readFileSync(ORDERS, 'utf8')).map(migratePieces) : []);
 const save = (orders) => fs.writeFileSync(ORDERS, JSON.stringify(orders, null, 2));
 const findOrder = (id) => load().find((o) => o.id === id);
@@ -164,6 +174,8 @@ const reviewAlert = (o) => teamAlert(`REVIEW NEEDED: online request ${o.id} (${(
   + `Client: ${(o.contact || {}).name || ''} ${(o.contact || {}).phone || ''} ${(o.contact || {}).email || ''}\n`
   + `Date(s) held: ${(o.schedule || {}).date || 'none'}${(o.schedule || {}).deliveryDate ? ' / delivery ' + o.schedule.deliveryDate : ''}\n`
   + `Why: ${((o.review || {}).reasons || []).map((r) => r.text).join(' | ') || (o.rush ? 'rush' : o.dedicated ? 'dedicated trip' : 'team quote')}\n`
+  + `Pieces:\n${piecesOf(o).map((it, i) => '  ' + require('./lib/itemtypes').pieceDetail(it, i)).join('\n')}\n`
+  + (o.needsManualReview ? `NEEDS MANUAL REVIEW: ${o.manualReviewReason}\n` : '')
   + `Confirm within 1 business day, then approve it in the admin page so the client gets the payment link.`);
 
 function validate(o) {
@@ -171,7 +183,12 @@ function validate(o) {
   if (!Array.isArray(o.items)) o.items = [];
   // One authoritative piece model: every entry is exactly ONE piece with its own id. A legacy quantity (qty > 1) is expanded into
   // separate pieces here, before anything is validated, priced, stored, emailed or written to the schedule.
-  o.items = expandPieces(o.items.filter((it) => it && typeof it === 'object'));
+  const rawItems = o.items.filter((it) => it && typeof it === 'object');
+  if (!o.partnerOrder && hasMultiQty(rawItems)) o._legacyQty = legacyQtyRecord(rawItems); // an old page or API caller sent a quantity: keep the original, flag for review
+  o.items = expandPieces(rawItems);
+  // Copied values must be confirmed before payment (Dot): an order is never accepted while a piece still says "check value".
+  const unconfirmed = o.items.map((it, i) => (it.checkValue ? pieceLabel(it, i) : null)).filter(Boolean);
+  if (unconfirmed.length) errs.push(`please confirm the declared value for ${unconfirmed.slice(0, 4).join('; ')}${unconfirmed.length > 4 ? ` and ${unconfirmed.length - 4} more` : ''}`);
   if (o.items.length > MAX_PIECES) errs.push(`no more than ${MAX_PIECES} pieces per order`);
   // Name the piece in each error ("Piece 3 — Canvas"), so a long order says exactly which piece is incomplete.
   const forPieces = (what, pred) => { const bad = o.items.map((it, i) => (pred(it, i) ? pieceLabel(it, i) : null)).filter(Boolean); if (bad.length) errs.push(`${what} for ${bad.slice(0, 4).join('; ')}${bad.length > 4 ? ` and ${bad.length - 4} more` : ''}`); };
@@ -329,6 +346,7 @@ app.post('/api/orders', (req, res) => {
     referral: !!b.referral,
     // In-CA: mandatory on pieces valued $50K or less (none offered above). Shipping quotes: the customer's choice.
     declaredValueProtection: shipping ? false : (b.items || []).some((it) => numVal(it.value) > 0 && numVal(it.value) <= 50000),
+    ...(b._legacyQty ? { legacyQty: b._legacyQty, needsManualReview: true, manualReviewReason: 'Legacy quantity: ' + legacyNote(b._legacyQty) + '. Original entry kept in legacyQty. Please confirm each piece\u2019s details and value with the customer.' } : {}),
     items: (b.items || []).map(routeDecorMirror), pickup: b.pickup || {}, dropoff: b.dropoff || {},
     contact: b.contact, partner: b.partner || {}, payer: b.payer || 'me', payerOther: b.payerOther || {},
     schedule: shipping
@@ -339,6 +357,7 @@ app.post('/api/orders', (req, res) => {
     emails: [],
   };
   order.quote = quote(order);  // server-side price is authoritative
+  if (order.needsManualReview) teamAlert(`NEEDS MANUAL REVIEW: order ${order.id} was submitted with an old quantity entry`, `Order ${order.id}: ${order.manualReviewReason}\nPieces:\n${piecesOf(order).map((it, i) => '  ' + require('./lib/itemtypes').pieceDetail(it, i)).join('\n')}`);
   // Normal orders hold their date while the client pays. Review orders (pencil-in, helper, Monday OC) hold it while the team decides.
   if (!special || (rv.needed && !order.rush && !order.dedicated)) { const held = holdSlots(order, special); if (!held.ok) return res.status(409).json({ error: 'That date just filled up. Please go back and pick another date.', full: held.full }); }
   const all = load(); all.unshift(order); save(all);
