@@ -127,7 +127,7 @@ app.get('/api/config', (_, res) => res.json({
     valuationRate: config.pricing.valuation.rate,
     membershipMonthly: config.pricing.membership.monthly,
   },
-  stripe: !!stripe, testMode: !stripe && TEST_MODE, notice: config.pricing.exampleRatesNotice,
+  stripe: !!stripe, livemode: false, testMode: !stripe && TEST_MODE, notice: config.pricing.exampleRatesNotice,
 }));
 app.post('/api/upload', upload.array('photos', 10), (req, res) => res.json({ files: (req.files || []).map((f) => `/uploads/${f.filename}`) }));
 app.post('/api/quote', (req, res) => res.json(quote(req.body)));

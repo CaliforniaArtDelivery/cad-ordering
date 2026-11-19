@@ -9,8 +9,9 @@
     "test:rules": "node scripts/date-guard-rules-test.js",
     "test:bridge": "node scripts/bridge-test.js",
     "e2e": "node scripts/multipiece-test.js",
+    "test:atlas": "node scripts/atlas-review-test.js",
     "smoke": "node scripts/smoke-test.js",
-    "test:all": "node scripts/pricing-test.js && node scripts/multipiece-test.js && node scripts/smoke-test.js && node scripts/date-guard-rules-test.js && node scripts/bridge-test.js"
+    "test:all": "node scripts/pricing-test.js && node scripts/multipiece-test.js && node scripts/smoke-test.js && node scripts/date-guard-rules-test.js && node scripts/bridge-test.js && node scripts/atlas-review-test.js"
   },
   "keywords": [],
   "author": "",

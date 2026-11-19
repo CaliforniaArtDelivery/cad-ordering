@@ -1,11 +1,29 @@
 // One post-deploy booking against the live TEST site (payment test mode). node scripts/post-deploy-check.js
+// Refuses to run with a live Stripe key, against a production host, or if /api/config reports livemode.
+// Failures exit nonzero with a named diagnostic. A second run cannot create a live charge or write the
+// production SCHEDULE sheet (test host only; mock/test payments go to the TEST ORDERS tab).
 const path = require('path');
 const pw = require('playwright');
+const { preflight } = require('./post-deploy-guard');
 const BASE = process.env.BASE || 'https://cad-ordering-test.onrender.com';
 const SHOTS = '/workspace/postdeploy_shots';
 const res = [];
 const ok = (c, m, extra) => { res.push([!!c, m]); console.log(c ? '  PASS:' : '  FAIL:', m, !c && extra !== undefined ? JSON.stringify(extra).slice(0, 400) : ''); };
 (async () => {
+  const envCheck = preflight({ env: process.env, base: BASE });
+  if (!envCheck.ok) { console.error('  FAIL:', envCheck.error); process.exit(1); }
+  let siteConfig = null;
+  try {
+    const r = await fetch(String(BASE).replace(/\/$/, '') + '/api/config');
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    siteConfig = await r.json();
+  } catch (e) {
+    console.error('  FAIL: could not read /api/config from ' + BASE + ' — ' + (e && e.message || e));
+    process.exit(1);
+  }
+  const cfgCheck = preflight({ env: process.env, base: BASE, config: siteConfig });
+  if (!cfgCheck.ok) { console.error('  FAIL:', cfgCheck.error); process.exit(1); }
+  if (process.env.POST_DEPLOY_DRY_RUN) { console.log('  PASS: preflight ok (dry run, no booking)'); process.exit(0); }
   const browser = await pw.chromium.launch();
   const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
   const page = await ctx.newPage(); const errs = []; page.on('pageerror', (e) => errs.push(e.message));
@@ -78,5 +96,11 @@ const ok = (c, m, extra) => { res.push([!!c, m]); console.log(c ? '  PASS:' : ' 
     ok(errs.length === 0, 'no JavaScript errors in the browser', errs);
   } catch (e) { ok(false, 'crashed: ' + String(e).slice(0, 300)); await shot('crash').catch(() => {}); }
   await browser.close();
-  console.log(`\n${res.filter((r) => r[0]).length} passed, ${res.filter((r) => !r[0]).length} failed`);
-})();
+  const passed = res.filter((r) => r[0]).length, failed = res.filter((r) => !r[0]).length;
+  console.log(`\n${passed} passed, ${failed} failed`);
+  if (failed) {
+    console.error('post-deploy-check failed. No live charge was intended; inspect the FAIL lines and screenshots in ' + SHOTS + '.');
+    process.exit(1);
+  }
+  process.exit(0);
+})().catch((e) => { console.error('  FAIL: crashed:', e && e.stack || e); process.exit(1); });

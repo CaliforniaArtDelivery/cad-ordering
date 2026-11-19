@@ -723,7 +723,7 @@ const weightField = (item, i, { required = false, approx = false } = {}) => {
       <label class="f" for="f-${p}.weight" style="margin:0">${label}${reqMark}</label>
       <button type="button" class="pill-btn ${item.weightUnsure ? 'on' : ''}" data-weightunsure="${i}">${item.weightUnsure ? '✓ Not sure' : 'Not sure'}</button>
     </div>
-    ${item.weightUnsure ? '<p class="mini" style="margin:0 0 8px">No problem, you can skip this.</p>' : input(`${p}.weight`, '', { ph: approx ? 'e.g. 200' : 'e.g. 40', attrs: `inputmode="decimal" aria-label="${label}"` }) + '<p class="mini">Pounds. Approximate is fine.</p>'}
+    ${item.weightUnsure ? '<p class="mini" style="margin:0 0 8px">No problem, you can skip this.</p>' : input(`${p}.weight`, '', { ph: approx ? 'e.g. 200' : 'e.g. 40', attrs: `inputmode="decimal" aria-label="${label}"` }) + `<p class="mini">${required ? 'Pick a weight or Not sure; it affects the price.' : 'Pounds. Approximate is fine.'}</p>`}
   </div>`;
 };
 const shipExtras = (item, i) => {
