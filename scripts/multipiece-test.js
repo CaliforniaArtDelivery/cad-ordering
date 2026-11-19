@@ -181,16 +181,18 @@ async function apiTests() {
     ok(rb.status === 400 && /Piece 7 — S7/.test(rb.j.error) && !/Piece 6 —/.test(rb.j.error), 'a missing weight on piece 7 names only piece 7', rb.j);
   }
 
-  hdr('API 7: photos required when weight is "Not sure", per piece');
+  hdr('API 7: photos required only for special handling, per piece; Not sure never needs a photo');
   {
     const a = sculpt({ description: 'Known', weight: 50 });
     const b = paint({ description: 'Unsure', weightUnsure: true, w: 30, h: 40 });
     const r1 = await post('/api/orders', await orderBody([a, b]));
-    ok(r1.status === 400 && /photos[^;]*Piece 2 — Unsure/.test(r1.j.error) && !/Piece 1 — Known/.test(r1.j.error), 'only the "Not sure" piece (Piece 2) needs photos', r1.j);
-    const r2 = await post('/api/orders', await orderBody([a, { ...b, photos: ['/uploads/example.jpg'] }]));
-    ok(r2.status === 200, 'with that piece\'s own photo the order goes through', r2.j);
+    ok(r1.status === 200, 'Not sure weight does not require a photo', r1.j);
+    const rMat = await post('/api/orders', await orderBody([paint({ description: 'Vase', materialNotes: 'ceramic vase, glass top' })]));
+    ok(rMat.status === 200 && rMat.j.order.items[0].materialNotes === 'ceramic vase, glass top', 'optional material notes are stored on the order', rMat.j);
     const c = await post('/api/orders', await orderBody([{ ...a, fragile: true }, b]));
-    ok(c.status === 400 && /Piece 1 — Known/.test(c.j.error) && /Piece 2 — Unsure/.test(c.j.error), 'special handling also needs its own photos (both pieces named)', c.j);
+    ok(c.status === 400 && /photos[^;]*Piece 1 — Known/.test(c.j.error) && !/Piece 2 — Unsure/.test(c.j.error), 'only the special-handling piece (Piece 1) needs photos', c.j);
+    const c2 = await post('/api/orders', await orderBody([{ ...a, fragile: true, photos: ['/uploads/example.jpg'] }, b]));
+    ok(c2.status === 200, 'special handling with a photo goes through; Not sure still needs none', c2.j);
   }
 
   hdr('API 8: double submit creates exactly one order');

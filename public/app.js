@@ -40,7 +40,7 @@ const migrateAddr = (a = {}) => {
 let pcSeq = 0;
 const newPieceId = () => 'pc' + Date.now().toString(36) + (pcSeq++).toString(36) + Math.random().toString(36).slice(2, 6);
 // One entry = one piece, with a permanent internal id (labels like "Piece 3" renumber after a removal; the id never does).
-const emptyItem = () => ({ id: newPieceId(), checkValue: false, type: 'painting', furnitureKind: 'Sofa', sizeClass: 'medium', description: '', w: '', h: '', d: '', weight: '', framed: '', glazing: '', frameType: '', framedGlass: false, fragile: false, weightUnsure: false, fitsStairwell: false, hangHeight: 'standard', centerHeight: '', hangWhere: '', hangWhereOther: '', hangBottomFt: '', hangPhotos: [], crateStatus: 'not_sure', value: '', photos: [] });
+const emptyItem = () => ({ id: newPieceId(), checkValue: false, type: 'painting', furnitureKind: 'Sofa', sizeClass: 'medium', description: '', materialNotes: '', w: '', h: '', d: '', weight: '', framed: '', glazing: '', frameType: '', framedGlass: false, fragile: false, weightUnsure: false, fitsStairwell: false, hangHeight: 'standard', centerHeight: '', hangWhere: '', hangWhereOther: '', hangBottomFt: '', hangPhotos: [], crateStatus: 'not_sure', value: '', photos: [] });
 
 let CFG = null;
 let step = 0;
@@ -660,12 +660,8 @@ async function loadDelivery() {
   if (STEPS[step] === 'When') renderWhenIdle();
 }
 
-// ---------- photo rules (Chad): optional unless the job needs eyes on it first ----------
-const HEAVY_LB = 500;
-const itemPhotoReason = (it) => (num(it.weight) > HEAVY_LB ? 'Photo required for items over 500 lb.'
-  : it.weightUnsure ? 'Add a photo so we can plan for the weight.'
-  : it.type === 'other' ? 'Please add a photo so we can plan the right handling.'
-  : it.fragile ? 'Photo required for special handling.' : '');
+// ---------- photo rules (Chad, Nov 19): required only when special handling is on. Weight "Not sure" never requires a photo. ----------
+const itemPhotoReason = (it) => (it.fragile ? 'Photo required for special handling.' : '');
 const photosOk = (it) => !itemPhotoReason(it) || (it.photos || []).length > 0;
 const sitePhotosOk = () => true;
 const hangPhotosOk = (it) => it.hangHeight !== 'higher' || it.hangWhere !== 'stairwell' || (it.hangPhotos || []).length > 0;
@@ -716,8 +712,8 @@ const syncFrameType = (i) => {
   else if (!show && has) wrap.innerHTML = '';
   updateNext();
 };
-const handlingBlock = (item, i) => `${toggle(`items.${i}.fragile`, 'Special handling needed', 'We handle every piece with care. Select this only if it has fragile protrusions, delicate raised surfaces, or is made of glass or ceramic.', true)}
-    <p class="mini" style="margin:-6px 0 10px">Standard paintings, framed art and solid bronze sculpture don't need this.</p>`;
+const handlingBlock = (item, i) => `${toggle(`items.${i}.fragile`, 'Special handling needed', '', true)}
+    <p class="mini" style="margin:-6px 0 10px">Only for pieces outside normal handling: extremely fragile, large protrusions or awkward shapes, can’t be stood upright, or needs custom crating. Paintings, framed art, mirrors, ceramics and solid sculpture don’t need this.</p>`;
 const weightField = (item, i, { required = false, approx = false } = {}) => {
   const p = `items.${i}`;
   const label = approx ? `Approx. weight — ${pieceName(i)} (lb)` : `Weight — ${pieceName(i)} (lb)`;
@@ -727,7 +723,7 @@ const weightField = (item, i, { required = false, approx = false } = {}) => {
       <label class="f" for="f-${p}.weight" style="margin:0">${label}${reqMark}</label>
       <button type="button" class="pill-btn ${item.weightUnsure ? 'on' : ''}" data-weightunsure="${i}">${item.weightUnsure ? '✓ Not sure' : 'Not sure'}</button>
     </div>
-    ${item.weightUnsure ? '<p class="mini" style="margin:0 0 8px">We’ll confirm the weight. This won’t hold up your order.</p>' : input(`${p}.weight`, '', { ph: approx ? 'e.g. 200' : 'e.g. 40', attrs: `inputmode="decimal" aria-label="${label}"` }) + '<p class="mini">Pounds. Approximate is fine.</p>'}
+    ${item.weightUnsure ? '<p class="mini" style="margin:0 0 8px">No problem, you can skip this.</p>' : input(`${p}.weight`, '', { ph: approx ? 'e.g. 200' : 'e.g. 40', attrs: `inputmode="decimal" aria-label="${label}"` }) + '<p class="mini">Pounds. Approximate is fine.</p>'}
   </div>`;
 };
 const shipExtras = (item, i) => {
@@ -788,8 +784,8 @@ const pieceCare = (item, i, ship) => {
         ${handlingBlock(item, i)}`;
   }
   return `${h}
+        ${input(`${p}.materialNotes`, 'Material or notes (optional)', { ph: 'e.g. ceramic vase, glass top' })}
         <p class="mini req-line" data-photoreq="${i}" ${itemPhotoReason(item) ? '' : 'hidden'}>${esc(itemPhotoReason(item))}</p>
-        <p class="mini" data-photonote="${i}" ${item.fragile && !itemPhotoReason(item) ? '' : 'hidden'}>Add a photo if you have one, or send it later.</p>
         <div class="photos">${(item.photos || []).map((ph2) => `<img src="${esc(ph2)}" alt="">`).join('')}
           <label class="upload">＋ Photos<span data-photolbl="${i}">${itemPhotoReason(item) ? req : ' (optional)'}</span><input type="file" accept="image/*" multiple data-upload="${i}"></label></div>`;
 };
@@ -869,8 +865,9 @@ const quickEditBlock = () => {
         ${it.type !== 'custom' ? input(`${p}.value`, 'Declared value ($)', { ...ip, ph: 'e.g. 12,000', attrs: 'inputmode="numeric"' }) : ''}
         ${it.checkValue ? `<button type="button" class="pill-btn" data-valok="${esc(it.id)}">Value is right</button>` : ''}
         <div class="field"><div class="qweight"><label class="f" for="q-${p}.weight">Weight (lb)</label><button type="button" class="pill-btn ${it.weightUnsure ? 'on' : ''}" data-weightunsure="${i}">${it.weightUnsure ? '✓ Not sure' : 'Not sure'}</button></div>
-          ${it.weightUnsure ? '<p class="mini">We’ll confirm the weight. A photo of this piece is needed.</p>' : input(`${p}.weight`, '', { ...ip, ph: 'e.g. 40', attrs: 'inputmode="decimal" aria-label="Weight in pounds"' })}</div>
+          ${it.weightUnsure ? '<p class="mini">No problem, you can skip this.</p>' : input(`${p}.weight`, '', { ...ip, ph: 'e.g. 40', attrs: 'inputmode="decimal" aria-label="Weight in pounds"' })}</div>
         ${toggle(`${p}.fragile`, 'Special handling needed', '', true)}
+        ${input(`${p}.materialNotes`, 'Material or notes (optional)', { ...ip, ph: 'e.g. ceramic vase, glass top' })}
         ${editBtn(`0:p${i}a`, 'Open all details')}
       </div></details>`;
   };
@@ -909,7 +906,7 @@ const views = {
     const itemA = (item, i) => {
       const type = item.type || 'painting';
       const p = `items.${i}`;
-      const ph = { painting: 'e.g. Oil on canvas by J. Smith', photograph: 'e.g. Signed gelatin silver print', mirror: 'e.g. Venetian mirror, gilt', wallart: 'e.g. Mixed media, wall sculpture', sculpture: 'e.g. Bronze on plinth', furniture: 'e.g. Walnut credenza', decor: item.furnitureKind === 'Other (describe)' ? 'e.g. Ceramic garden stool, pair of candlesticks' : 'e.g. Pair of table lamps', other: 'e.g. Antique clock, Murano glass chandelier', custom: 'e.g. Collect two pieces from a framer and deliver them with the rest' }[type];
+      const ph = { painting: 'e.g. Oil on canvas', photograph: 'e.g. Signed gelatin silver print', mirror: 'e.g. Venetian mirror, gilt', wallart: 'e.g. Mixed media, wall sculpture', sculpture: 'e.g. Bronze on plinth', furniture: 'e.g. Walnut credenza', decor: item.furnitureKind === 'Other (describe)' ? 'e.g. Ceramic garden stool, pair of candlesticks' : 'e.g. Pair of table lamps', other: 'e.g. Antique clock, Murano glass chandelier', custom: 'e.g. Collect two pieces from a framer and deliver them with the rest' }[type];
       const kinds = type === 'furniture' ? (CFG.pricing.furnitureKinds || []) : decorKindOptions();
       const sizeOpts = sizeOptionsFor(type, item.furnitureKind);
       const allowedSizes = sizeOpts.map((o) => Array.isArray(o) ? o[0] : o);
@@ -922,7 +919,9 @@ const views = {
         ${type === 'wallart' ? `<p class="mini" style="margin:-4px 0 10px">Mixed media, wall sculpture, etc.${hasInstall() ? ' Hung on a wall, so we can install it.' : ''}</p>` : ''}
         ${kindRow}
         ${input(`${p}.description`, type === 'custom' ? 'Your request' : 'Description of this piece', { ph, req: true })}
-        ${type === 'custom' ? '<p class="mini" style="margin:0 0 6px">Tell us what you need in the description. CAD reviews it and sends a custom quote; nothing is charged until you approve it.</p>' : ''}
+        ${type === 'custom' ? '<p class="mini" style="margin:0 0 6px">Tell us what you need in the description. CAD reviews it and sends a custom quote; nothing is charged until you approve it.</p>'
+          : pieceHasSize(item, ship) ? '<p class="mini desc-hint" data-deschint style="margin:-4px 0 10px">Just the medium or type, like oil on canvas. You’ll add size next.</p>'
+          : '<p class="mini desc-hint" data-deschint style="margin:-4px 0 10px">Just the medium or type, like oil on canvas.</p>'}
       </div>`;
     };
     const pieceTitle = (i) => (S.items.length > 1 ? `Piece ${i + 1}: what is it?` : `What are we ${svcVerb()}?`);
@@ -1484,6 +1483,55 @@ function refreshQuote() {
     if (STEPS[step] === 'Pay' && !isShip()) { const pc = document.querySelector('[data-price]'); if (pc) pc.outerHTML = `<div data-price>${priceCard(quoteData, true)}</div>`; }
   }, 120);
 }
+// Description step only: the Next label names the following screen so people don't type size into the description.
+// One piece per p{i}a panel today; if that panel ever listed several pieces, use the generic "sizes" / "values" wording.
+function nextLabelsForStep() {
+  if (STEPS[step] !== 'What') return ['Next'];
+  const m = /^p(\d+)a$/.exec(String(sub || ''));
+  if (!m) return ['Next'];
+  const i = Number(m[1]);
+  const ids = panelIds();
+  const nextId = ids[ids.indexOf(sub) + 1] || '';
+  const one = true;
+  if (nextId === `p${i}b`) {
+    return one ? [`Next: size of piece ${i + 1}`, 'Next: size'] : ['Next: sizes', 'Next: size'];
+  }
+  if (nextId === `p${i}c`) {
+    // Furniture (non-ship) and custom skip "How big is it?"; next is value and care.
+    return one ? [`Next: value of piece ${i + 1}`, 'Next: value'] : ['Next: values', 'Next: value'];
+  }
+  return ['Next'];
+}
+function dockOverflowAmount() {
+  const row = $('.dock-row');
+  if (!row) return 0;
+  let amt = Math.max(0, document.documentElement.scrollWidth - document.documentElement.clientWidth);
+  const rr = row.getBoundingClientRect();
+  const est = row.querySelector('.estimate');
+  const actions = row.querySelector('.dock-actions');
+  if (est && actions) amt = Math.max(amt, est.getBoundingClientRect().right - (actions.getBoundingClientRect().left - 4));
+  if (est) amt = Math.max(amt, est.scrollWidth - est.clientWidth);
+  [...row.querySelectorAll('button, .est-total, .est-label')].forEach((el) => {
+    const r = el.getBoundingClientRect();
+    amt = Math.max(amt, r.right - rr.right, rr.left - r.left, el.scrollWidth - el.clientWidth);
+  });
+  return amt;
+}
+function applyNextLabel(btn) {
+  const labels = nextLabelsForStep();
+  const apply = (text, desc) => { btn.textContent = text; btn.classList.toggle('next-desc', !!desc && text !== 'Next'); };
+  // Measure against the default "Next" so a footer that's already tight at 320px doesn't
+  // force us off a same-width "Next: size" label.
+  apply('Next', false);
+  const base = dockOverflowAmount();
+  let chosen = 'Next', desc = false;
+  for (const text of labels) {
+    if (text === 'Next') continue;
+    apply(text, true);
+    if (dockOverflowAmount() <= base + 0.5) { chosen = text; desc = true; break; }
+  }
+  apply(chosen, desc);
+}
 function paintButton() {
   const name = STEPS[step], btn = $('#nextBtn');
   const q = existing ? existing.quote : quoteData;
@@ -1492,7 +1540,8 @@ function paintButton() {
     const payWhat = q && accessTbc(q) ? (q.paymentPlan === 'deposit' ? '50% of base price ' : 'base price ') : '';
     if (existing || !special()) btn.textContent = CFG.stripe ? `Pay ${payWhat}${q ? fmt(q.dueNow) : ''} on Stripe` : `Pay ${payWhat}${q ? fmt(q.dueNow) : ''}`;
     else btn.textContent = isShip() ? 'Request quote' : S.rush ? 'Request a rush quote' : (quoteData && quoteData.reviewOnly) ? 'Request this date' : 'Request a quote';
-  } else btn.textContent = 'Next';
+    btn.classList.remove('next-desc');
+  } else applyNextLabel(btn);
   const wait = missingNow().length > 0;
   const hold = busy || (quotePending && name === 'Pay' && isLastPanel());
   if (hold) { btn.disabled = true; btn.classList.remove('is-wait'); btn.removeAttribute('aria-disabled'); }
@@ -1614,7 +1663,7 @@ function measureDock() {
   document.documentElement.style.setProperty('--dock-h', h + 'px');
 }
 if (window.ResizeObserver) new ResizeObserver(measureDock).observe($('#dock'));
-window.addEventListener('resize', measureDock);
+window.addEventListener('resize', () => { measureDock(); if (STEPS[step] !== 'Done') paintButton(); });
 
 // Keep the focused field above the fixed estimate bar (and above the on-screen keyboard on phones).
 function keepAboveDock(el) {

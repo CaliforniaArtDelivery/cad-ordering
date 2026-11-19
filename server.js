@@ -223,10 +223,10 @@ function validate(o) {
     if (!/\S+@\S+\.\S+/.test(o.payerOther?.email || '')) errs.push('payer email');
     if (String(o.payerOther?.phone || '').replace(/\D/g, '').length < 7) errs.push('payer phone');
   }
-  // Photo rules: required for items over 500 lb or of unknown weight, and 'other' items and special-handling pieces. Technical carries and high installs are below.
+  // Photo rules (Chad, Nov 19): required only when special handling is on. Weight "Not sure" never requires a photo.
   const numVal = (s) => { const n = Number(String(s ?? '').replace(/,/g, '')); return Number.isFinite(n) ? n : 0; };
-  const needsPhoto = (it) => numVal(it.weight) > 500 || !!it.weightUnsure || it.type === 'other' || !!it.fragile;
-  forPieces('photos (pieces over 500 lb or of unknown weight, unusual pieces or special handling)', (it) => needsPhoto(it) && !(it.photos || []).length);
+  const needsPhoto = (it) => !!it.fragile;
+  forPieces('photos (special handling)', (it) => needsPhoto(it) && !(it.photos || []).length);
   if (SERVICES[o.service]?.install) {
     (o.items || []).forEach((it) => {
       if (isHungItem(it) && it.hangHeight === 'higher' && it.hangWhere === 'stairwell' && !((it.hangPhotos || []).length)) errs.push('photos of the stairwell');

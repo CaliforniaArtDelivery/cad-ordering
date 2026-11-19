@@ -100,8 +100,10 @@ Contact is someone else | Pickup contact role / Delivery contact role / Install 
 Server rejection, Same as me with no "I am a…" | your “I am a…” answer (used as the delivery contact role)
 
 --- Item photo (What step; also enforced on the server) ---
-Over 500 lb (501 lb or more) | Photo required for items over 500 lb.
-Weight "Not sure" | Add a photo so we can plan for the weight.
+Special handling needed | Photo required for special handling.
+Weight "Not sure" | No problem, you can skip this. (does not require a photo; Next is not blocked)
+Otherwise | + Photos (optional)
+Material or notes (optional) | e.g. ceramic vase, glass top
 
 --- Stairwell fit confirmation (pieces over 80") ---
 Shown when a stop has real stairs (Stairs, or Elevator + Stairs). For "A few steps (3 or fewer)" only when the piece is also over 150 lb.

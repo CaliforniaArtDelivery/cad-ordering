@@ -41,7 +41,7 @@ exports.uiTests = async (H) => {
     else if (s.weight !== undefined) await fill(`items.${i}.weight`, s.weight);
     if (s.fragile) await page.click(`label.toggle:has([data-path="items.${i}.fragile"])`);
     if (s.photo) { await page.setInputFiles(`[data-upload="${i}"]`, PHOTO); await page.waitForFunction((n) => JSON.parse(sessionStorage.getItem('cad-order')).items[n].photos.length > 0, i, { timeout: 8000 }); await page.waitForTimeout(300); }
-    if (s.unsure && !s.photo) { await page.click('#nextBtn', { force: true }); await page.waitForTimeout(350); } // blocked on purpose: Not sure needs a photo
+    if (s.fragile && !s.photo) { await page.click('#nextBtn', { force: true }); await page.waitForTimeout(350); } // blocked on purpose: special handling needs a photo
     else await next();
   }
   const rowCount = () => page.locator('[data-piece-row]').count();
@@ -274,6 +274,49 @@ exports.uiTests = async (H) => {
     ok((await state()).items.length === 29, 'forward/back does not change the pieces');
   }
 
+  // ---------------- 8b: Value and care rules (Chad, Nov 19) ----------------
+  hdr('UI 8b: Not sure does not block; photos required only for special handling; material notes optional');
+  {
+    await freshStart();
+    await fill(`items.0.description`, 'Care test'); await next();
+    await fill(`items.0.w`, 30); await fill(`items.0.h`, 40); await fill(`items.0.d`, 2);
+    await page.click('[data-seg="items.0.framed"] [data-v="no"]'); await next();
+    ok((await panel()) === 'p0c', 'landed on Value and care');
+    ok(await page.isVisible('[data-path="items.0.materialNotes"]'), 'Material or notes (optional) is on the Value and care step');
+    ok(/e\.g\. ceramic vase, glass top/.test(await page.getAttribute('[data-path="items.0.materialNotes"]', 'placeholder')), 'material placeholder');
+    ok(/Only for pieces outside normal handling/.test(await page.textContent('[data-panel="p0c"]')), 'special handling copy says it is rare');
+    ok(!/We’ll confirm the weight|Add a photo so we can plan for the weight/.test(await page.textContent('[data-panel="p0c"]')), 'old weight-confirm / weight-photo copy is gone');
+    await fill(`items.0.value`, 5000);
+    await settle();
+    ok(!(await blocked()), 'with a value and no special handling, Next is enabled even without a photo or weight');
+    ok(/\(optional\)/.test(await page.textContent('[data-photolbl="0"]')), 'photos are labeled optional');
+    await page.click('[data-weightunsure="0"]'); await page.waitForTimeout(200);
+    ok((await state()).items[0].weightUnsure === true, 'Not sure toggles on');
+    ok(/No problem, you can skip this/.test(await page.textContent('[data-weight="0"]')), 'Not sure shows the skip line, not a confirm-weight promise');
+    await settle();
+    ok(!(await blocked()), 'Not sure does not block Next and does not require a photo');
+    ok(!(await page.isVisible('[data-photoreq="0"]')), 'no photo requirement for Not sure');
+    // Special handling requires a photo and is named in the field counter.
+    await page.click('label.toggle:has([data-path="items.0.fragile"])'); await page.waitForTimeout(200);
+    await settle();
+    ok(await blocked(), 'special handling without a photo blocks Next');
+    ok((await page.isVisible('[data-photoreq="0"]')) && /Photo required for special handling/.test(await page.textContent('[data-photoreq="0"]')), 'photo requirement shows only once special handling is on');
+    const need = (await page.textContent('#needLine') || '').trim();
+    ok(/1 field left: Photos — Piece 1/.test(need), 'field counter: 1 field left is photos, not weight', need);
+    await fill(`items.0.materialNotes`, 'ceramic vase, glass top');
+    await settle();
+    ok(await blocked() && (await state()).items[0].materialNotes === 'ceramic vase, glass top', 'material notes are optional: filling them does not clear the photo requirement');
+    await page.setInputFiles('[data-upload="0"]', PHOTO); await page.waitForFunction(() => JSON.parse(sessionStorage.getItem('cad-order')).items[0].photos.length > 0); await page.waitForTimeout(300);
+    await settle();
+    ok(!(await blocked()), 'special handling with a photo enables Next');
+    await next();
+    ok((await panel()) === 'pieces-more', 'continues to the list');
+    await page.click('#addItem'); await page.waitForTimeout(250);
+    await fillPiece(1, { desc: 'Second, not sure', value: 8000, unsure: true });
+    ok((await panel()) === 'pieces-more', 'second piece with Not sure and no photo is complete');
+    ok((await state()).items[0].fragile === true && (await state()).items[1].weightUnsure === true && (await state()).items[1].photos.length === 0, 'mixed order: piece 1 special handling + photo, piece 2 Not sure and no photo');
+  }
+
   // ---------------- 9: thresholds and per-piece weight/photo rules in the browser ----------------
   hdr('UI 9: $49,999 / $50,000 / $50,001 and "Not sure" weight, in the browser');
   await freshStart();
@@ -281,11 +324,7 @@ exports.uiTests = async (H) => {
   await page.click('#addItem'); await page.waitForTimeout(250);
   ok((await panel()) === 'p1a' && /Piece 2: what is it\?/.test(await page.textContent('[data-panel="p1a"] h1')), 'Add another piece opens "Piece 2: what is it?"');
   await fillPiece(1, { desc: 'Exactly', value: 50000, unsure: true });
-  ok((await panel()) === 'p1c', 'Piece 2 stays on its screen: weight Not sure needs a photo', await panel());
-  ok(await blocked(), 'blocked until Piece 2 has a photo');
-  ok((await page.isVisible('[data-photoreq="1"]')) && !(await page.isVisible('[data-photoreq="0"]')), 'photo requirement shows on Piece 2 only');
-  await page.setInputFiles('[data-upload="1"]', PHOTO); await page.waitForFunction(() => JSON.parse(sessionStorage.getItem('cad-order')).items[1].photos.length > 0); await page.waitForTimeout(300);
-  await next();
+  ok((await panel()) === 'pieces-more', 'Not sure weight does not require a photo; Next continues to the list', await panel());
   await page.click('#addItem'); await page.waitForTimeout(250);
   await fillPiece(2, { desc: 'Over', value: 50001 });
   {

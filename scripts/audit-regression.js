@@ -77,7 +77,7 @@ async function run(BASE, errors, { dataRoot = process.env.STORAGE_DIR || ROOT, a
     ['missing contact role', base({ pickup: addr({ contactRole: '' }) })],
     ['"Other" role without text', base({ pickup: addr({ contactRole: 'Other', contactRoleOther: '' }) })],
     ['sculpture without weight', base({ items: [item({ type: 'sculpture', framed: '', weight: '' })] })],
-    ['over 500 lb without photo', base({ items: [item({ type: 'sculpture', framed: '', weight: '501' })] })],
+    ['special handling without photo', base({ items: [item({ fragile: true })] })],
   ];
   for (const [name, b] of bad) { const r = await post('/api/orders', b); if (r.s !== 400) errors.push(`validation: ${name} should be refused (got ${r.s} ${r.j.status || ''})`); }
   const at500 = await post('/api/orders', base({ items: [item({ type: 'sculpture', framed: '', weight: '500', description: 'Exactly 500 lb' })] }));
@@ -103,7 +103,7 @@ async function run(BASE, errors, { dataRoot = process.env.STORAGE_DIR || ROOT, a
     if (!m) errors.push('quote_received email missing');
     if (banned.test(m)) errors.push(`quote email has banned wording: ${(m.match(banned) || [])[0]}`);
     if (/\$75\.00–\$75\.00|\$0\.00–\$0\.00/.test(m)) errors.push('quote email shows a fake same-number range');
-    if (!/weight we’ll confirm/.test(m)) errors.push('quote email should say why it needs a price (weight to confirm)');
+    if (!/weight wasn’t provided/.test(m)) errors.push('quote email should say why it needs a price (weight wasn’t provided)');
     if (!mails(weightQ.j.id, 'payer_quote').length) errors.push('payer should get a notice when listed as "Someone else"');
   }
   const big = await post('/api/orders', { ...base({ service: 'install_only', items: [item({ qty: 20, value: '10000', description: 'Install receipt check' })], payer: 'other', payerOther: { name: 'Paul Payer', email: 'payer@example.com', phone: '2125550103' } }), pickup: undefined });
@@ -200,7 +200,7 @@ async function run(BASE, errors, { dataRoot = process.env.STORAGE_DIR || ROOT, a
   if (!pr.needsStairwellFit(tall, ord(A.normalize({ accessMode: 'elevator', floor: '3', elevatorStairs: 'stairs', stairFlights: '1', stairDir: 'up' })))) errors.push('stairwell fit: elevator + stairs should ask for a 90" piece');
   // ACCESS_COPY.txt matches the new copy.
   const copy = fs.readFileSync(path.join(ROOT, 'ACCESS_COPY.txt'), 'utf8');
-  ['Not sure', 'Any stairs on the way?', 'Count steps before or after the elevator.', 'Service elevator available?', 'Loading dock available?', 'Doors (optional)', 'Think doors, halls, turns, stairs and the elevator.', 'Please add a photo of the tight spot and the way in.', 'Photos help if you have them.', 'Narrowest opening (inches)', 'Total number of flights', 'Enter the total number of flights (4 or more).', 'e.g. 3, Basement', 'Elevator, floor 30', A.PRICE_NOTE, 'Add a photo so we can plan for the weight.']
+  ['Not sure', 'Any stairs on the way?', 'Count steps before or after the elevator.', 'Service elevator available?', 'Loading dock available?', 'Doors (optional)', 'Think doors, halls, turns, stairs and the elevator.', 'Please add a photo of the tight spot and the way in.', 'Photos help if you have them.', 'Narrowest opening (inches)', 'Total number of flights', 'Enter the total number of flights (4 or more).', 'e.g. 3, Basement', 'Elevator, floor 30', A.PRICE_NOTE, 'Photo required for special handling.', 'No problem, you can skip this.', 'Material or notes (optional)']
     .forEach((t) => { if (!copy.includes(t)) errors.push('ACCESS_COPY.txt missing: ' + t); });
   ['send them later', 'Doorway (optional)', 'steps on the way to the elevator', 'photo(s)', 'Elevator to floor', 'Exact number of flights', 'the way in, so we can plan the carry'].forEach((t) => { if (copy.includes(t)) errors.push('ACCESS_COPY.txt still has: ' + t); });
 
@@ -219,12 +219,12 @@ async function run(BASE, errors, { dataRoot = process.env.STORAGE_DIR || ROOT, a
     // 150 vs 151 lb: the fit question becomes required.
     await ok('150 lb sculpture, ground, no fit answer', order({ type: 'sculpture', framed: '', weight: '150', w: 20, h: 30, d: 20 }, { fits: '' }));
     await no('151 lb sculpture, ground, no fit answer', order({ type: 'sculpture', framed: '', weight: '151', w: 20, h: 30, d: 20 }, { fits: '' }), /will everything fit easily/);
-    // 500 vs 501 lb, unknown weight: photos.
+    // Photos are required only for special handling (not for heavy or unknown weight).
     await ok('500 lb sculpture without a photo', order({ type: 'sculpture', framed: '', weight: '500', w: 20, h: 30, d: 20 }, {}));
-    await no('501 lb sculpture without a photo', order({ type: 'sculpture', framed: '', weight: '501', w: 20, h: 30, d: 20 }, {}), /photos/);
-    await ok('501 lb sculpture with a photo', order({ type: 'sculpture', framed: '', weight: '501', w: 20, h: 30, d: 20, photos: ['/uploads/x.png'] }, {}));
-    await no('unknown weight without a photo', order({ type: 'sculpture', framed: '', weight: '', weightUnsure: true, w: 20, h: 30, d: 20 }, {}), /unknown weight/);
-    await ok('unknown weight with a photo', order({ type: 'sculpture', framed: '', weight: '', weightUnsure: true, w: 20, h: 30, d: 20, photos: ['/uploads/x.png'] }, {}));
+    await ok('501 lb sculpture without a photo', order({ type: 'sculpture', framed: '', weight: '501', w: 20, h: 30, d: 20 }, {}));
+    await ok('unknown weight without a photo', order({ type: 'sculpture', framed: '', weight: '', weightUnsure: true, w: 20, h: 30, d: 20 }, {}));
+    await no('special handling without a photo', order({ fragile: true }, {}), /photos/);
+    await ok('special handling with a photo', order({ fragile: true, photos: ['/uploads/x.png'] }, {}));
     // Floor as text.
     const bas = await ok('elevator, floor Basement', order({}, { accessMode: 'elevator', floor: 'Basement', elevatorStairs: 'no' }));
     if (bas.j.order && !A.summary(bas.j.order.dropoff).includes('Elevator, floor Basement')) errors.push('boundary: summary should read "Elevator, floor Basement"');
@@ -303,7 +303,7 @@ async function run(BASE, errors, { dataRoot = process.env.STORAGE_DIR || ROOT, a
       return r;
     };
     const h600 = await bookPay('600 lb, 80" sculpture with a photo', { type: 'sculpture', weight: 600, w: 30, h: 80, d: 30, value: '20000', photos: ['/uploads/x.png'] });
-    await no('600 lb sculpture without a photo', order({ type: 'sculpture', weight: 600, w: 30, h: 40, d: 30, value: '20000' }), /photos/);
+    await ok('600 lb sculpture without a photo', order({ type: 'sculpture', weight: 600, w: 30, h: 40, d: 30, value: '20000' }));
     await bookPay('750 lb sculpture', { type: 'sculpture', weight: 750, w: 30, h: 40, d: 30, value: '20000', photos: ['/uploads/x.png'] });
     await bookPay('72" painting', { w: 72, h: 40, value: '20000' });
     await bookPay('80" sculpture up 2 flights (fit questions answered)', { type: 'sculpture', weight: 200, w: 20, h: 80, d: 20, value: '20000', fitsStairwell: true }, { accessMode: 'stairs', stairFlights: '2', stairDir: 'up', stairTurns: 'no', fits: 'yes' });

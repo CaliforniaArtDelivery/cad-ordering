@@ -17,7 +17,7 @@ Copy: fine art, luxury furniture and décor are CAD's core, and we handle anythi
 
 Item fields appear once a service is picked, and each item type shows only its relevant fields:
 - **Item type chips (in order):** Painting, Mirror, Other wall art (photography, mixed media, wall sculpture, etc.), Sculpture, Furniture, Décor, Other fragile or valuable item, Other request.
-- **Painting / Other wall art:** qty, description (placeholder "e.g. Oil on canvas by J. Smith"), W×H×D, required **Framed?** Yes/No (no default; Continue blocked until answered), and if Yes a required **Glass or acrylic glazing?** Yes/No, declared value, photos. The server rejects these pieces without the answers.
+- **Painting / Other wall art:** qty, description (placeholder "e.g. Oil on canvas"), W×H×D, required **Framed?** Yes/No (no default; Continue blocked until answered), and if Yes a required **Glass or acrylic glazing?** Yes/No, declared value, photos. The server rejects these pieces without the answers.
 - **Mirror:** same fields as a painting, no framing question (glass is implied).
 - **Other request:** free-text description; always routed to a custom quote reviewed by CAD (no payment until approved).
 - **Mirror pricing (Chad, Nov 15 2026):** Multipliers on the painting prices for that size (including the 72"+ oversize fees when they apply), based on the larger of width and height (depth does not count). Every multiplier is rounded UP to the next $5. Install: up to 48" = 1×; over 48" = 1.5×; over 60" = 2.5×; over 70" = 3× (no 50" tier). Pickup and delivery: under 60" = 1× the painting delivery price; 60" or more (inclusive) = 1.5×; over 70" = 2×. Other wall art still uses the painting tables. Wall sculpture under Other wall art hangs, so it is installable; freestanding Sculpture is placed, never hung.
@@ -99,9 +99,9 @@ Step 4 shows "Review your request", the quoted range and "no payment due yet", a
 ## Out-of-state rule (Chad)
 Any job with a pickup or delivery address outside California (state field, a non-CA ZIP, or a non-US country) automatically becomes a Shipping custom quote, even if the customer picked Pickup + Delivery. A short note explains it ("Pickups and deliveries outside California are custom quoted as Shipping… Within California we always provide white-glove delivery."). Step 3 switches to Shipping details (adds dims/weight/crating per piece and destination type). The order is saved as `crating_shipping` (display label: Shipping) with `outOfState: true` and the service the customer originally picked.
 
-## Photo rules (Chad)
-Photos are optional by default (deliveries and shipping). They're required, with a one-line reason shown, when:
-- a piece is 300 lb or heavier, is an "Other" item, or is marked **Uniquely fragile** (toggle on every piece);
+## Photo rules (Chad, Nov 19)
+Piece photos on the Value and care step are optional by default, shown as "+ Photos (optional)". They are required, with the line "Photo required for special handling.", only when **Special handling needed** is on. Weight "Not sure" never requires a photo and does not block Next. An optional "Material or notes" field can describe materials instead of a photo (included on the sheet item line and in emails).
+Access-path and hanging-wall photos are separate:
 - a site has **Tight spaces, backyard or technical carry** turned on (photos of the carry path);
 - a hanging job is **High or above a stairwell** (photo of the wall).
 The server enforces the same rules.
