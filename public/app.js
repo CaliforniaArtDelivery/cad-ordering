@@ -1736,7 +1736,7 @@ app.addEventListener('input', (e) => {
   if (hint && hint[2] === 'value' && S.items[+hint[1]] && S.items[+hint[1]].checkValue) { S.items[+hint[1]].checkValue = false; persist(); { const pid = S.items[+hint[1]].id; app.querySelectorAll(`[data-checkvalnote="${pid}"], [data-piece-id="${pid}"] [data-checkvalue]`).forEach((el) => el.remove()); } }
   if (hint) updateItemHints(+hint[1]);
   // Editing a piece in Quick edit: keep the list above it (titles, facts, "Needs details") in step. The quick-edit fields themselves are not re-rendered, so typing keeps its focus.
-  if (/^items\.\d+\./.test(p) && e.target.closest('[data-quick]')) { const L = app.querySelector('[data-pclist]'); if (L) L.innerHTML = S.items.map((it, i) => pieceListRow(it, i)).join(''); }
+  if (/^items\.\d+\./.test(p) && e.target.closest('[data-quick]')) { const L = app.querySelector('[data-pclist]'); if (L) L.innerHTML = S.items.map((it, i) => pieceListRow(it, i)).join(''); const sm = app.querySelector('[data-pcsummary]'); if (sm) sm.outerHTML = listSummary(); }
   updateNext(); refreshQuote();
   const dim = p.match(/^items\.(\d+)\.(w|h)$/);
   if (dim) syncFrameType(+dim[1]);

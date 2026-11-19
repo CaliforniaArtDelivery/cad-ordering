@@ -56,6 +56,24 @@ exports.uiTests = async (H) => {
   };
 
   // ---------------- U0: legacy draft in the browser ----------------
+  async function toReview(onPanel) {
+    const VAL = { 'contact.name': 'Jordan Lee', 'contact.email': 'jordan@example.com', 'contact.phone': '3105550199', 'pickup.street': '8678 Melrose Ave', 'pickup.city': 'West Hollywood', 'pickup.zip': '90069', 'pickup.contactName': 'Andrea B', 'pickup.contactPhone': '3105550101', 'dropoff.street': '1200 Summit Ridge Dr', 'dropoff.city': 'Beverly Hills', 'dropoff.zip': '90210', 'dropoff.contactName': 'Jordan Lee', 'dropoff.contactPhone': '3105550199' };
+    await next(); // list -> Where
+    for (let n = 0; n < 40 && (await panel()) !== 'review'; n++) {
+      if (onPanel) await onPanel(await panel());
+      const v = await page.evaluate(() => { const p = [...document.querySelectorAll('[data-panel]')].find((x) => !x.hidden); return [...p.querySelectorAll('input,select,textarea,[data-seg]')].filter((e) => e.offsetParent).map((e) => ({ k: e.dataset.path || e.dataset.seg || e.id, t: e.tagName, v: e.value, opts: e.tagName === 'SELECT' ? [...e.options].map((o) => o.value) : undefined })); });
+      for (const f of v) {
+        if (VAL[f.k] !== undefined && f.t === 'INPUT' && !f.v) await page.fill(`[data-path="${f.k}"]`, VAL[f.k]);
+        else if (f.t === 'SELECT' && !f.v && f.opts) await page.selectOption(`[data-path="${f.k}"]`, f.k === 'heard.source' ? 'google' : f.opts[1]);
+        else if (f.t === 'DIV' && /^(pickup|dropoff)\./.test(f.k) && !(await page.$(`[data-seg="${f.k}"] button.on`))) { await page.click(`[data-seg="${f.k}"] button >> nth=0`); await page.waitForTimeout(120); }
+      }
+      if (await page.locator('[data-reqblock="date"] .day:not(.rush):visible').count()) { await page.click('[data-reqblock="date"] .day:not(.rush):visible >> nth=0'); await page.waitForTimeout(250); }
+      if (await page.locator('[data-deldate]:visible').count()) { await page.click('[data-deldate]:visible >> nth=0'); await page.waitForTimeout(250); }
+      await next();
+    }
+  }
+
+  if (!process.env.UI_LATE_ONLY) {
   hdr('UI 0: an old saved draft with a quantity (refresh never shows one piece as ten)');
   {
     await page.goto(BASE); await page.evaluate(() => sessionStorage.clear());
@@ -281,22 +299,6 @@ exports.uiTests = async (H) => {
   }
 
   // ---------------- 10: the whole way to the review, pay once ----------------
-  async function toReview() {
-    const VAL = { 'contact.name': 'Jordan Lee', 'contact.email': 'jordan@example.com', 'contact.phone': '3105550199', 'pickup.street': '8678 Melrose Ave', 'pickup.city': 'West Hollywood', 'pickup.zip': '90069', 'pickup.contactName': 'Andrea B', 'pickup.contactPhone': '3105550101', 'dropoff.street': '1200 Summit Ridge Dr', 'dropoff.city': 'Beverly Hills', 'dropoff.zip': '90210', 'dropoff.contactName': 'Jordan Lee', 'dropoff.contactPhone': '3105550199' };
-    await next(); // list -> Where
-    for (let n = 0; n < 40 && (await panel()) !== 'review'; n++) {
-      const v = await page.evaluate(() => { const p = [...document.querySelectorAll('[data-panel]')].find((x) => !x.hidden); return [...p.querySelectorAll('input,select,textarea,[data-seg]')].filter((e) => e.offsetParent).map((e) => ({ k: e.dataset.path || e.dataset.seg || e.id, t: e.tagName, v: e.value, opts: e.tagName === 'SELECT' ? [...e.options].map((o) => o.value) : undefined })); });
-      for (const f of v) {
-        if (VAL[f.k] !== undefined && f.t === 'INPUT' && !f.v) await page.fill(`[data-path="${f.k}"]`, VAL[f.k]);
-        else if (f.t === 'SELECT' && !f.v && f.opts) await page.selectOption(`[data-path="${f.k}"]`, f.k === 'heard.source' ? 'google' : f.opts[1]);
-        else if (f.t === 'DIV' && /^(pickup|dropoff)\./.test(f.k) && !(await page.$(`[data-seg="${f.k}"] button.on`))) { await page.click(`[data-seg="${f.k}"] button >> nth=0`); await page.waitForTimeout(120); }
-      }
-      if (await page.locator('[data-reqblock="date"] .day:not(.rush):visible').count()) { await page.click('[data-reqblock="date"] .day:not(.rush):visible >> nth=0'); await page.waitForTimeout(250); }
-      if (await page.locator('[data-deldate]:visible').count()) { await page.click('[data-deldate]:visible >> nth=0'); await page.waitForTimeout(250); }
-      await next();
-    }
-  }
-
   hdr('UI 10: review screen and double-click Pay');
   {
     await toReview();
@@ -326,6 +328,8 @@ exports.uiTests = async (H) => {
     await page.reload(); await page.waitForTimeout(800);
     ok(orders().length === before + 1 && /You’re booked/.test(await page.textContent('#app')), 'refresh after booking shows the confirmation and books nothing new');
   }
+
+  } // end of the early sections (UI_LATE_ONLY=1 skips them)
 
   // ---------------- 11: copied values must be confirmed before Pay (Dot) ----------------
   hdr('UI 11: copied values block Pay until confirmed; bulk confirm, per-piece confirm, edit clears the flag');
@@ -373,6 +377,55 @@ exports.uiTests = async (H) => {
     ok([1, 2, 3, 4, 5].every((n) => new RegExp(`Piece ${n}\\b`).test(pt)) && /Master/.test(pt) && /72 × 60 × 2/.test(pt) && /\$12,000/.test(pt) && /\$13,000/.test(pt), 'opened, it lists Piece 1–5 with description, dimensions and declared value', pt.slice(0, 400));
     await page.evaluate(() => document.querySelector('[data-yourpieces]').scrollIntoView()); await page.waitForTimeout(200);
     await shot('16-confirmation-your-pieces');
+  }
+
+  // ---------------- 12: long lists collapse; sticky footer on a short phone and with the keyboard open ----------------
+  hdr('UI 12: long list collapses finished pieces; the bottom bar never covers a control at 375x667 or with the keyboard open');
+  {
+    await page.setViewportSize({ width: 375, height: 667 });
+    await freshStart();
+    await fillPiece(0, { desc: 'Master', value: 12000 });
+    await page.click('[data-piece-row="0"] [data-dupopen]'); await page.waitForSelector('#dup-n');
+    await page.fill('#dup-n', '11'); await page.click('#dupGo'); await page.waitForTimeout(400);
+    ok((await rowCount()) === 12 && (await page.locator('[data-piece-row].compact').count()) === 1, '12 pieces: only the master (not flagged) is collapsed; the 11 copies stay open until their value is confirmed', await page.locator('[data-piece-row].compact').count());
+    await page.click('[data-valall]'); await page.waitForTimeout(300);
+    ok((await page.locator('[data-piece-row].compact').count()) === 12, 'after confirming, all 12 finished pieces collapse to one short row');
+    ok(/12 pieces · 12 complete/.test(await page.textContent('[data-pcsummary]')) && /\$144,000 total declared value/.test(await page.textContent('[data-pcsummary]')), 'a summary line says 12 pieces, 12 complete, $144,000 total', await page.textContent('[data-pcsummary]'));
+    const h = await page.$eval('[data-piece-row="3"]', (e) => Math.round(e.getBoundingClientRect().height));
+    ok(h <= 96, 'a collapsed row is short (<= 96px at 375px wide)', h);
+    ok(/Piece 4 — Master/.test(await page.textContent('[data-piece-row="3"] .pc-title')) && (await page.isVisible('[data-piece-row="3"] .edit')), 'it still shows its title, value and Edit');
+    ok(!(await page.isVisible('[data-piece-row="3"] .pc-facts')), 'facts are hidden while collapsed');
+    await page.click('[data-piece-row="3"] [data-pcopen]'); await page.waitForTimeout(250);
+    ok((await page.isVisible('[data-piece-row="3"] .pc-facts')) && (await page.locator('[data-piece-row].compact').count()) === 11, 'Details opens that one piece');
+    await page.click('[data-piece-row="3"] [data-pcopen]'); await page.waitForTimeout(150);
+    await page.click('details[data-quick] > summary'); await page.click('details[data-qpiece]:nth-of-type(6) > summary');
+    await page.fill('#q-items\\.5\\.value', ''); await page.waitForTimeout(250);
+    ok(!(await page.$eval('[data-piece-row="5"]', (e) => e.classList.contains('compact'))) && /Needs details/.test(await page.textContent('[data-piece-row="5"]')) && /1 needs details/.test(await page.textContent('[data-pcsummary]')), 'a piece that needs details stays expanded and is counted in the summary');
+    await page.fill('#q-items\\.5\\.value', '12000'); await page.waitForTimeout(250);
+    await shot('17-long-list-collapsed');
+
+    const lastVsDock = () => page.evaluate(() => { const dock = document.querySelector('.dock').getBoundingClientRect(); const p = [...document.querySelectorAll('[data-panel]')].find((x) => !x.hidden); const els = [...p.querySelectorAll('input,select,textarea,button,a,summary,label.upload,[data-seg] button')].filter((e) => e.offsetParent && e.getBoundingClientRect().height > 0 && !e.closest('.qlist')); const lastEl = els.reduce((m, e) => (e.getBoundingClientRect().bottom > (m ? m.getBoundingClientRect().bottom : 0) ? e : m), null); return { dockTop: dock.top, last: lastEl ? lastEl.getBoundingClientRect().bottom : 0, el: lastEl && (lastEl.id || lastEl.tagName + ':' + lastEl.textContent.trim().slice(0, 25)), y: scrollY, sh: document.documentElement.scrollHeight, vh: innerHeight }; });
+    const dockCheck = async (tag) => {
+      await page.evaluate(() => window.scrollTo({ top: document.documentElement.scrollHeight, behavior: 'instant' })); await page.waitForTimeout(150);
+      const r2 = await lastVsDock();
+      ok(r2.last <= r2.dockTop + 1, `${tag}: scrolled to the bottom, the last control (${Math.round(r2.last)}px) is above the bottom bar (${Math.round(r2.dockTop)}px)`, r2);
+      await page.evaluate(() => window.scrollTo(0, 0));
+    };
+    await dockCheck('375x667 list screen');
+    await freshStart();
+    await dockCheck('375x667 first screen');
+    await fill('items.0.description', 'Canvas'); await next(); await dockCheck('375x667 size screen');
+    await fill('items.0.w', 72); await fill('items.0.h', 60); await fill('items.0.d', 2); await page.click('[data-seg="items.0.framed"] [data-v="no"]'); await next(); await dockCheck('375x667 value and care screen');
+    await page.setViewportSize({ width: 375, height: 330 }); // keyboard open: the visible area shrinks
+    for (const sel of ['[data-path="items.0.value"]', '[data-path="items.0.weight"]']) {
+      await page.evaluate(() => window.scrollTo(0, 0)); await page.focus(sel); await page.waitForTimeout(400);
+      const r = await page.evaluate(() => { const a = document.activeElement.getBoundingClientRect(); const d = document.querySelector('.dock').getBoundingClientRect(); return { top: a.top, bottom: a.bottom, dockTop: d.top, dockH: d.height }; });
+      ok(r.top >= 0 && r.bottom <= r.dockTop, `keyboard open (330px tall): the focused ${sel.includes('value') ? 'value' : 'weight'} field is fully visible above the bottom bar`, r);
+      ok(r.dockH <= 100, 'the bottom bar slims down on a short screen (<= 100px)', r.dockH);
+    }
+    await shot('18-keyboard-open-value');
+    await dockCheck('keyboard open');
+    await page.setViewportSize({ width: 390, height: 844 });
   }
 
   ok(pageErrors.length === 0, 'no JavaScript errors in the browser during any of this', pageErrors);
