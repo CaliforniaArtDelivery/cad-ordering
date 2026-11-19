@@ -26,7 +26,7 @@ const J = (b) => ({ method: 'POST', headers: { 'Content-Type': 'application/json
 const post = async (p, b) => { const r = await fetch(BASE + p, J(b || {})); let j = null; try { j = await r.json(); } catch {} return { status: r.status, j }; };
 const get = async (p, h) => { const r = await fetch(BASE + p, { headers: h || {} }); let j = null; try { j = await r.json(); } catch {} return { status: r.status, j }; };
 const adminGet = (p) => get(p, { 'x-admin-key': ADMIN });
-const orders = () => JSON.parse(fs.readFileSync(path.join(STORAGE, 'data', 'orders.json'), 'utf8'));
+const orders = () => { try { return JSON.parse(fs.readFileSync(path.join(STORAGE, 'data', 'orders.json'), 'utf8')); } catch { return []; } };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const hdr = (g) => { group = g; console.log('\n[' + g + ']'); };
 
