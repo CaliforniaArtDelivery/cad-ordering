@@ -8,7 +8,7 @@ const STEP_TITLES = { What: 'What', Where: 'Where', When: 'When', Pay: 'Review &
 
 const emptyAddr = () => ({
   street: '', city: '', state: 'CA', zip: '', country: 'United States', locationType: '', business: '',
-  contactName: '', contactPhone: '', contactRole: '', contactRoleOther: '', sameAsMe: true, hours: '',
+  contactName: '', contactPhone: '', contactRole: '', contactRoleOther: '', sameAsMe: true, hours: '', noStreetNumber: false,
   accessMode: '', stairFlights: '', stairDir: '', stairTurns: '', stairPhotos: [],
   serviceElevator: '', dock: '', elevatorStairs: '', doorway: '', doorPhotos: [], narrowestIn: '', accessReview: false,
   floor: '', loadingDock: false, elevator: false, stairs: 0, steps: false, stairKind: '',
@@ -26,7 +26,7 @@ const migrateAddr = (a = {}) => {
   return {
     ...emptyAddr(),
     street: a.street || '', city: a.city || '', state: a.state || 'CA', zip: a.zip || '', country: a.country || 'United States', locationType: a.locationType || '', business: a.business || '',
-    contactName: a.contactName || '', contactPhone: a.contactPhone || '', contactRole: a.contactRole || '', contactRoleOther: a.contactRoleOther || '', sameAsMe: a.sameAsMe === undefined ? true : !!a.sameAsMe, hours: a.hours || '',
+    contactName: a.contactName || '', contactPhone: a.contactPhone || '', contactRole: a.contactRole || '', contactRoleOther: a.contactRoleOther || '', sameAsMe: a.sameAsMe === undefined ? true : !!a.sameAsMe, hours: a.hours || '', noStreetNumber: a.noStreetNumber === true,
     accessMode: a.accessMode || '', stairFlights: a.stairFlights ?? '', stairDir: a.stairDir || '', stairTurns: a.stairTurns || '', stairPhotos: a.stairPhotos || [],
     serviceElevator: a.serviceElevator || '', dock: a.dock || '', elevatorStairs: a.elevatorStairs || (a.elevatorSteps === 'steps' ? 'steps' : ''), doorway: a.doorway || '', doorPhotos: a.doorPhotos || [], narrowestIn: a.narrowestIn ?? '', accessReview: !!a.accessReview,
     floor: a.floor || '', loadingDock: !!(a.loadingDock || a.parking === 'Loading dock'), elevator: !!a.elevator,
@@ -49,7 +49,7 @@ const emptyHeard = () => ({
   referrerKind: '', referrerName: '', referrerPhone: '', referrerEmail: '', businessName: '',
 });
 const fresh = () => ({
-  service: '', crating: false, rush: false, dedicated: false, member: false, memberCode: '', memberVerified: false, memberCompany: '', memberError: '', declaredValueProtection: false,
+  service: '', crating: false, rush: false, dedicated: false, declaredValueProtection: false, protectionDeclined: false, discountCode: '',
   items: [emptyItem()], pickup: emptyAddr(), dropoff: emptyAddr(),
   contact: { name: '', email: '', phone: '', company: '', clientType: '' },
   heard: emptyHeard(), referral: false, partner: { type: 'None', name: '', email: '', phone: '' }, payer: 'me', payerOther: { name: '', email: '', phone: '' },
@@ -141,14 +141,16 @@ const payload = () => {
   if (!o.dropoff.parkingRestricted) o.dropoff.parkingNote = '';
   if (!o.pickup.parkingRestricted) o.pickup.parkingNote = '';
   ['pickup', 'dropoff'].forEach((k) => { if (o[k] && !o[k].technicalCarry) o[k].sitePhotos = []; });
+  ['pickup', 'dropoff'].forEach((k) => { if (o[k] && (o[k].noStreetNumber !== true || /\d/.test(String(o[k].street || '')))) o[k].noStreetNumber = false; });
   if (intlDest(o.dropoff)) o.dropoff.state = '';
   if (isShipState()) { o.schedule = { date: '', window: '', timePref: 'none', timeNote: '', deliveryLater: false, deliveryDate: '', deliveryTimePref: 'none', deliveryTimeNote: '' }; o.rush = false; o.dedicated = false; o.crating = false; clearInstall(o.dropoff); if (!intlDest(o.dropoff)) o.shipping.customs = { name: '', phone: '', email: '' }; }
   else delete o.shipping;
   o.items.forEach((it) => { cleanFraming(it); delete it.framedGlass; if (it.weightUnsure) it.weight = ''; else it.weightUnsure = false; });
   syncHeardPayload(o);
-  o.member = !!(o.member && o.memberVerified);
-  delete o.memberVerified;
-  delete o.memberError;
+  // No member rate (Chad, Nov 19 2026). Protection is included unless the customer explicitly removed it; the discount code is the applied one only.
+  ['member', 'memberCode', 'memberVerified', 'memberCompany', 'memberError', 'discountInput', 'discountMsg'].forEach((k) => delete o[k]);
+  if (o.protectionDeclined !== true) delete o.protectionDeclined;
+  if (!String(o.discountCode || '').trim()) delete o.discountCode;
   return o;
 };
 const esc = (v) => String(v ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -572,11 +574,76 @@ const payPlan = (q) => {
 };
 // Access flagged Not sure (mode, fit or elevator stairs): the pricing API adds CADAccess.PRICE_NOTE; show it next to the price.
 const accessTbc = (q) => !!(q && (q.notes || []).includes(CADAccess.PRICE_NOTE));
-const priceCard = (q, withProtection) => `<div class="card price-card">
-  ${q ? q.lines.map((l) => `<div class="sum-row"><span>${esc(l.label)}</span><span class="amt">${l.included ? 'Included' : fmt(l.amount)}</span></div>`).join('') : '<div class="sum-row"><span>Calculating…</span><span class="amt"></span></div>'}
+// Money in a price row: a discount shows as a minus amount ("−$96.29"), never "$-96.29".
+const fmtRow = (n) => (Number(n) < 0 ? '−' + fmt(-Number(n)) : fmt(n));
+const isProtLine = (l) => /^Declared value protection/.test(l.label);
+// Declared value protection controls (Chad, Nov 19 2026): small, visible text links, never a big toggle and never hidden.
+const protectionRemoveBtn = '<button type="button" class="linkbtn" data-protection-remove>Remove protection</button>';
+const protectionRows = (q, withProtection) => {
+  const opt = q && q.protectionOption;
+  if (!withProtection || !opt || !opt.declined) return '';
+  const addBack = existing ? '' : `<button type="button" class="linkbtn" data-protection-add>Add protection back (+${fmt(opt.amount)})</button>`;
+  return `<div class="sum-row" data-protection-declined><span>Declared value protection: declined</span><span class="amt">${addBack || 'Declined'}</span></div>`;
+};
+const priceCard = (q, withProtection) => {
+  const lastProt = q ? q.lines.map(isProtLine).lastIndexOf(true) : -1;
+  const canDecline = withProtection && !existing && q && q.protection && lastProt >= 0;
+  return `<div class="card price-card">
+  ${q ? q.lines.map((l, i) => `<div class="sum-row"><span>${esc(l.label)}${canDecline && i === lastProt ? ` ${protectionRemoveBtn}` : ''}</span><span class="amt">${l.included ? 'Included' : fmtRow(l.amount)}</span></div>`).join('') : '<div class="sum-row"><span>Calculating…</span><span class="amt"></span></div>'}
+  ${q ? protectionRows(q, withProtection) : ''}
   ${withProtection && protectionNote(q) ? `<p class="mini" style="margin:6px 0 0" data-protection-note>${protectionNote(q)}</p>` : ''}
+  ${q && q.discount && q.discount.applied && q.discount.note && q.discount.note !== 'invalid' ? `<p class="mini" style="margin:6px 0 0" data-discount-note>${esc(q.discount.note)}</p>` : ''}
   ${q ? `${accessTbc(q) ? `<p class="mini access-tbc" data-access-tbc><b>${esc(CADAccess.PRICE_NOTE)}</b></p>` : ''}${isQuote(q) && !q.tripPremium && !q.reviewOnly ? '' : `<div class="total"><span>${q.reviewOnly ? 'Estimated price' : isQuote(q) ? 'Regular rate' : accessTbc(q) ? CADAccess.TBC_TOTAL : 'Total'}</span><span class="amt">${fmt(q.regularTotal || q.total)}</span></div>`}${payPlan(q)}` : ''}
 </div>`;
+};
+
+// ---------- discount code (Review & pay) ----------
+// The code is checked on the server only (POST /api/discount-code); the amount always comes back from the server quote.
+let discountInput = '', discountMsg = null;
+const discountBlock = () => {
+  if (existing) return '';
+  const applied = String(S.discountCode || '');
+  return `<div class="card discount-card" data-discount>
+    <label class="f" for="discountInput">Discount code</label>
+    <div class="row keep discount-row"><div class="field"><input id="discountInput" type="text" autocapitalize="characters" autocomplete="off" spellcheck="false" placeholder="Enter code" value="${esc(applied || discountInput)}" ${applied ? 'readonly' : ''} aria-describedby="discountMsg"></div>
+    ${applied ? '<button type="button" class="btn" data-discount-remove>Remove</button>' : '<button type="button" class="btn" data-discount-apply>Apply</button>'}</div>
+    <p class="mini ${discountMsg ? (discountMsg.ok ? 'discount-ok' : 'discount-bad') : ''}" id="discountMsg" role="status" aria-live="polite" data-discount-msg>${discountMsg ? esc(discountMsg.text) : ''}</p>
+  </div>`;
+};
+const paintDiscount = () => { const el = document.querySelector('[data-discount]'); if (el) el.outerHTML = discountBlock(); };
+async function applyDiscount() {
+  const code = String(discountInput || '').trim();
+  if (!code) { discountMsg = { ok: false, text: 'Enter a discount code.' }; paintDiscount(); return; }
+  const btn = document.querySelector('[data-discount-apply]'); if (btn) btn.disabled = true;
+  const { ok, j } = await api('/api/discount-code', { code, order: payload() });
+  if (ok && j && j.valid) {
+    S.discountCode = j.code; discountInput = ''; persist();
+    discountMsg = { ok: true, text: j.message || `Code ${j.code} applied.` };
+    refreshQuote();
+  } else {
+    S.discountCode = ''; persist();
+    discountMsg = { ok: false, text: (j && j.message) || 'That code isn’t valid. Please check it and try again.' };
+  }
+  paintDiscount();
+}
+// "Remove protection" asks first (Chad, Nov 19 2026). Keep is the default and the primary button; only Yes drops the line.
+function confirmDeclineProtection() {
+  const ov = document.createElement('div');
+  ov.className = 'modal-ov'; ov.setAttribute('data-protection-dialog', '');
+  ov.innerHTML = `<div class="modal" role="alertdialog" aria-modal="true" aria-label="Decline declared value protection" aria-describedby="protMsg">
+    <p id="protMsg">Are you sure you want to decline declared value protection? Without it, CAD's liability is limited.</p>
+    <div class="modal-btns"><button type="button" class="btn primary" data-pdlg="keep">Keep protection</button><button type="button" class="btn" data-pdlg="yes">Yes, remove protection</button></div></div>`;
+  const close = () => { ov.remove(); document.removeEventListener('keydown', onKey, true); };
+  const onKey = (e) => { if (e.key === 'Escape') { e.preventDefault(); close(); } };
+  ov.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-pdlg]');
+    if (b && b.dataset.pdlg === 'yes') { S.protectionDeclined = true; persist(); close(); refreshQuote(); return; }
+    if (b || e.target === ov) close();
+  });
+  document.addEventListener('keydown', onKey, true);
+  document.body.appendChild(ov);
+  const k = ov.querySelector('[data-pdlg="keep"]'); if (k) k.focus();
+}
 
 // ---------- payment block (shared by new orders and payment links) ----------
 const paymentBlock = (q) => {
@@ -671,16 +738,16 @@ const sitePhotosOk = () => true;
 const hangPhotosOk = (it) => it.hangHeight !== 'higher' || it.hangWhere !== 'stairwell' || (it.hangPhotos || []).length > 0;
 const valueHint = (it) => (shipService() ? 'The value of this one piece. Our shipping partner uses it for coverage.'
   : num(it.value) > 50000 ? 'The value of this one piece.'
-  : num(it.value) > 0 ? `Required declared value protection: 1.5% of this piece’s declared value (${fmt(Math.round(num(it.value) * 1.5) / 100)} per piece).`
+  : num(it.value) > 0 ? `Declared value protection: 1.5% of this piece’s declared value (${fmt(Math.round(num(it.value) * 1.5) / 100)} per piece), included. You can remove it at checkout.`
   : PROTECTION_HINT);
-// Declared value protection (Chad + Dot, Nov 16 2026): required, 1.5% of each ELIGIBLE piece's declared value
-// (pieces valued $50,000 or less). Never optional, never called insurance or full coverage.
+// Declared value protection (Chad + Dot, Nov 16 2026; made optional Nov 19 2026): 1.5% of each ELIGIBLE piece's declared value
+// (pieces valued $50,000 or less), INCLUDED by default with a visible "Remove protection" control. Never called insurance or full coverage.
 // Over $50,000: no protection line, no note, no special hint (Chad, Nov 16 2026). The value is just for our records.
-const PROTECTION_HINT = 'The value of this one piece. Pieces valued up to $50,000 carry required declared value protection: 1.5% of their declared value.';
+const PROTECTION_HINT = 'The value of this one piece. Pieces valued up to $50,000 include declared value protection: 1.5% of their declared value.';
 const protectionNote = (q) => (q && q.protection && q.protection.amount > 0
-  ? 'Required declared value protection is 1.5% of the declared value of each eligible piece (valued up to $50,000), included in the price above.'
+  ? 'Declared value protection is 1.5% of the declared value of each eligible piece (valued up to $50,000), included in the price above.'
   : '');
-const PROTECTION_DOCK = 'Includes required declared value protection';
+const PROTECTION_DOCK = 'Includes declared value protection';
 const PROTECTION_TERMS = 'Declared value protection applies to pieces valued up to $50,000.';
 const weightRequired = (it) => shipService() || it.type === 'sculpture' || it.type === 'other';
 const weightOk = (it) => !weightRequired(it) || !!it.weightUnsure || num(it.weight) > 0;
@@ -963,6 +1030,8 @@ const views = {
         ${key === 'dropoff' && shipService() && intlDest(a)
           ? `<div class="field"><label class="f" for="f-${key}.street">Full address${req}</label><textarea id="f-${key}.street" data-path="${key}.street" placeholder="Street, building, postal code, city, region">${esc(a.street)}</textarea></div>${input(`${key}.city`, 'City', { ph: 'e.g. London', req: true })}`
           : `${input(`${key}.street`, 'Street address', { ph: key === 'pickup' ? '2 Henry Adams St' : '8678 Melrose Ave', attrs: 'autocomplete="street-address"', req: !optional })}
+        <label class="chk" data-nostreet><input type="checkbox" data-path="${key}.noStreetNumber" data-rerender ${a.noStreetNumber ? 'checked' : ''}> My address has no street number</label>
+        ${a.noStreetNumber ? '<p class="mini" style="margin:-2px 0 8px">Describe it above (for example “Star Route” or the estate name). Our team will confirm the exact location with you before anything is charged.</p>' : ''}
         <div class="row keep addr3">${input(`${key}.city`, 'City', { ph: key === 'pickup' ? 'San Francisco' : 'West Hollywood', req: !optional })}${input(`${key}.state`, 'State', { ph: 'CA', attrs: 'autocomplete="address-level1" maxlength="14"' })}${input(`${key}.zip`, 'ZIP', { ph: key === 'pickup' ? '94103' : '90069', req: !optional, attrs: 'inputmode="numeric" autocomplete="postal-code" maxlength="10"' })}</div>`}
         ${key === 'dropoff' && shipService() ? `<div class="field" style="margin-top:4px"><label class="f">Destination type</label>${seg(`${key}.locationType`, [['residential', 'Residential'], ['commercial', 'Commercial']])}</div>` : ''}
         ${input(`${key}.business`, 'Business or gallery (optional)', { ph: 'e.g. gallery, showroom, hotel' })}
@@ -996,9 +1065,6 @@ const views = {
       </div>`));
     out.push(panel('about', `<h1>A little about you</h1><div class="card">
         <div class="row">${input('contact.company', 'Company (optional)')}${select('contact.clientType', 'I am a…', ['Collector', 'Gallery', 'Furniture showroom', 'Interior designer', 'Auction house', 'Artist', 'Other'], { req: true, placeholder: 'Please choose one' })}</div>
-        ${toggle('member', 'I’m a CAD member', '25% off published rates.', true)}
-        ${S.member ? `${input('memberCode', 'Member code', { req: true, ph: 'Enter your member code', attrs: 'autocapitalize="characters" autocomplete="off" spellcheck="false"' })}
-        ${S.memberVerified && S.memberCompany ? `<p class="mini member-ok">Member rate applied for ${esc(S.memberCompany)}.</p>` : ''}` : `<p class="mini member-pitch">Not a member? CAD Membership is $200/month and gives 25% off every order — ideal if you book $1,000+ a month. Ask us about it on your order or at checkout.</p>`}
       </div>`));
     out.push(panel('heard', `<h1>How did you find us?</h1><div class="card">
         ${toggle('heard.repeatClient', 'I’ve ordered with CAD before', 'Welcome back.', true)}
@@ -1116,7 +1182,7 @@ const views = {
       <h2>${sp ? 'Estimated range' : 'Price'}</h2>
       ${priceCard(q, true)}
       ${q && q.notes && q.notes.filter((n) => n !== CADAccess.PRICE_NOTE).length ? `<p class="mini">${q.notes.filter((n) => n !== CADAccess.PRICE_NOTE).map((n) => esc(n)).join(' ')}</p>` : ''}
-      ${S.member && S.memberVerified ? `<p class="mini">Member rate (25% off) applied${S.memberCompany ? ` for ${esc(S.memberCompany)}` : ''}.</p>` : ''}
+      ${discountBlock()}
       ${sp ? '<div class="err" id="err"></div>' : `<h2>Payment</h2>${paymentBlock(q)}`}
       <p class="mini" data-protection-terms>${PROTECTION_TERMS}</p>
       <p class="mini">${sp ? 'Samantha reviews your request and emails your price with a payment link. Nothing is charged until you approve it.' : 'Need to change or cancel? Reply to your confirmation email.'}</p>`);
@@ -1273,10 +1339,6 @@ function missingFields(name = STEPS[step]) {
     if (!/\S+@\S+\.\S+/.test(S.contact.email || '')) add('#f-contact.email', 'Email', 'Please enter a valid email address.');
     if (String(S.contact.phone || '').replace(/\D/g, '').length < 7) add('#f-contact.phone', 'Mobile', 'Please enter a mobile number.');
     if (!String(S.contact.clientType || '').trim()) add('#f-contact.clientType', 'I am a…', 'Please choose one.');
-    if (S.member) {
-      if (!String(S.memberCode || '').trim()) add('#f-memberCode', 'Member code', 'Please enter your member code.');
-      else if (!S.memberVerified) add('#f-memberCode', 'Member code', S.memberError || 'Please enter a valid member code.');
-    }
     if (!(S.heard && S.heard.repeatClient)) {
       if (!S.heard || !S.heard.source) add('#f-heard.source', 'How did you hear about us?', 'Please tell us how you heard about CAD.');
       else if (S.heard.source === 'other' && !String(S.heard.sourceOther || '').trim()) add('#f-heard.sourceOther', 'Tell us where', 'Please tell us where you heard about us.');
@@ -1468,7 +1530,7 @@ function paintEstimate() {
   else if (name === 'Pay') { el.textContent = fmt(q.dueNow); lbl.textContent = accessTbc(q) ? 'Estimate · access to confirm' : q.paymentPlan === 'deposit' ? 'Due today (50%)' : 'Due today'; }
   else { el.textContent = fmt(q.total); lbl.textContent = name === 'What' ? 'Estimate · before access' : accessTbc(q) ? 'Estimate · access to confirm' : 'Estimate'; }
   el.classList.toggle('long', el.textContent.length > 9 && el.textContent.length <= 13); el.classList.toggle('xlong', el.textContent.length > 13);
-  // The bar's price includes the required protection charge: say so under it.
+  // The bar's price includes the protection charge (unless declined): say so under it.
   const pn = $('#estNote'); if (pn) { const on = !!(q.protection && q.protection.amount > 0 && !isQuote(q)); pn.hidden = !on; pn.textContent = on ? PROTECTION_DOCK : ''; }
   // Refresh the value hints on the pieces step once the live quote is in.
   if (name === 'What') S.items.forEach((_, i) => updateItemHints(i));
@@ -1486,6 +1548,7 @@ function refreshQuote() {
     quotePending = false;
     if (!ok) { paintEstimate(); updateNext(); return; }
     quoteData = j; paintEstimate(); updateNext();
+    if (S.discountCode && j.discount && !j.discount.applied && j.discount.note === 'invalid') { S.discountCode = ''; persist(); discountMsg = { ok: false, text: 'That code is no longer valid.' }; paintDiscount(); }
     if (STEPS[step] === 'Pay' && !isShip()) { const pc = document.querySelector('[data-price]'); if (pc) pc.outerHTML = `<div data-price>${priceCard(quoteData, true)}</div>`; }
   }, 120);
 }
@@ -1699,42 +1762,6 @@ function onViewportResize() {
 }
 if (window.visualViewport) { window.visualViewport.addEventListener('resize', onViewportResize); window.visualViewport.addEventListener('scroll', onViewportResize); }
 
-let memberTimer, memberCheckSeq = 0;
-function paintMemberStatus() {
-  const field = document.getElementById('f-memberCode');
-  const wrap = field && field.closest('.field');
-  if (!wrap) { updateNext(); return; }
-  let ok = wrap.querySelector('.member-ok');
-  if (S.member && S.memberVerified && S.memberCompany) {
-    if (!ok) { ok = document.createElement('p'); ok.className = 'mini member-ok'; wrap.appendChild(ok); }
-    ok.textContent = 'Member rate applied for ' + S.memberCompany + '.';
-  } else if (ok) ok.remove();
-  updateNext();
-}
-async function checkMemberCode() {
-  if (!S.member) { S.memberVerified = false; S.memberCompany = ''; S.memberError = ''; persist(); paintMemberStatus(); refreshQuote(); return; }
-  const code = String(S.memberCode || '').trim();
-  if (!code) { S.memberVerified = false; S.memberCompany = ''; S.memberError = ''; persist(); paintMemberStatus(); refreshQuote(); return; }
-  const seq = ++memberCheckSeq;
-  const { ok, j } = await api('/api/member-code', { code });
-  if (seq !== memberCheckSeq) return;
-  if (ok && j && j.valid) {
-    S.memberVerified = true;
-    S.memberCompany = j.company || '';
-    S.memberError = '';
-    if (j.code) S.memberCode = j.code;
-    const el = document.getElementById('f-memberCode');
-    if (el && j.code) el.value = j.code;
-  } else {
-    S.memberVerified = false;
-    S.memberCompany = '';
-    S.memberError = 'We couldn’t find that member code. Please check it and try again.';
-  }
-  persist();
-  paintMemberStatus();
-  refreshQuote();
-}
-
 // ---------- events ----------
 const syncSameAsMe = () => {
   ['pickup', 'dropoff'].forEach((k) => {
@@ -1746,6 +1773,7 @@ const syncSameAsMe = () => {
   });
 };
 app.addEventListener('input', (e) => {
+  if (e.target.id === 'discountInput') { discountInput = e.target.value; return; }
   if (e.target.id === 'saveMethod') { saveMethod = e.target.checked; return; }
   if (e.target.dataset.dupn != null) {
     const n = parseInt(e.target.value, 10);
@@ -1781,14 +1809,6 @@ app.addEventListener('input', (e) => {
     set(p, e.target.type === 'checkbox' ? e.target.checked : e.target.value);
   }
   if (p === 'contact.name' || p === 'contact.phone') syncSameAsMe();
-  if (p === 'memberCode') {
-    S.memberVerified = false; S.memberCompany = ''; S.memberError = ''; persist();
-    clearTimeout(memberTimer); memberTimer = setTimeout(checkMemberCode, 350);
-  }
-  if (p === 'member') {
-    if (!S.member) S.memberVerified = false;
-    else if (S.memberCode) setTimeout(checkMemberCode, 0);
-  }
   const m = p.match(/^(pickup|dropoff)\.contact(Name|Phone)$/);
   if (m && S[m[1]].sameAsMe) { S[m[1]].sameAsMe = false; persist(); const b = app.querySelector(`[data-same="${m[1]}"]`); if (b) { b.classList.remove('on'); b.textContent = 'Same as me'; } const rw = app.querySelector(`[data-rolewrap="${m[1]}"]`); if (rw) rw.hidden = false; paintButton(); }
   const hint = p.match(/^items\.(\d+)\.(weight|value)$/);
@@ -1861,6 +1881,10 @@ const shipKey = () => `${isShip()}|${intlDest(S.dropoff)}`;
 let lastShipKey = '', lastPhotoKey = '';
 app.addEventListener('click', async (e) => {
   const t = e.target.closest('button'); if (!t) return;
+  if (t.hasAttribute('data-protection-remove')) { confirmDeclineProtection(); return; }
+  if (t.hasAttribute('data-protection-add')) { S.protectionDeclined = false; persist(); refreshQuote(); return; }
+  if (t.hasAttribute('data-discount-apply')) { applyDiscount(); return; }
+  if (t.hasAttribute('data-discount-remove')) { S.discountCode = ''; discountMsg = null; persist(); refreshQuote(); paintDiscount(); return; }
   if (t.dataset.service) {
     // No auto-scroll here: the page stays exactly where the user's thumb left it.
     if (t.dataset.service === 'install_only') {
@@ -2094,6 +2118,7 @@ $('#nextBtn').addEventListener('click', goNext);
 app.addEventListener('keydown', (e) => {
   if (e.key !== 'Enter' || e.isComposing || e.shiftKey) return;
   const t = e.target;
+  if (t && t.id === 'discountInput') { e.preventDefault(); applyDiscount(); return; }
   if (!t || !t.matches || !t.matches('input:not([type=checkbox]):not([type=radio]):not([type=file]):not([type=button]), select')) return;
   if (STEPS[step] === 'Pay' && isLastPanel()) return;
   e.preventDefault();
@@ -2133,5 +2158,6 @@ app.addEventListener('keydown', (e) => {
     sub = step === saved ? (sessionStorage.getItem('cad-sub') || '') : '__last';
   }
   render();
-  if (S.member && S.memberCode) checkMemberCode();
+  // A saved draft from before Nov 19 may carry member fields: drop them so they can never reach the quote.
+  ['member', 'memberCode', 'memberVerified', 'memberCompany', 'memberError'].forEach((k) => { delete S[k]; });
 })();

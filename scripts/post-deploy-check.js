@@ -71,7 +71,7 @@ const ok = (c, m, extra) => { res.push([!!c, m]); console.log(c ? '  PASS:' : ' 
     const rev = (await page.textContent('[data-panel="review"]')).replace(/\s+/g, ' ');
     ok(/Piece 3 — Painting delivery/.test(rev), 'review price: the $75,000 painting has its own line "Piece 3 — Painting delivery"', rev.slice(0, 600));
     ok(/Painting delivery × 2 \(Pieces 1[–-]2\)/.test(rev) || /Painting delivery × 2/.test(rev), 'the two ordinary paintings stay grouped (× 2)');
-    ok(!/Piece 3[^$]{0,60}protection|0\.75|high-value/i.test(rev) && /Required declared value protection/.test(rev), 'no protection/0.75% wording for Piece 3; protection lines are for the $12,000 paintings');
+    ok(!/Piece 3[^$]{0,60}protection|0\.75|high-value/i.test(rev) && /Declared value protection/.test(rev), 'no protection/0.75% wording for Piece 3; protection lines are for the $12,000 paintings');
     await page.click('[data-vc] >> text=Value is right'); await page.waitForTimeout(400);
     ok((await page.locator('[data-checkvalues]').count()) === 0 && !(await blocked()), 'after "Value is right", the card goes away and Pay is available');
     const btn = (await page.textContent('#nextBtn')).trim();

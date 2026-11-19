@@ -73,7 +73,7 @@ const startServer = async (storage, env) => {
 
     hdr('2. pricing: per-piece quote, thresholds, own line for each painting over $50,000');
     const q = (await post('/api/quote', base(D, PIECES))).j;
-    const prot = q.lines.filter((l) => /^Required declared value protection/.test(l.label));
+    const prot = q.lines.filter((l) => /^Declared value protection/.test(l.label));
     ok(prot.length === 4 && prot.every((l) => /Piece \d/.test(l.label)), 'declared value protection: one named line for each of the 4 pieces up to $50,000', prot.map((l) => l.label));
     ok(near(prot.find((l) => /Piece 4/.test(l.label)).amount, 750), 'exactly $50,000 carries the $750 protection line');
     ok(!q.lines.some((l) => /Piece (3|5)\b/.test(l.label) && /protection|0\.75|high-value/i.test(l.label)) && !q.notes.some((n) => /protection|0\.75|50,000/i.test(n)), 'pieces over $50,000: no protection line, wording or note');
@@ -112,7 +112,7 @@ const startServer = async (storage, env) => {
     const html = fs.readFileSync(path.join(storage, 'outbox', mail.file), 'utf8');
     const txt = html.replace(/<[^>]+>/g, ' ').replace(/&amp;/g, '&').replace(/\s+/g, ' ');
     ok(PIECES.every((p, k) => txt.includes(`Piece ${k + 1} — ${p.description}`)), 'confirmation email lists every piece by number and description');
-    ok(/Required declared value protection/.test(txt) && !/Piece (3|5)[^.]{0,80}protection/.test(txt), 'email shows protection for the pieces up to $50,000 and none for the others');
+    ok(/Declared value protection/.test(txt) && !/Piece (3|5)[^.]{0,80}protection/.test(txt), 'email shows protection for the pieces up to $50,000 and none for the others');
     ok(!/\btax\b/i.test(txt) && !/no protection|not protected/i.test(txt), 'no tax, no "no protection" wording');
 
     hdr('6. admin (internal view)');

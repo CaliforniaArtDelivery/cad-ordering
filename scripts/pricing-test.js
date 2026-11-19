@@ -136,20 +136,21 @@ check(line(diHuge, /Large mirror pickup & delivery \(over 70"\)/) && line(diHuge
 check(line(diHuge, /Large mirror install \(over 70"\)/) && line(diHuge, /Large mirror install \(over 70"\)/).amount === 550,
   '80×40 install extra should be $550 (3× $275 − $275)', diHuge.lines);
 
+// Member rate card: since Nov 19 2026 only the partner showroom flow (Paloma's, skipVolumeDiscount) can price from it; the public site ignores any member code (tested below).
 // Member install amounts are unchanged; member transport is 1.5× / 2× the member painting delivery rate.
-const memInst60 = q('install_only', [{ qty: 1, type: 'mirror', w: 60, h: 40, description: 'm' }], { memberCode: 'jones-terwilliger' });
+const memInst60 = q('install_only', [{ qty: 1, type: 'mirror', w: 60, h: 40, description: 'm' }], { memberCode: 'jones-terwilliger', skipVolumeDiscount: true });
 check(memInst60.member && memInst60.total === 85, 'member 60×40 install-only should be $85 (1.5 × $55, rounded up)', memInst60);
-const memSmall = q('install_only', [{ qty: 1, type: 'mirror', w: 40, h: 40, description: 'm' }], { memberCode: 'jones-terwilliger' });
+const memSmall = q('install_only', [{ qty: 1, type: 'mirror', w: 40, h: 40, description: 'm' }], { memberCode: 'jones-terwilliger', skipVolumeDiscount: true });
 check(memSmall.member && memSmall.total === 55, 'member 40×40 install-only should stay $55', memSmall);
-const mem61 = q('install_only', [{ qty: 1, type: 'mirror', w: 61, h: 40, description: 'm' }], { memberCode: 'jones-terwilliger' });
+const mem61 = q('install_only', [{ qty: 1, type: 'mirror', w: 61, h: 40, description: 'm' }], { memberCode: 'jones-terwilliger', skipVolumeDiscount: true });
 check(mem61.member && mem61.total === 140, 'member 61×40 install-only should be $140 (2.5 × $55, rounded up)', mem61);
-const mem71 = q('install_only', [{ qty: 1, type: 'mirror', w: 71, h: 40, description: 'm' }], { memberCode: 'jones-terwilliger' });
+const mem71 = q('install_only', [{ qty: 1, type: 'mirror', w: 71, h: 40, description: 'm' }], { memberCode: 'jones-terwilliger', skipVolumeDiscount: true });
 check(mem71.member && mem71.total === 165, 'member 71×40 install-only should be $165 (3 × $55)', mem71);
-const memPd60 = q('pickup_delivery', [{ qty: 1, type: 'mirror', w: 60, h: 40, description: 'm' }], { memberCode: 'jones-terwilliger' });
+const memPd60 = q('pickup_delivery', [{ qty: 1, type: 'mirror', w: 60, h: 40, description: 'm' }], { memberCode: 'jones-terwilliger', skipVolumeDiscount: true });
 check(memPd60.member && memPd60.total === 225, 'member 60×40 pickup+delivery should be $225 (1.5 × $150)', memPd60);
-const memPd71 = q('pickup_delivery', [{ qty: 1, type: 'mirror', w: 71, h: 40, description: 'm' }], { memberCode: 'jones-terwilliger' });
+const memPd71 = q('pickup_delivery', [{ qty: 1, type: 'mirror', w: 71, h: 40, description: 'm' }], { memberCode: 'jones-terwilliger', skipVolumeDiscount: true });
 check(memPd71.member && memPd71.total === 300, 'member 71×40 pickup+delivery should be $300 (2 × $150)', memPd71);
-const memDi60 = q('delivery_install', [{ qty: 1, type: 'mirror', w: 60, h: 40, description: 'm' }], { memberCode: 'jones-terwilliger' });
+const memDi60 = q('delivery_install', [{ qty: 1, type: 'mirror', w: 60, h: 40, description: 'm' }], { memberCode: 'jones-terwilliger', skipVolumeDiscount: true });
 check(memDi60.member && memDi60.total === 310, 'member 60×40 delivery+install should be $310 ($225 + $85)', memDi60);
 
 // Décor → Mirror uses the same path.
@@ -205,9 +206,9 @@ const config = require('../config');
 check(config.pricing.valuation.optional === false && config.pricing.valuation.rate === 0.015 && config.pricing.valuation.maxValue === 50000, 'protection config must be required, 1.5%, up to $50,000', config.pricing.valuation);
 const sc = (value, extra = {}) => q('pickup_delivery', [{ qty: 1, type: 'sculpture', weight: 120, value, description: 's', ...extra }]);
 const at50 = sc(50000), over50 = sc(50001);
-const DVP = /^Required declared value protection( — Piece \d+[^:]*)?: 1\.5% of \$/;
+const DVP = /^Declared value protection( — Piece \d+[^:]*)?: 1\.5% of \$/;
 const pl = line(at50, DVP);
-check(pl && pl.label === 'Required declared value protection: 1.5% of $50,000' && pl.amount === 750, '$50,000 piece: required protection line, $750', at50.lines);
+check(pl && pl.label === 'Declared value protection: 1.5% of $50,000' && pl.amount === 750, '$50,000 piece: required protection line, $750', at50.lines);
 check(at50.protection && at50.protection.amount === 750 && at50.protection.eligibleValue === 50000, '$50,000 piece: quote.protection should carry $750 on $50,000 eligible', at50.protection);
 check(!line(at50, /High-value/), '$50,000 piece: no high-value markup', at50.lines);
 check(!line(over50, /declared value protection/i) && !over50.protection && !line(over50, /High-value/) && near(line(over50, /Sculpture/).amount, 775.01) && near(over50.total, 775.01), '$50,001 piece: no protection line or handling label; $400 move + $375.01 built in = $775.01', over50.lines);
@@ -230,7 +231,7 @@ check(!line(onlyHv, /declared value protection/i) && !onlyHv.protection && !line
 const cents = q('pickup_delivery', [{ qty: 3, type: 'sculpture', weight: 120, value: 12345.67, description: 'x' }]);
 check(cents.lines.filter((l) => DVP.test(l.label)).length === 3 && cents.lines.filter((l) => DVP.test(l.label)).every((l) => l.amount === 185.19 && /Piece [123]/.test(l.label)) && sumLines(cents, DVP) === 555.57 && cents.protection.amount === 555.57, '3 pieces × $12,345.67 → 1.5% each = $185.19 (rounded per piece) = $555.57, one labeled line per piece', cents.lines);
 const instP = q('install_only', [{ qty: 1, type: 'painting', framed: 'no', w: 30, h: 30, value: 2000, description: 'p' }]);
-check(line(instP, DVP) && line(instP, DVP).label === 'Required declared value protection: 1.5% of $2,000' && line(instP, DVP).amount === 30, 'install only also carries the required protection line', instP.lines);
+check(line(instP, DVP) && line(instP, DVP).label === 'Declared value protection: 1.5% of $2,000' && line(instP, DVP).amount === 30, 'install only also carries the required protection line', instP.lines);
 for (const r of [at50, over50, mixedDv, instP, onlyHv]) for (const t of [...r.lines.map((l) => l.label), ...(r.notes || [])]) check(!/optional|insur|full coverage|fully covered/i.test(t), 'protection wording must not say optional, insurance or full coverage: ' + t);
 const shipP = q('crating_shipping', [{ qty: 1, type: 'painting', value: 20000, description: 'x' }]);
 check(!line(shipP, /declared value protection/i) && !shipP.protection, 'shipping quotes carry no protection line', shipP.lines);
@@ -303,8 +304,8 @@ check(q('pickup_delivery', [{ qty: 1, type: 'sculpture', weightUnsure: true, val
     check(!mixed.lines.some((l) => /Piece 2\b/.test(l.label) && /protection|0\.75|high-value/i.test(l.label)) && !(mixed.notes || []).some((n) => /protection|0\.75|50,000/i.test(n)), `${svc}: no extra wording on the over-$50,000 line`, mixed.lines);
     const group = mixed.lines.filter((l) => /× 2/.test(l.label) && /Pieces 1, 3/.test(l.label));
     check(group.length === own.length, `${svc}: ordinary paintings stay grouped as "× 2 (Pieces 1, 3)"`, mixed.lines);
-    const protLines = mixed.lines.filter((l) => /^Required declared value protection/.test(l.label));
-    const moveNow = mixed.total - protLines.reduce((a, l) => a + l.amount, 0), movePlain = plain.total - plain.lines.filter((l) => /^Required declared value protection/.test(l.label)).reduce((a, l) => a + l.amount, 0);
+    const protLines = mixed.lines.filter((l) => /^Declared value protection/.test(l.label));
+    const moveNow = mixed.total - protLines.reduce((a, l) => a + l.amount, 0), movePlain = plain.total - plain.lines.filter((l) => /^Declared value protection/.test(l.label)).reduce((a, l) => a + l.amount, 0);
     check(near(moveNow, movePlain + 562.5), `${svc}: moving total is exactly the grouped price + $562.50 (0.75% of $75,000) – carving the line out changes nothing else`, [moveNow, movePlain]);
   }
   const solo = q('pickup_delivery', [P(75000, 'solo')]);
@@ -312,7 +313,7 @@ check(q('pickup_delivery', [{ qty: 1, type: 'sculpture', weightUnsure: true, val
   const two = q('pickup_delivery', [P(60000, 'x'), P(80000, 'y')]);
   check(two.lines.length === 2 && two.lines.every((l) => /^Piece [12] — Painting delivery$/.test(l.label)), 'two over-$50,000 paintings: one line each, no empty group line', two.lines);
   const edge = q('pickup_delivery', [P(50000, 'e'), P(50001, 'f')]);
-  check(edge.lines.some((l) => /^Piece 2 — Painting delivery$/.test(l.label)) && !edge.lines.some((l) => /^Piece 1 — Painting delivery$/.test(l.label)) && edge.lines.filter((l) => /^Required declared value protection/.test(l.label)).length === 1, '$50,000 stays grouped with protection; $50,001 gets its own line', edge.lines);
+  check(edge.lines.some((l) => /^Piece 2 — Painting delivery$/.test(l.label)) && !edge.lines.some((l) => /^Piece 1 — Painting delivery$/.test(l.label)) && edge.lines.filter((l) => /^Declared value protection/.test(l.label)).length === 1, '$50,000 stays grouped with protection; $50,001 gets its own line', edge.lines);
 }
 // ---- (retired) Nov 16 tiered high-value markup replaced by the 0.75% rule above ----
 check(!('highValueFloor' in config.pricing.valuation), 'the 1.5% high-value minimum is no longer the rule (Chad, Nov 16 2026)');

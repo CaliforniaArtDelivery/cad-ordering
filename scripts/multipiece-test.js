@@ -61,7 +61,7 @@ async function orderBody(items, extra = {}) {
 const quoteOf = async (items, service = 'pickup_delivery') => (await post('/api/quote', { service, items })).j;
 const lines = (q, re) => (q.lines || []).filter((l) => re.test(l.label));
 const sum = (ls) => Math.round(ls.reduce((t, l) => t + l.amount, 0) * 100) / 100;
-const DVP = /^Required declared value protection/;
+const DVP = /^Declared value protection/;
 
 async function apiTests() {
   hdr('API 1: one piece');
@@ -69,7 +69,7 @@ async function apiTests() {
     const q = await quoteOf([paint({ value: 12000, w: 40, h: 30, d: 2 })]);
     // 1 painting delivery $200 + protection 1.5% of $12,000 = $180
     ok(q.total === 380 && lines(q, DVP).length === 1 && lines(q, DVP)[0].amount === 180, '1 painting 40×30, $12,000: $200 + $180 protection = $380', q.lines);
-    ok(lines(q, DVP)[0].label === 'Required declared value protection: 1.5% of $12,000', 'single piece keeps the plain protection label');
+    ok(lines(q, DVP)[0].label === 'Declared value protection: 1.5% of $12,000', 'single piece keeps the plain protection label');
     const o = await post('/api/orders', await orderBody([paint({ value: 12000, w: 40, h: 30, d: 2, description: 'Solo canvas' })]));
     ok(o.status === 200 && o.j.order.items.length === 1 && !('qty' in o.j.order.items[0]) && /^[\w-]+$/.test(o.j.order.items[0].id), 'order stored with one piece, an id and no qty', o.j);
   }
@@ -246,7 +246,7 @@ async function apiTests() {
     const txt = files.map((f) => fs.readFileSync(path.join(STORAGE, 'outbox', f), 'utf8')).join('\n').replace(/<[^>]*>/g, ' ');
     ok(files.length > 0 && /Piece 1 — Alpha/.test(txt) && /Piece 2 — Beta/.test(txt) && /Piece 3 — Gamma/.test(txt), 'confirmation email lists Piece 1 — Alpha, Piece 2 — Beta, Piece 3 — Gamma', files);
     ok(/Piece 1 — Alpha[^]*Piece 2 — Beta/.test(txt) && /Piece 1 \(Alpha\)|Piece 1 — Alpha: \$45/.test(txt), 'email protection lines are per piece');
-    ok(!/Piece 3 — Gamma: \$[\d,.]+ \(1\.5%/.test(txt) && /Piece 2 — Beta: \$120 \(1\.5% of \$8,000\)/.test(txt), 'piece 3 ($60,000) has no protection line in the email; piece 2 shows $120 (1.5% of $8,000)', txt.match(/Required declared value protection[^]{0,300}/));
+    ok(!/Piece 3 — Gamma: \$[\d,.]+ \(1\.5%/.test(txt) && /Piece 2 — Beta: \$120 \(1\.5% of \$8,000\)/.test(txt), 'piece 3 ($60,000) has no protection line in the email; piece 2 shows $120 (1.5% of $8,000)', txt.match(/Declared value protection[^]{0,300}/));
     const st = orders().find((x) => x.id === id);
     ok(st.quote.protection.pieces.map((p) => p.piece).join() === '1,2', 'order record: protection on pieces 1 and 2 only');
   }

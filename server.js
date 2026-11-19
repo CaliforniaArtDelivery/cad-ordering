@@ -22,7 +22,7 @@ if (!ADMIN_ON) console.warn('Admin is OFF: set ADMIN_KEY to a long random value 
 const TEST_MODE = /^(1|true|yes)$/i.test(String(process.env.TEST_MODE || ''));
 const storage = require('./lib/storage');
 const { TYPES, framingErrors, itemLine, isHungItem, routeDecorMirror, expandPieces, hasMultiQty, legacyQtyRecord, legacyNote, piecesOf, pieceLabel, MAX_PIECES } = require('./lib/itemtypes');
-const { lookupMember, resolveMember } = require('./lib/members');
+const DISCOUNTS = require('./lib/discounts');
 const ACCESS = require('./public/access');
 const VALID = require('./public/validate');
 const ORDERS = path.join(storage.dir('data'), 'orders.json');
@@ -126,16 +126,32 @@ app.get('/api/config', (_, res) => res.json({
     wallDecorKinds: config.pricing.furniture.wallDecorKinds,
     sizeLabels: config.pricing.furniture.sizeLabels,
     valuationRate: config.pricing.valuation.rate,
-    membershipMonthly: config.pricing.membership.monthly,
   },
   stripe: !!stripe, livemode: false, testMode: !stripe && TEST_MODE, notice: config.pricing.exampleRatesNotice,
 }));
 app.post('/api/upload', upload.array('photos', 10), (req, res) => res.json({ files: (req.files || []).map((f) => `/uploads/${f.filename}`) }));
 app.post('/api/quote', (req, res) => res.json(quote(req.body)));
-app.post('/api/member-code', (req, res) => {
-  const hit = lookupMember(req.body && req.body.code);
-  if (!hit) return res.json({ valid: false });
-  res.json({ valid: true, company: hit.company, code: hit.code });
+// The public site has no member rate any more (Chad, Nov 19 2026), so there is no member-code endpoint, and any member flag or code
+// sent with an order is ignored by the pricing engine. Discount codes are checked here, on the server only.
+const discountTries = new Map(); // ip -> recent misses (guessing guard: 12 wrong codes per 10 minutes)
+app.post('/api/discount-code', (req, res) => {
+  const b = req.body || {};
+  const ip = req.ip || 'x', now = Date.now();
+  const hits = (discountTries.get(ip) || []).filter((t) => now - t < 600000);
+  if (hits.length >= 12) return res.status(429).json({ valid: false, message: 'Too many tries. Please wait a few minutes, or call us.' });
+  const code = DISCOUNTS.norm(b.code);
+  if (!code) return res.status(400).json({ valid: false, message: 'Enter a discount code.' });
+  const hit = DISCOUNTS.lookup(code);
+  if (!hit.ok) { hits.push(now); discountTries.set(ip, hits); return res.json({ valid: false, code, message: 'That code isn’t valid. Please check it and try again.' }); }
+  // Price the order with the code, so the customer sees exactly what it does (the amount itself always comes from the server).
+  const order = (b.order && typeof b.order === 'object') ? { ...b.order, discountCode: hit.code } : null;
+  const q = order ? quote(order) : null;
+  const d = q && q.discount;
+  res.json({
+    valid: true, code: hit.code, type: hit.row.type, description: DISCOUNTS.describe(hit.row),
+    amount: d ? d.amount : 0, note: d ? (d.note === 'invalid' ? '' : d.note) : '',
+    message: d && d.amount > 0 ? `Code ${hit.code} applied: −$${d.amount.toFixed(2)}.` : `Code ${hit.code} accepted. ${d && d.note && d.note !== 'invalid' ? d.note : DISCOUNTS.describe(hit.row) + '.'}`,
+  });
 });
 app.post('/api/availability', (req, res) => {
   const o = req.body;
@@ -179,6 +195,8 @@ const reviewAlert = (o) => teamAlert(`REVIEW NEEDED: online request ${o.id} (${(
   + `Why: ${((o.review || {}).reasons || []).map((r) => r.text).join(' | ') || (o.rush ? 'rush' : o.dedicated ? 'dedicated trip' : 'team quote')}\n`
   + `Pieces:\n${piecesOf(o).map((it, i) => '  ' + require('./lib/itemtypes').pieceDetail(it, i)).join('\n')}\n`
   + (o.needsManualReview ? `NEEDS MANUAL REVIEW: ${o.manualReviewReason}\n` : '')
+  + (o.discountCode ? `Discount code: ${o.discountCode}${(o.quote && o.quote.discount && o.quote.discount.amount) ? ' (−$' + o.quote.discount.amount.toFixed(2) + ' at the regular price)' : ''}\n` : '')
+  + (o.protectionDeclined ? 'Customer DECLINED declared value protection.\n' : '')
   + `Confirm within 1 business day, then approve it in the admin page so the client gets the payment link.`);
 
 // Short "Missing: ..." phrases for an address that fails the shared checks (public/validate.js). The street-required case is
@@ -272,6 +290,7 @@ function validate(o) {
     const items = o.items || [];
     const needsDims = (it) => !['custom', 'furniture'].includes(it.type || 'painting');
     forPieces('size in inches (W × H × D, at least 4 × 4 × 1)', (it) => needsDims(it) && !!VALID.dimProblem(it));
+    forPieces('a plain-number size (digits only)', (it) => !needsDims(it) && !!VALID.optionalDimProblem(it));
     forPieces('a weight (or “Not sure”)', (it) => ['sculpture', 'other'].includes(it.type) && !(it.weightUnsure || numVal(it.weight) > 0));
     forPieces('a stairwell fit confirmation (pieces over 80 inches)', (it) => needsStairwellFit(it, o) && !it.fitsStairwell);
   }
@@ -359,13 +378,16 @@ app.post('/api/orders', (req, res) => {
     crating: false, rush: !!b.rush, dedicated: !!b.dedicated,
     // Access “Not sure” at any stop: CAD confirms access with the customer before the job (not priced as ground level silently).
     accessReview: ['pickup', 'dropoff'].some((k) => b[k] && b[k].street && ACCESS.needsReview(b[k])),
-    member: !!resolveMember(b),
-    memberCode: (resolveMember(b) || {}).code || '',
-    memberCompany: (resolveMember(b) || {}).company || '',
+    // No member rate on the public site (Chad, Nov 19 2026): never stored from the request.
+    member: false, memberCode: '', memberCompany: '',
+    // Declared value protection is included unless the customer explicitly declined it; the choice is kept for CAD's records.
+    ...(b.protectionDeclined === true ? { protectionDeclined: true, protectionDeclinedAt: new Date().toISOString() } : {}),
+    // Only the code text is kept; the server re-prices with it (quote.discount holds the amount actually taken off).
+    ...(b.discountCode && DISCOUNTS.lookup(b.discountCode).ok ? { discountCode: DISCOUNTS.norm(b.discountCode) } : {}),
     heard: b.heard || {},
     referral: !!b.referral,
     // In-CA: mandatory on pieces valued $50K or less (none offered above). Shipping quotes: the customer's choice.
-    declaredValueProtection: shipping ? false : (b.items || []).some((it) => numVal(it.value) > 0 && numVal(it.value) <= 50000),
+    declaredValueProtection: shipping ? false : (b.protectionDeclined !== true && (b.items || []).some((it) => numVal(it.value) > 0 && numVal(it.value) <= 50000)),
     ...(b._legacyQty ? { legacyQty: b._legacyQty, needsManualReview: true, manualReviewReason: 'Legacy quantity: ' + legacyNote(b._legacyQty) + '. Original entry kept in legacyQty. Please confirm each piece\u2019s details and value with the customer.' } : {}),
     items: (b.items || []).map(routeDecorMirror), pickup: b.pickup || {}, dropoff: b.dropoff || {},
     contact: b.contact, partner: b.partner || {}, payer: b.payer || 'me', payerOther: b.payerOther || {},
@@ -377,6 +399,8 @@ app.post('/api/orders', (req, res) => {
     emails: [],
   };
   order.quote = quote(order);  // server-side price is authoritative
+  // The opt-out is only recorded when there was protection to decline (an eligible piece up to $50,000, in-California white-glove job).
+  if (order.protectionDeclined && !(order.quote.protectionOption && order.quote.protectionOption.declined)) { delete order.protectionDeclined; delete order.protectionDeclinedAt; }
   if (order.needsManualReview) teamAlert(`NEEDS MANUAL REVIEW: order ${order.id} was submitted with an old quantity entry`, `Order ${order.id}: ${order.manualReviewReason}\nPieces:\n${piecesOf(order).map((it, i) => '  ' + require('./lib/itemtypes').pieceDetail(it, i)).join('\n')}`);
   // Normal orders hold their date while the client pays. Review orders (pencil-in, helper, Monday OC) hold it while the team decides.
   if (!special || (rv.needed && !order.rush && !order.dedicated)) { const held = holdSlots(order, special); if (!held.ok) return res.status(409).json({ error: 'That date just filled up. Please go back and pick another date.', full: held.full }); }

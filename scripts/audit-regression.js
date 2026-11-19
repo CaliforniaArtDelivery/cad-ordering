@@ -310,7 +310,7 @@ async function run(BASE, errors, { dataRoot = process.env.STORAGE_DIR || ROOT, a
     await no('80" sculpture up stairs without the fit answers', order({ type: 'sculpture', weight: 200, w: 20, h: 80, d: 20, value: '20000' }, { accessMode: 'stairs', stairFlights: '2', stairDir: 'up', fits: '' }), /tight turns|fit/);
     if (h600 && h600.j.id) {
       const m = text(mails(h600.j.id, 'confirmation')[0] || '');
-      if (!m.includes('Required declared value protection: $300 (1.5% of $20,000 in eligible pieces).')) errors.push('decision 1: confirmation email should carry the required protection line ($300 on $20,000)');
+      if (!m.includes('Declared value protection: $300 (1.5% of $20,000 in eligible pieces).')) errors.push('decision 1: confirmation email should carry the required protection line ($300 on $20,000)');
       if (/\btax/i.test(m) || /insur|optional/i.test(m)) errors.push('decisions 1/3: confirmation email must not mention tax, insured or optional');
       const qq = h600.j.quote;
       if (!qq.protection || qq.protection.amount !== 300 || qq.protection.eligibleValue !== 20000) errors.push('decision 1: order quote should record protection $300 on $20,000');
@@ -320,7 +320,7 @@ async function run(BASE, errors, { dataRoot = process.env.STORAGE_DIR || ROOT, a
     const mix = await ok('mixed eligible and ineligible pieces', post('/api/orders', base({ items: [item({ description: tag(), qty: 2, value: '10000' }), item({ description: tag(), qty: 1, value: '60000' }), item({ description: tag(), qty: 3, value: '50000' })] })));
     if (mix.j.id) {
       const ql = mix.j.quote.lines || [];
-      const dls = ql.filter((l) => /^Required declared value protection/.test(l.label));
+      const dls = ql.filter((l) => /^Declared value protection/.test(l.label));
       const dsum = Math.round(dls.reduce((a, l) => a + l.amount, 0) * 100) / 100;
       // One piece per entry (Nov 18 2026): the legacy quantities were expanded to 6 pieces; each eligible piece has its own named line.
       if (dls.length !== 5 || dsum !== 2550 || !dls.every((l) => /Piece \d/.test(l.label))) errors.push('eligible-only protection: 5 per-piece lines adding to $2,550 (the $60,000 piece excluded): ' + JSON.stringify(dls));
@@ -335,7 +335,7 @@ async function run(BASE, errors, { dataRoot = process.env.STORAGE_DIR || ROOT, a
       if (!own3 || !grp || Math.round((own3.amount + grp.amount) * 100) !== 97500) errors.push('the $60,000 painting (Piece 3) should have its own delivery line with the $450 built in; the other five stay grouped; together $975: ' + JSON.stringify(delLines));
       await post(`/api/orders/${mix.j.id}/pay`, { method: 'card', card: '4242424242424242' });
       const m = text(mails(mix.j.id, 'confirmation')[0] || '');
-      if (!/Required declared value protection[^\n]*\$2,550/.test(m)) errors.push('eligible-only protection: email should total $2,550: ' + (m.match(/Required declared value protection[^.]{0,160}\./) || [''])[0]);
+      if (!/Declared value protection[^\n]*\$2,550/.test(m)) errors.push('eligible-only protection: email should total $2,550: ' + (m.match(/Declared value protection[^.]{0,160}\./) || [''])[0]);
       if (/protection[^.]{0,80}Piece 3\b/.test(m)) errors.push('email must not list a protection line for the $60,000 piece');
       if (/\$230,000/.test(m)) errors.push('email must never show the total declared value incl. ineligible pieces as the protection base');
     }

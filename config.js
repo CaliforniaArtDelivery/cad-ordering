@@ -226,6 +226,31 @@ module.exports = {
   },
 
   // ---------- PAYMENT (Chad's policy, confirmed Nov 14 2026) ----------
+  // ---------- DISCOUNT CODES (Chad, Nov 19 2026) ----------
+  // Checked on the SERVER only (this table is never sent to the browser). Codes are case-insensitive. To add one, add a row:
+  //   code      the text the customer types
+  //   type      'percent'        -> `percent` off the ORDER TOTAL (every line, protection included)
+  //             'deliveryCredit' -> up to `amount` dollars off the STANDARD pickup + delivery transport price only. It never touches
+  //                                 installation or hanging, stairs or technical carry, oversize / heavy / frame markups, declared value
+  //                                 protection, or the 0.75% value charge on pieces over $50,000.
+  //   percent / amount   the size of the discount
+  //   label     shown to the customer on the discount line (optional)
+  //   company   who it was issued to (records only, optional)
+  //   expires   'YYYY-MM-DD' (Pacific time), the last day it works (optional; no date = never expires)
+  //   active    false switches a code off without deleting it (optional; omitted = active)
+  discountCodes: [
+    { code: 'JT', type: 'percent', percent: 25, label: 'Discount code JT', company: 'Jones & Terwilliger', active: true },
+    // Sample delivery credit. OFF until Chad turns it on.
+    { code: 'FREEDELIVERY500', type: 'deliveryCredit', amount: 500, label: 'Delivery credit FREEDELIVERY500', company: '', active: false },
+  ],
+
+  // Order intake limits.
+  intake: {
+    // PENDING CHAD'S APPROVAL (Atlas B1, Nov 19): a piece with any side over this many inches is NOT refused; the order becomes a
+    // manual-review quote ("Oversized piece: CAD will confirm handling"). 120 in (10 ft) is a starting default, not an approved number.
+    // Override without a code change: REVIEW_DIM_IN=<inches>.
+    reviewDimIn: Number(process.env.REVIEW_DIM_IN) > 0 ? Number(process.env.REVIEW_DIM_IN) : 120,
+  },
   payment: {
     depositThreshold: 3000,
     depositPercent: 50,

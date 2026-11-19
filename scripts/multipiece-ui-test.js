@@ -184,7 +184,7 @@ exports.uiTests = async (H) => {
     ok(!(await blocked()), 'all 30 complete: Next allowed');
     const q = await freshQuoteMatches('30 pieces');
     ok(q.total === 10125 && (await page.textContent('#estTotal')).trim() === '$10,125', '30 × 72×60 painting at $12,000 = $10,125 ($1,725 + $3,000 + $5,400)', q.total);
-    ok(q.lines.filter((l) => /^Required declared value protection — Piece/.test(l.label)).length === 30, 'quote has 30 per-piece protection lines');
+    ok(q.lines.filter((l) => /^Declared value protection — Piece/.test(l.label)).length === 30, 'quote has 30 per-piece protection lines');
     ok((await overflow()) <= 0, 'list of 30 pieces has no sideways scroll at 390px', await overflow());
     await shot('07-thirty-pieces-list');
     // keep the pieces list light: the Quick edit block is collapsed by default
@@ -212,7 +212,7 @@ exports.uiTests = async (H) => {
     const q = await freshQuoteMatches('after editing Piece 7');
     // 1725 + 3000 + 0.75% of $60,000 built into Piece 7 ($450) + 29 × 180
     ok(near(q.total, 1725 + 3000 + 450 + 29 * 180) && near(q.total, 10395), 'total = $10,395 by hand: $1,725 + $3,000 + $450 built into Piece 7 (0.75% of $60,000) + 29 × $180', q.total);
-    ok(q.lines.filter((l) => /^Required declared value protection/.test(l.label)).length === 29 && !q.lines.some((l) => /Piece 7 .*protection|protection.*Piece 7 /.test(l.label)), 'Piece 7 ($60,000) lost its protection line; 29 remain');
+    ok(q.lines.filter((l) => /^Declared value protection/.test(l.label)).length === 29 && !q.lines.some((l) => /Piece 7 .*protection|protection.*Piece 7 /.test(l.label)), 'Piece 7 ($60,000) lost its protection line; 29 remain');
     await page.waitForTimeout(150);
     const t7 = await page.textContent('[data-piece-row="6"] .pc-title');
     ok(t7 === 'Piece 7 — Large canvas', 'list title follows the edit (Piece 7 — Large canvas)', t7);
@@ -346,7 +346,7 @@ exports.uiTests = async (H) => {
     ok(txt.includes('Each piece is listed and priced separately. Please check the dimensions, declared value, handling requirements, and photos for every piece.'), 'review shows the check-every-piece sentence');
     ok((await page.locator('[data-review-piece]').count()) === 3 && /Piece 1 — Under/.test(txt) && /Piece 2 — Exactly/.test(txt) && /Piece 3 — Over/.test(txt), 'review lists Piece 1 — Under, Piece 2 — Exactly, Piece 3 — Over on separate rows');
     ok((await page.locator('[data-review-piece] [data-goto]').count()) === 3, 'each piece row has an Edit link');
-    ok(/Required declared value protection — Piece 1 \(Under\): 1\.5% of \$49,999/.test(txt) && /Piece 2 \(Exactly\): 1\.5% of \$50,000/.test(txt) && !/Piece 3 \(Over\): 1\.5%/.test(txt), 'price lines: protection for Piece 1 and Piece 2, none for Piece 3');
+    ok(/Declared value protection — Piece 1 \(Under\): 1\.5% of \$49,999/.test(txt) && /Piece 2 \(Exactly\): 1\.5% of \$50,000/.test(txt) && !/Piece 3 \(Over\): 1\.5%/.test(txt), 'price lines: protection for Piece 1 and Piece 2, none for Piece 3');
     ok(/Declared value protection applies to pieces valued up to \$50,000\./.test(txt), 'one neutral checkout-terms sentence about the $50,000 limit');
     ok(!/over \$50,000|high-value|no protection|not protected|call us/i.test(txt), 'no over-$50,000 note, no "no protection" wording, no "call us"');
     await shot('11-review-top');
