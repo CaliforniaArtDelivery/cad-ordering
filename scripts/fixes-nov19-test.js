@@ -149,6 +149,42 @@ hdr('3d. I2: the 0.75% value charge is never silently dropped; the rush base nev
   ok(near(r.quoteRange.low, 750) && near(r.quoteRange.high, 850) && near(r.quoteRange.valueCharges, 450), 'rush with an over-$50k piece: only the $200 moves, $450 stays', r.quoteRange);
 }
 
+hdr('3v3. Atlas v3: the folded 0.75% only ever attaches to an eligible service line (allowlist)');
+{
+  const { pickFoldTarget, isFoldEligible, FOLD_ELIGIBLE_KINDS } = require('../lib/pricing');
+  const prot = { label: 'Declared value protection: 1.5% of $40,000', amount: 600, kind: 'protection' };
+  const disc = { label: 'Discount code JT (25% off)', amount: -250, kind: 'discount' };
+  const posDisc = { label: 'weird positive discount', amount: 50, kind: 'discount' };
+  const vcOnly = { label: 'value charge only', amount: 450, valueCharge: 450, kind: 'service' };
+  const unknown = { label: 'mystery', amount: 99, kind: 'mystery' };
+  const noKind = { label: 'untyped', amount: 99 };
+  const piece = { label: 'Piece 1 delivery', amount: 200, kind: 'transport' };
+  ok(FOLD_ELIGIBLE_KINDS.has('service') && FOLD_ELIGIBLE_KINDS.has('transport') && !FOLD_ELIGIBLE_KINDS.has('protection') && !FOLD_ELIGIBLE_KINDS.has('discount'), 'allowlist holds only service and transport');
+  // (a) a positive protection line and no eligible service line -> no target, so the charge goes to review, once
+  ok(pickFoldTarget([prot], true, null) === null && pickFoldTarget([prot, disc, posDisc, vcOnly, unknown, noKind], true, null) === null, 'regression (a): a positive protection line with no eligible service line yields no fold target');
+  const lone = quote({ service: 'install_only', pickup: {}, dropoff: { street: '1 Main St', city: 'San Francisco', zip: '94110' }, schedule: { date: '2026-12-08' }, items: [{ type: 'sculpture', weight: 100, w: 20, h: 30, d: 20, value: 100000, description: 's' }] });
+  ok(lone.paymentPlan === 'quote' && lone.valueChargeUnattached === 750 && !lone.lines.some((l) => l.valueCharge), 'regression (a): over-$50k piece with no eligible service line is charged exactly once to review ($750 unattached) and nothing is attached to any line', { un: lone.valueChargeUnattached, lines: lone.lines });
+  const mixedProt = quote({ service: 'install_only', pickup: {}, dropoff: { street: '1 Main St', city: 'San Francisco', zip: '94110' }, schedule: { date: '2026-12-08' }, items: [{ type: 'sculpture', weight: 100, w: 20, h: 30, d: 20, value: 100000, description: 's' }, { type: 'sculpture', weight: 100, w: 20, h: 30, d: 20, value: 40000, description: 'p' }] });
+  const protLines = mixedProt.lines.filter((l) => l.kind === 'protection');
+  ok(protLines.length > 0 && protLines.every((l) => !l.valueCharge && l.amount > 0) && mixedProt.valueChargeUnattached === 750 && mixedProt.paymentPlan === 'quote', 'regression (a): a real positive protection line is present, the 0.75% still goes to review once and is not put on the protection line', { un: mixedProt.valueChargeUnattached, lines: mixedProt.lines });
+  // (b) a discount line is never a target
+  ok(pickFoldTarget([disc], true, null) === null && pickFoldTarget([disc, posDisc], false, null) === null && !isFoldEligible(disc) && !isFoldEligible(posDisc), 'regression (b): a discount line (even a positive one) is never a fold target');
+  ok(pickFoldTarget([disc, prot, piece], true, null) === piece, 'regression (b): with discount and protection lines present, the eligible service line is chosen');
+  const jt = quote(order([art(60000)], { discountCode: 'JT' }));
+  ok(!jt.lines.some((l) => l.kind === 'discount' && l.valueCharge) && jt.lines.filter((l) => l.valueCharge).length === 1, 'regression (b): with JT applied, no discount line carries a value charge', jt.lines);
+  // (c) normal case: attaches exactly once to the piece line
+  const n = quote(order([art(60000)]));
+  const carriers = n.lines.filter((l) => l.valueCharge);
+  ok(carriers.length === 1 && near(carriers[0].valueCharge, 450) && n.valueChargeUnattached === 0 && !n.lines.some((l) => l.kind === 'protection' && l.valueCharge), 'regression (c): normal case attaches the $450 once, to the piece line, never to protection', n.lines);
+  ok(pickFoldTarget([prot, piece], true, piece) === piece && pickFoldTarget([prot, vcOnly, piece], true, null) === piece, 'regression (c): own piece line wins; a value-charge-only line is skipped');
+  // JT 25% = whole order total (incl. protection, install and folded 0.75%), same in normal and rush
+  const jn = quote(order([art(60000)], { discountCode: 'JT' }));
+  ok(near(jn.discount.amount, 0.25 * (jn.total + jn.discount.amount)), 'JT is 25% of the full pre-discount order total, folded 0.75% included (normal)', { disc: jn.discount.amount, total: jn.total });
+  const jr = quote(order([art(12344)], { discountCode: 'JT', rush: true }));
+  const jrReg = quote(order([art(12344)], { discountCode: 'JT' }));
+  ok(jr.discount && near(jr.discount.amount, jrReg.discount.amount) && jr.discount.type === 'percent', 'JT in a rush quote uses the same 25% of the order total as the normal quote', { rush: jr.discount && jr.discount.amount, reg: jrReg.discount.amount });
+}
+
 hdr('3e. Declared value protection: optional, included by default (Chad, Nov 19)');
 {
   const base = quote(order([art(12344)]));
