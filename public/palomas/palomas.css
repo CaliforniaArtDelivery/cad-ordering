@@ -10,7 +10,7 @@ body{margin:0;background:var(--bg);color:var(--ink);font-family:-apple-system,Bl
 .lk{margin:0;display:flex;flex-direction:column;align-items:center;min-width:0}
 .mark{height:var(--mk);display:flex;align-items:center;justify-content:center;width:100%}
 .logo-p{width:auto;max-width:100%;height:auto;max-height:calc(var(--mk) * .72);display:block}
-.logo-c{height:var(--mk);width:auto;max-width:100%;border-radius:12px;display:block;object-fit:contain}
+.logo-c{height:var(--mk);width:auto;max-width:100%;border-radius:18px;display:block;object-fit:contain}
 .x{font-size:calc(var(--mk) * .5);line-height:1;color:var(--muted);font-weight:300}
 .lk figcaption,.collab{margin:10px 0 0;font-family:Georgia,"Times New Roman",serif;font-size:17px;line-height:1.25;color:var(--copper);letter-spacing:.01em;text-align:center;text-wrap:balance}
 .collab em{color:var(--muted);font-style:italic}
