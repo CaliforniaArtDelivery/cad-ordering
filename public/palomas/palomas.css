@@ -84,8 +84,11 @@ input:focus,select:focus,textarea:focus{border-color:var(--navy);box-shadow:0 0 
 .irow input,.irow select{min-height:40px;padding:8px 10px;font-size:15px;border-radius:10px}
 .irow select{padding-right:30px;background-position:right 10px center}
 .irow .dims{display:flex;gap:6px;align-items:center;margin-top:8px;font-size:13px;color:var(--muted)}.irow .dims input{width:70px}
-.rm{position:absolute;top:6px;right:6px;border:0;background:transparent;font-size:20px;line-height:1;color:var(--muted);width:32px;height:32px;border-radius:8px;cursor:pointer}
-.rm:hover{background:var(--sand);color:var(--err)}
+.rmrow{display:flex;justify-content:flex-end;margin-top:10px}
+.rm{display:inline-flex;align-items:center;gap:6px;border:1.5px solid #c9c4b8;background:#fff;font:inherit;font-size:14px;font-weight:600;line-height:1;color:#8a2a22;min-height:44px;min-width:44px;padding:0 14px;border-radius:10px;cursor:pointer}
+.rm:hover,.rm:focus-visible{background:#fbeceb;border-color:#b3261e;color:#b3261e}
+.undo{display:flex;align-items:center;justify-content:space-between;gap:10px;background:#f1efe8;border:1.5px solid var(--line);border-radius:12px;padding:8px 12px;margin-bottom:10px;font-size:14px}
+.undo-btn{min-height:44px;min-width:64px;border:1.5px solid var(--navy);background:#fff;color:var(--navy);font:inherit;font-weight:700;border-radius:10px;padding:0 14px;cursor:pointer}
 .qty{display:flex;align-items:center;border:1.5px solid #d9d5cb;border-radius:10px;overflow:hidden;background:#fff}
 .qty button{border:0;background:transparent;width:30px;height:37px;font-size:18px;cursor:pointer;color:var(--ink)}
 .qty input{border:0;border-radius:0;text-align:center;min-height:37px;padding:0;width:34px;box-shadow:none!important}
@@ -240,3 +243,14 @@ html{scroll-padding-bottom:96px;scroll-padding-top:12px}
 .compact .hero h1,.compact .hero .lede{display:none}
 .compact .hero{padding-bottom:14px}
 .compact .lockup{margin-bottom:0}
+
+/* Staff / employee discount code: visible, labeled, in the order summary before payment */
+.staffcode{margin:12px 0 6px;padding:12px;border:1.5px solid var(--line);border-radius:12px;background:#fbfaf7}
+.staffcode .sc-h{display:block;font-weight:650;font-size:14px;margin-bottom:6px;color:var(--ink)}
+.sc-row{display:flex;gap:8px;align-items:stretch}
+.sc-row input{flex:1;min-width:0;min-height:44px;padding:8px 12px;font-size:16px;border:1.5px solid #d9d5cb;border-radius:10px;background:#fff}
+.sc-row input.bad{border-color:#b3261e}
+.sc-row .btn{min-height:44px;padding:0 14px;width:auto;flex:none}
+.sc-msg{min-height:1.2em;margin:6px 0 0;color:#b3261e}
+.staffcode.ok{border-color:var(--ok)}
+.staffcode .sc-ok{margin:0 0 6px;color:var(--ok);font-size:14px;font-weight:600}

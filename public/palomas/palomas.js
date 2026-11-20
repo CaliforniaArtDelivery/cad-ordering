@@ -7,7 +7,7 @@ const num = (v) => { const n = Number(String(v ?? '').replace(/[,$\s]/g, '')); r
 
 let CFG = null;
 const S = {
-  placedBy: '', placedOther: '', pickup: 'salinas', items: [], courtesy: false, staffOpen: false, payOpen: false, unlocked: false, pin: '', pinFor: '', pinVal: '', puMore: false, deMore: false, puFrom: '', deFrom: '',
+  placedBy: '', placedOther: '', pickup: 'salinas', items: [], courtesy: false, staffOpen: false, payOpen: false, unlocked: false, pin: '', pinFor: '', pinVal: '', puMore: false, deMore: false, undo: null, staffMsg: '', staffVal: '', puFrom: '', deFrom: '',
   payer: 'client', card: '', exp: '', cvc: '', payError: '', quoteBusy: false,
   pickupDate: '', deliveryDate: '', puDays: [], deDays: [], quote: null, submitting: false, errors: [], showErrors: false,
 };
@@ -57,6 +57,7 @@ function renderCatalog() {
 }
 function addFromCatalog(key) {
   const c = CFG.catalog.find((x) => (x.id || x.name) === key); if (!c) return;
+  S.undo = null;
   const ex = S.items.find((i) => i.catalogId === key);
   if (ex) ex.qty = Math.min(99, ex.qty + 1);
   else S.items.push({ uid: uid++, name: c.name, kind: c.kind, qty: 1, catalogId: key, thumb: c.id || '', dims: c.dims, w: '', h: '' });
@@ -65,8 +66,9 @@ function addFromCatalog(key) {
 function renderItems() {
   const box = $('#items');
   $('#itemCount').textContent = S.items.length ? `(${S.items.reduce((s, i) => s + i.qty, 0)})` : '';
-  if (!S.items.length) { box.innerHTML = `<p class="empty">Nothing added yet. Tap a piece above.</p>`; return; }
-  box.innerHTML = S.items.map((i) => {
+  const undoBar = S.undo ? `<div class="undo" role="status"><span>Removed “${esc(S.undo.item.name)}”.</span> <button type="button" class="undo-btn" data-undo="1">Undo</button></div>` : '';
+  if (!S.items.length) { box.innerHTML = `${undoBar}<p class="empty">Nothing added yet. Tap a piece above.</p>`; return; }
+  box.innerHTML = undoBar + S.items.map((i) => {
     return `<div class="irow" data-uid="${i.uid}">
       <div class="th">${i.thumb ? `<img src="/palomas/thumbs/${esc(i.thumb)}.jpg" alt="" onerror="this.replaceWith(document.createTextNode('◇'))">` : '◇'}</div>
       <div><div class="nm">${esc(i.name)}</div><div class="ty">${esc(i.kind)}${i.dims ? ' · ' + esc(i.dims) : ''}${i.custom ? ' · custom' : ''}</div>
@@ -75,7 +77,8 @@ function renderItems() {
         </div>
         ${i.custom ? `<div class="cspec">${[i.w && i.d && i.h ? `<b>${esc(i.w)} × ${esc(i.d)} × ${esc(i.h)} in</b>` : '', i.weightUnsure ? 'weight not sure' : i.weight ? `<b>~${esc(i.weight)} lb</b>` : '', (i.photos || []).length ? `${i.photos.length} photo${i.photos.length > 1 ? 's' : ''}` : i.photoLater ? 'photo to follow' : ''].filter(Boolean).join(' · ')}</div>` : ''}
         ${isMirror(i.kind) && !i.custom ? `<div class="dims">Face size, optional: <input data-f="w" value="${esc(i.w)}" inputmode="numeric" placeholder="W"> × <input data-f="h" value="${esc(i.h)}" inputmode="numeric" placeholder="H"> in</div>` : ''}
-      </div><button type="button" class="rm" data-rm="1" aria-label="Remove ${esc(i.name)}">×</button></div>`;
+        <div class="rmrow"><button type="button" class="rm" data-rm="1" aria-label="Remove ${esc(i.name)}"><span aria-hidden="true">✕</span> Remove</button></div>
+      </div></div>`;
   }).join('');
 }
 function itemsChanged(rerenderRows) {
@@ -143,6 +146,37 @@ async function submitPin(e) {
   if (j && j.ok) { S.unlocked = true; S.pin = code; S[which] = true; S.pinFor = ''; S.pinVal = ''; renderSummary(); return; }
   S.pinVal = ''; renderSummary(); const i = $('#pinInput'); if (i) { i.classList.add('bad'); i.focus({ preventScroll: true }); }
 }
+/* Staff / employee discount code: a visible, labeled field in the order summary (before payment). A valid code applies the Manager's courtesy
+   (an extra 15% off what is left, see lib/palomas.js applyExtras); the checkbox lets staff switch it off again. The server re-checks the code on every
+   quote and order, so nothing here is trusted. */
+function staffBlock(q) {
+  const pct = q.rules.courtesyPct;
+  if (S.unlocked) {
+    return `<div class="staffcode ok" id="staffBox"><div class="sc-h">Staff / employee discount code</div>
+      <p class="sc-ok" role="status">✓ Code accepted. Manager's courtesy (−${pct}%) ${S.courtesy ? 'is applied' : 'is available'}.</p>
+      <label class="mc"><input type="checkbox" id="mc" ${S.courtesy ? 'checked' : ''}><span>Manager's courtesy (−${pct}%)</span></label>
+      <button type="button" class="linkbtn" id="staffClear">Remove code</button></div>`;
+  }
+  return `<form class="staffcode" id="staffForm" autocomplete="off" novalidate><label class="sc-h" for="staffCode">Staff / employee discount code</label>
+    <div class="sc-row"><input type="password" id="staffCode" name="staffcode" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Enter code" value="${esc(S.staffVal)}" ${S.staffMsg ? 'class="bad" aria-invalid="true"' : ''}>
+    <button type="submit" class="btn primary sc-apply" id="staffApply">Apply</button></div>
+    <p class="mini sc-msg" role="status">${esc(S.staffMsg)}</p></form>`;
+}
+async function submitStaff(e) {
+  e.preventDefault();
+  const code = ($('#staffCode') || {}).value || '';
+  S.staffVal = code;
+  if (!code.trim()) { S.staffMsg = 'Please enter the code.'; renderSummary(); const i = $('#staffCode'); if (i) i.focus({ preventScroll: true }); return; }
+  const { ok, j } = await api('/api/palomas/unlock', { code });
+  if (ok && j && j.ok) { S.unlocked = true; S.pin = code; S.courtesy = true; S.staffMsg = ''; S.staffVal = ''; renderSummary(); runQuote(); return; }
+  S.staffMsg = ok ? 'That code isn’t valid. Please check it and try again.' : 'Too many tries. Please wait a minute and try again.';
+  renderSummary(); const i = $('#staffCode'); if (i) i.focus({ preventScroll: true });
+}
+function clearStaff() {
+  S.unlocked = false; S.pin = ''; S.courtesy = false; S.staffOpen = false; S.payOpen = false; S.pinFor = ''; S.staffMsg = ''; S.staffVal = '';
+  if (S.payer === 'palomas') S.payer = 'client';
+  renderSummary(); runQuote();
+}
 const payerInfo = () => (S.payer === 'palomas' ? { name: "Paloma's Home Furnishings", email: CFG.pay.partnerEmail } : { name: delivery().name, email: delivery().email });
 function payerLineHtml() { const p = payerInfo(); return p.name || p.email ? `Payer: <b>${esc(p.name || '—')}</b>${p.email ? ' · ' + esc(p.email) : ''}` : 'Payer: fill in the client name and email above.'; }
 const isHeavyReview = () => !!(S.quote && S.quote.special && S.quote.review === 'heavy');
@@ -200,9 +234,7 @@ function renderSummary() {
     html += `<div class="sum-note">${q.volumeEligible ? '✓ ' : ''}Delivery orders of $${q.rules.volumeThreshold.toLocaleString('en-US')} or more (after partnership pricing) get an additional ${q.rules.volumePct}% off the whole delivery price.</div>`;
     if (q.courtesy) html += `<div class="sl disc"><span>Manager's courtesy</span><span class="a">−${usd(q.courtesyOff)}</span></div>`;
     html += `<div class="sl big rule"><span>${esc(q.totalLabel || 'Total')}</span><span class="a">${q.standard !== q.total ? `<s>${usd(q.standard)}</s>` : ''}${usd(q.total)}</span></div>`;
-    // Discreet control: a small unlabeled chevron (aria-label "More"); the checkbox only exists in the page while it is expanded.
-    html += `<div class="more"><button type="button" class="chev ${S.staffOpen ? 'open' : ''}" id="more" aria-label="More (order summary)" aria-expanded="${S.staffOpen ? 'true' : 'false'}" aria-controls="morePanel">${CHEV_SVG}</button></div>${pinHtml('staffOpen')}`;
-    if (S.staffOpen) html += `<div id="morePanel" class="morepanel"><label class="mc"><input type="checkbox" id="mc" ${S.courtesy ? 'checked' : ''}><span>Manager's courtesy (−${q.rules.courtesyPct}%)</span></label></div>`;
+    html += staffBlock(q);
     if (q.notes && q.notes.length) html += q.notes.filter((n) => !/access/i.test(n)).map((n) => `<p class="mini">${esc(n)}</p>`).join('');
     barTotal.textContent = S.quoteBusy ? 'Updating…' : usd(q.total);
   }
@@ -481,6 +513,7 @@ function bind() {
       $('#cAdd').disabled = false; $('#cAdd').textContent = 'Add item';
       if (!photos.length && !$('#cLater').checked) { err.hidden = false; err.textContent = 'The photo didn’t upload. Try again, or tick “I’ll send a photo”.'; return; }
     }
+    S.undo = null;
     S.items.push({ uid: uid++, name: n, kind: kind.value, qty: 1, catalogId: 'custom-' + uid, custom: true, thumb: '', dims: '', w: String(cNum('#cL')), d: String(cNum('#cW')), h: String(cNum('#cH')), weight: $('#cWtUnsure').checked ? '' : String(cNum('#cWt')), weightUnsure: $('#cWtUnsure').checked, photos, photoLater: $('#cLater').checked && !photos.length });
     ['#cName', '#cL', '#cW', '#cH', '#cWt', '#cPhoto'].forEach((id) => { $(id).value = ''; $(id).classList.remove('bad'); });
     $('#cWtUnsure').checked = false; $('#cWt').disabled = false; $('#cLater').checked = false; syncCustomPhoto();
@@ -489,8 +522,15 @@ function bind() {
   // item rows
   const rowOf = (el) => { const r = el.closest('.irow'); return r && S.items.find((i) => String(i.uid) === r.dataset.uid); };
   $('#items').addEventListener('click', (e) => {
+    if (e.target.closest('[data-undo]')) {
+      const u = S.undo; S.undo = null;
+      if (u && !S.items.includes(u.item)) S.items.splice(Math.min(u.index, S.items.length), 0, u.item);
+      itemsChanged(true); return;
+    }
     const it = rowOf(e.target); if (!it) return;
-    if (e.target.closest('[data-rm]')) { S.items = S.items.filter((x) => x !== it); itemsChanged(true); return; }
+    // Remove takes the piece out at once (totals, dates and the estimate refresh) and offers Undo. Removing the last piece simply
+    // empties the list: the order summary clears and Next stays blocked until a piece is added again.
+    if (e.target.closest('[data-rm]')) { S.undo = { item: it, index: S.items.indexOf(it) }; S.items = S.items.filter((x) => x !== it); itemsChanged(true); return; }
     const q = e.target.closest('[data-q]'); if (q) { it.qty = Math.max(1, Math.min(99, it.qty + Number(q.dataset.q))); itemsChanged(true); }
   });
   $('#items').addEventListener('input', (e) => {
@@ -550,7 +590,7 @@ function bind() {
   $('#sumBody').addEventListener('change', (e) => { if (e.target.id === 'mc') { S.courtesy = e.target.checked; runQuote(); } });
   $('#sumBody').addEventListener('click', (e) => {
     if (S.submitting) return;
-    if (e.target.closest('#more')) { openChevron('staffOpen'); return; }
+    if (e.target.closest('#staffClear')) { clearStaff(); return; }
     if (e.target.closest('#payMore')) { openChevron('payOpen'); return; }
     if (e.target.id === 'place') place();
     else if (e.target.id === 'sendLink') place('link');
@@ -559,8 +599,9 @@ function bind() {
   $('#sumBody').addEventListener('change', (e) => {
     if (e.target.name === 'payer') { S.payer = e.target.value; S.payError = ''; renderSummary(); }
   });
-  $('#sumBody').addEventListener('submit', (e) => { if (e.target.id === 'pinForm') submitPin(e); });
+  $('#sumBody').addEventListener('submit', (e) => { if (e.target.id === 'pinForm') submitPin(e); else if (e.target.id === 'staffForm') submitStaff(e); });
   $('#sumBody').addEventListener('input', (e) => {
+    if (e.target.id === 'staffCode') { S.staffVal = e.target.value; S.staffMsg = ''; e.target.classList.remove('bad'); const m = $('.sc-msg'); if (m) m.textContent = ''; return; }
     if (e.target.id === 'pinInput') { S.pinVal = e.target.value; e.target.classList.remove('bad'); return; }
     if (e.target.id === 'cardNum') { S.card = e.target.value.replace(/[^\d ]/g, ''); e.target.value = S.card; }
     else if (e.target.id === 'cardExp') S.exp = e.target.value;
