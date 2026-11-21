@@ -33,7 +33,7 @@ exports.uiTests = async (H) => {
     await fill(`items.${i}.description`, s.desc || 'Canvas'); await next();
     if ((await panel()) === `p${i}b`) {
       await fill(`items.${i}.w`, s.w ?? 72); await fill(`items.${i}.h`, s.h ?? 60); await fill(`items.${i}.d`, s.d ?? 2);
-      if (await page.$(`[data-seg="items.${i}.framed"]`)) await page.click(`[data-seg="items.${i}.framed"] [data-v="no"]`);
+      if (await page.$(`[data-seg="items.${i}.framed"]`)) await page.click(`[data-seg="items.${i}.framed"] [data-v="no"]`); if (await page.$(`[data-seg="items.${i}.glazing"]`)) await page.click(`[data-seg="items.${i}.glazing"] [data-v="no"]`);
       await next();
     }
     if (s.value !== undefined) await fill(`items.${i}.value`, s.value);
@@ -68,7 +68,7 @@ exports.uiTests = async (H) => {
         else if (f.t === 'DIV' && /^(pickup|dropoff)\./.test(f.k) && !(await page.$(`[data-seg="${f.k}"] button.on`))) { await page.click(`[data-seg="${f.k}"] button >> nth=0`); await page.waitForTimeout(120); }
       }
       if (await page.locator('[data-reqblock="date"] .day:not(.rush):visible').count()) { await page.click('[data-reqblock="date"] .day:not(.rush):visible >> nth=0'); await page.waitForTimeout(250); }
-      if (await page.locator('[data-deldate]:visible').count()) { await page.click('[data-deldate]:visible >> nth=0'); await page.waitForTimeout(250); }
+      if (await page.locator('[data-deldate]:not([data-off]):visible').count()) { await page.click('[data-deldate]:not([data-off]):visible >> nth=0'); await page.waitForTimeout(250); }
       await next();
     }
   }
@@ -280,7 +280,7 @@ exports.uiTests = async (H) => {
     await freshStart();
     await fill(`items.0.description`, 'Care test'); await next();
     await fill(`items.0.w`, 30); await fill(`items.0.h`, 40); await fill(`items.0.d`, 2);
-    await page.click('[data-seg="items.0.framed"] [data-v="no"]'); await next();
+    await page.click('[data-seg="items.0.framed"] [data-v="no"]'); if (await page.$(`[data-seg="items.0.glazing"]`)) await page.click(`[data-seg="items.0.glazing"] [data-v="no"]`); await next();
     ok((await panel()) === 'p0c', 'landed on Value and care');
     ok(await page.isVisible('[data-path="items.0.materialNotes"]'), 'Material or notes (optional) is on the Value and care step');
     ok(/e\.g\. ceramic vase, glass top/.test(await page.getAttribute('[data-path="items.0.materialNotes"]', 'placeholder')), 'material placeholder');
@@ -454,7 +454,7 @@ exports.uiTests = async (H) => {
     await freshStart();
     await dockCheck('375x667 first screen');
     await fill('items.0.description', 'Canvas'); await next(); await dockCheck('375x667 size screen');
-    await fill('items.0.w', 72); await fill('items.0.h', 60); await fill('items.0.d', 2); await page.click('[data-seg="items.0.framed"] [data-v="no"]'); await next(); await dockCheck('375x667 value and care screen');
+    await fill('items.0.w', 72); await fill('items.0.h', 60); await fill('items.0.d', 2); await page.click('[data-seg="items.0.framed"] [data-v="no"]'); if (await page.$(`[data-seg="items.0.glazing"]`)) await page.click(`[data-seg="items.0.glazing"] [data-v="no"]`); await next(); await dockCheck('375x667 value and care screen');
     await page.setViewportSize({ width: 375, height: 330 }); // keyboard open: the visible area shrinks
     for (const sel of ['[data-path="items.0.value"]', '[data-path="items.0.weight"]']) {
       await page.evaluate(() => window.scrollTo(0, 0)); await page.focus(sel); await page.waitForTimeout(400);

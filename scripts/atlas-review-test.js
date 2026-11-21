@@ -223,7 +223,7 @@ async function sectionLabelsAndUi() {
     await nextFree(page); // size
     ok((await panelOf(page)) === 'p0b' && (await btnOf(page)) === 'Next', 'size step (and other non-description steps) still say "Next"', await btnOf(page));
     await page.fill('[data-path="items.0.w"]', '30'); await page.fill('[data-path="items.0.h"]', '40'); await page.fill('[data-path="items.0.d"]', '2');
-    await page.click('[data-seg="items.0.framed"] [data-v="no"]');
+    await page.click('[data-seg="items.0.framed"] [data-v="no"]'); await page.click('[data-seg="items.0.glazing"] [data-v="no"]');
     await nextFree(page); // care
     ok((await panelOf(page)) === 'p0c' && (await btnOf(page)) === 'Next', 'Value and care says "Next"');
     await page.fill('[data-path="items.0.value"]', '5000');
@@ -234,7 +234,7 @@ async function sectionLabelsAndUi() {
     await page.fill('[data-path="items.1.description"]', 'Second');
     await nextFree(page);
     await page.fill('[data-path="items.1.w"]', '20'); await page.fill('[data-path="items.1.h"]', '20'); await page.fill('[data-path="items.1.d"]', '2');
-    await page.click('[data-seg="items.1.framed"] [data-v="no"]');
+    await page.click('[data-seg="items.1.framed"] [data-v="no"]'); await page.click('[data-seg="items.1.glazing"] [data-v="no"]');
     await nextFree(page);
     await page.fill('[data-path="items.1.value"]', '4000');
     await page.fill('[data-path="items.1.materialNotes"]', 'note B stays');

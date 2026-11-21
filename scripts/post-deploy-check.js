@@ -34,7 +34,7 @@ const ok = (c, m, extra) => { res.push([!!c, m]); console.log(c ? '  PASS:' : ' 
   const next = async () => { await settle(); await page.click('#nextBtn:not([disabled]):not([aria-disabled="true"])', { timeout: 15000 }); await page.waitForTimeout(450); };
   const fill = (p, v) => page.fill(`[data-path="${p}"]`, String(v));
   const shot = async (n) => { await page.evaluate(() => { window.scrollTo(0, 0); document.querySelectorAll('.upload-toast').forEach((t) => { t.hidden = true; }); }); await page.waitForTimeout(250); await page.screenshot({ path: path.join(SHOTS, n + '.png') }); };
-  const piece = async (i, desc, value) => { await fill(`items.${i}.description`, desc); await next(); if ((await panel()) === `p${i}b`) { await fill(`items.${i}.w`, 72); await fill(`items.${i}.h`, 60); await fill(`items.${i}.d`, 2); if (await page.$(`[data-seg="items.${i}.framed"]`)) await page.click(`[data-seg="items.${i}.framed"] [data-v="no"]`); await next(); } await fill(`items.${i}.value`, value); await next(); };
+  const piece = async (i, desc, value) => { await fill(`items.${i}.description`, desc); await next(); if ((await panel()) === `p${i}b`) { await fill(`items.${i}.w`, 72); await fill(`items.${i}.h`, 60); await fill(`items.${i}.d`, 2); if (await page.$(`[data-seg="items.${i}.framed"]`)) await page.click(`[data-seg="items.${i}.framed"] [data-v="no"]`); if (await page.$(`[data-seg="items.${i}.glazing"]`)) await page.click(`[data-seg="items.${i}.glazing"] [data-v="no"]`); await next(); } await fill(`items.${i}.value`, value); await next(); };
   try {
     await page.goto(BASE); await page.evaluate(() => sessionStorage.clear()); await page.goto(BASE);
     await page.waitForSelector('[data-service]'); await page.click('[data-service="pickup_delivery"]'); await next();
@@ -57,7 +57,7 @@ const ok = (c, m, extra) => { res.push([!!c, m]); console.log(c ? '  PASS:' : ' 
         else if (f.t === 'DIV' && /^(pickup|dropoff)\./.test(f.k) && !(await page.$(`[data-seg="${f.k}"] button.on`))) { await page.click(`[data-seg="${f.k}"] button >> nth=0`); await page.waitForTimeout(120); }
       }
       if (await page.locator('[data-reqblock="date"] .day:not(.rush):visible').count()) { await page.click('[data-reqblock="date"] .day:not(.rush):visible >> nth=0'); await page.waitForTimeout(250); }
-      if (await page.locator('[data-deldate]:visible').count()) { await page.click('[data-deldate]:visible >> nth=0'); await page.waitForTimeout(250); }
+      if (await page.locator('[data-deldate]:not([data-off]):visible').count()) { await page.click('[data-deldate]:not([data-off]):visible >> nth=0'); await page.waitForTimeout(250); }
       await next();
     }
     ok((await panel()) === 'review', 'reached the final review through all other steps with the value unconfirmed', await panel());

@@ -40,12 +40,12 @@ const migrateAddr = (a = {}) => {
 let pcSeq = 0;
 const newPieceId = () => 'pc' + Date.now().toString(36) + (pcSeq++).toString(36) + Math.random().toString(36).slice(2, 6);
 // One entry = one piece, with a permanent internal id (labels like "Piece 3" renumber after a removal; the id never does).
-const emptyItem = () => ({ id: newPieceId(), checkValue: false, type: 'painting', furnitureKind: 'Sofa', sizeClass: 'medium', description: '', materialNotes: '', w: '', h: '', d: '', weight: '', framed: '', glazing: '', frameType: '', framedGlass: false, fragile: false, weightUnsure: false, fitsStairwell: false, hangHeight: 'standard', centerHeight: '', hangWhere: '', hangWhereOther: '', hangBottomFt: '', hangPhotos: [], crateStatus: 'not_sure', value: '', photos: [] });
+const emptyItem = () => ({ id: newPieceId(), checkValue: false, type: 'painting', furnitureKind: 'Sofa', sizeClass: 'medium', description: '', materialNotes: '', w: '', h: '', d: '', weight: '', framed: '', glazing: '', frameType: '', framedGlass: false, fragile: false, weightUnsure: false, fitsStairwell: false, hangHeight: 'standard', centerHeight: '', hangWhere: '', hangWhereOther: '', hangBottomFt: '', hangPhotos: [], hardware: '', crateStatus: 'not_sure', value: '', photos: [] });
 
 let CFG = null;
 let step = 0;
 const emptyHeard = () => ({
-  repeatClient: false, source: '', sourceOther: '',
+  repeatClient: false, source: '', sourceOther: '', sourceDetail: '',
   referrerKind: '', referrerName: '', referrerPhone: '', referrerEmail: '', businessName: '',
 });
 const fresh = () => ({
@@ -117,8 +117,12 @@ const payload = () => {
   ['pickup', 'dropoff'].forEach((k) => { if (o[k] && o[k].sameAsMe) { o[k].contactRole = ''; o[k].contactRoleOther = ''; } });
   const clearInstall = (a) => { a.centerHeight = ''; a.wallType = ''; a.hardware = ''; a.highInstall = false; a.installLocation = ''; a.wallPhotos = []; };
   clearInstall(o.pickup);
-  if (sv.install && o.items.some(isHung)) { if (!o.dropoff.wallType) o.dropoff.wallType = 'Not sure'; if (!o.dropoff.hardware) o.dropoff.hardware = 'Not sure'; }
-  else clearInstall(o.dropoff);
+  if (sv.install && o.items.some(isHung)) {
+    if (!o.dropoff.wallType) o.dropoff.wallType = 'Not sure';
+    // Hardware is asked per piece now (Chad, Nov 21 2026); the stop keeps a one-line summary for the schedule notes and emails.
+    o.dropoff.hardware = o.items.map((it, i) => (isHung(it) && it.hardware ? `Piece ${i + 1}: ${hardwareText(it.hardware)}` : '')).filter(Boolean).join('; ') || 'Not sure';
+  } else clearInstall(o.dropoff);
+  o.items.forEach((it) => { if (!(sv.install && isHung(it))) delete it.hardware; });
   o.items.forEach((it) => {
     if (!(sv.install && isHung(it))) {
       it.hangHeight = 'standard'; it.centerHeight = ''; it.hangWhere = ''; it.hangWhereOther = ''; it.hangBottomFt = ''; it.hangPhotos = [];
@@ -240,17 +244,18 @@ const hungDecorList = () => {
 // Wall pieces: Painting, Mirror, Other wall art (incl. wall sculpture) hang on a wall, so they're installable.
 const WALL_TYPES = ['painting', 'photograph', 'mirror', 'wallart'];
 const FRAMING_TYPES = ['painting', 'photograph', 'wallart'];
-const GLASS_TYPES = ['photograph', 'wallart'];
+// Glass? is its own question for paintings, photographs and other wall art, framed or not (Chad, Nov 21 2026). Mirrors are glass already.
+const GLASS_TYPES = ['painting', 'photograph', 'wallart'];
 const FRAME_TYPE_OPTS = [['small', 'Small / lightweight'], ['medium', 'Medium'], ['large', 'Large / heavy / ornate']];
 const FRAME_TYPE_ASK_OVER = 48;
 const isHung = (it) => WALL_TYPES.includes(it.type || 'painting') || (it.type === 'decor' && hungDecorList().includes(it.furnitureKind));
 const maxWH = (it) => Math.max(Number(it.w) || 0, Number(it.h) || 0);
-const needsGlass = (it) => GLASS_TYPES.includes(it.type) && it.framed === 'yes';
+const needsGlass = (it) => GLASS_TYPES.includes(it.type || 'painting');
 const needsFrameType = (it) => FRAMING_TYPES.includes(it.type || 'painting') && it.framed === 'yes' && maxWH(it) > FRAME_TYPE_ASK_OVER;
 const cleanFraming = (it) => {
   if (!FRAMING_TYPES.includes(it.type)) { it.framed = ''; it.glazing = ''; it.frameType = ''; }
   else {
-    if (it.framed !== 'yes') { it.glazing = ''; it.frameType = ''; }
+    if (it.framed !== 'yes') it.frameType = '';
     if (!needsGlass(it)) it.glazing = '';
     if (!needsFrameType(it)) it.frameType = '';
   }
@@ -264,9 +269,9 @@ const routeDecorMirror = (it) => {
 };
 const framingOk = (it) => {
   if (!FRAMING_TYPES.includes(it.type || 'painting')) return true;
-  if (it.framed === 'no') return true;
-  if (it.framed !== 'yes') return false;
+  if (it.framed !== 'yes' && it.framed !== 'no') return false;
   if (needsGlass(it) && !['yes', 'no'].includes(it.glazing)) return false;
+  if (it.framed === 'no') return true;
   if (needsFrameType(it) && !FRAME_TYPE_OPTS.some(([v]) => v === it.frameType)) return false;
   return true;
 };
@@ -274,13 +279,13 @@ const TYPE_LABEL = (t) => (ITEM_TYPES.find(([v]) => v === (t || 'painting')) || 
 const framingText = (it) => {
   if (it.type === 'mirror') return 'Glass (mirror)';
   if (!FRAMING_TYPES.includes(it.type || 'painting')) return '';
+  const glassBit = needsGlass(it) ? (it.glazing === 'yes' ? 'glass' : it.glazing === 'no' ? 'no glass' : '') : '';
   if (it.framed === 'yes') {
-    const bits = ['Framed'];
-    if (needsGlass(it)) bits.push(it.glazing === 'yes' ? 'glass' : it.glazing === 'no' ? 'no glass' : '');
+    const bits = ['Framed', glassBit];
     if (it.frameType) { const lab = (FRAME_TYPE_OPTS.find(([v]) => v === it.frameType) || [])[1]; if (lab) bits.push(lab); }
     return bits.filter(Boolean).join(' · ');
   }
-  return it.framed === 'no' ? 'Unframed' : '';
+  return it.framed === 'no' ? ['Unframed', glassBit].filter(Boolean).join(' · ') : '';
 };
 const hasHanging = () => hasInstall() && S.items.some(isHung);
 const isPlaced = (it) => !isHung(it);
@@ -316,7 +321,7 @@ const ICONS = {
 };
 
 const DESC = {
-  pickup_delivery: 'White-glove pickup and delivery of fine art, sculpture, luxury furniture, décor, antiques and other valuable or fragile pieces, placed exactly where you want them.',
+  pickup_delivery: 'White glove pickup and delivery of fine art, sculpture, luxury furniture, décor, antiques and other valuable or fragile pieces, placed exactly where you want them.',
   delivery_install: 'Everything above, plus expert installation of paintings, mirrors and wall décor.',
   install_only: 'Already on site. We hang paintings, mirrors and wall décor.',
   crating_shipping: 'For anything going outside California, anywhere in the US or overseas, by air or ground. Delivering within California? Choose Pickup + Delivery above.',
@@ -381,9 +386,16 @@ const REFERRER_KINDS = [['friend', 'Friend or family'], ['gallery', 'Gallery'], 
 const BUSINESS_REFERRERS = ['gallery', 'showroom', 'designer', 'auction', 'other_business'];
 const CONTACT_ROLES = ['Homeowner', 'Interior designer', 'Home / estate manager', 'Gallery owner', 'Gallery staff', 'Assistant', 'Art advisor / collector rep', 'Building manager / concierge', 'Other'];
 const HANG_HEIGHTS = [['standard', 'Standard eye level (gallery height)'], ['higher', 'Higher than eye level']];
-const HANG_WHERES = [['mantel', 'Above a mantel or fireplace'], ['high', 'Higher than eye level (ladder needed)'], ['stairwell', 'In a stairwell'], ['other', 'Other']];
-const HANG_PICKS = [['standard', 'Eye level / gallery standard (57–60" to center)'], ['high', 'Higher than eye level (ladder needed)'], ['mantel', 'Above a mantel or fireplace'], ['stairwell', 'In a stairwell']];
+const HANG_WHERES = [['mantel', 'Above a mantel or fireplace (stool or ladder needed)'], ['high', 'Higher than eye level (stool or ladder needed)'], ['stairwell', 'In a stairwell (ladder needed)'], ['other', 'Other']];
+const HANG_PICKS = [['standard', 'Eye level / gallery standard (57–60" to center)'], ['high', 'Higher than eye level (stool or ladder needed)'], ['mantel', 'Above a mantel or fireplace (stool or ladder needed)'], ['stairwell', 'In a stairwell (ladder needed)']];
 const hangWhereLabel = (v) => (HANG_WHERES.find(([k]) => k === v) || [v, v])[1];
+// Follow-up for every answer (Chad, Nov 21 2026): optional, one line, so CAD knows which search, assistant, platform or event.
+const HEARD_DETAIL = {
+  google: ['Which search or site? (optional)', 'e.g. Google search for art delivery'],
+  ai: ['Which AI assistant? (optional)', 'e.g. ChatGPT, Gemini, Grok'],
+  social: ['Which platform or account? (optional)', 'e.g. Instagram, a designer’s post'],
+  van: ['Where did you see us? (optional)', 'e.g. our van in Carmel, an art fair'],
+};
 const heardLabel = (v) => (HEARD_SOURCES.find(([k]) => k === v) || [v, v])[1];
 const referrerKindLabel = (v) => (REFERRER_KINDS.find(([k]) => k === v) || [v, v])[1];
 const isBizReferral = () => {
@@ -409,6 +421,9 @@ const applySameAsMe = (k) => {
 };
 const syncHeardPayload = (o) => {
   const h = { ...emptyHeard(), ...(o.heard || {}) };
+  if (h.repeatClient || !HEARD_DETAIL[h.source]) h.sourceDetail = '';
+  if (h.repeatClient || h.source !== 'referral') { h.referrerKind = ''; h.referrerName = ''; h.referrerPhone = ''; h.referrerEmail = ''; h.businessName = ''; }
+  if (h.repeatClient || h.source !== 'other') h.sourceOther = '';
   if (h.repeatClient) {
     o.referral = false;
     o.partner = { type: 'None', name: '', email: '', phone: '' };
@@ -478,6 +493,18 @@ const pieceNeedsStairwellFit = (it) => {
   if (kinds.some((k) => k !== 'none' && k !== 'steps')) return true;
   return kinds.includes('steps') && num(it.weight) > CADAccess.HEAVY_LB;
 };
+// Hanging hardware on the back of each piece and the height surcharges (Chad, Nov 21 2026). Amounts come from /api/config.
+const HARDWARE_OPTS = ['wire', 'zbar', 'cleat', 'needs_wire', 'needs_zbar', 'not_sure'];
+const hwCfg = () => ((CFG && CFG.pricing && CFG.pricing.hangHardware) || {});
+const hardwareText = (v) => ((hwCfg()[v] || {}).label || v);
+const feeTag = (fee) => (fee > 0 ? ` <span class="fee">+${fmt(fee)}</span>` : '');
+const hangFeeFor = (it, v) => {
+  const hi = (CFG && CFG.pricing && CFG.pricing.hangInstall) || {};
+  if (v === 'mantel') return Math.max(num(it.w), num(it.h), num(it.d)) > 72 ? ((hi.mantel || {}).over72 || 0) : ((hi.mantel || {}).upTo72 || 0);
+  return typeof hi[v] === 'number' ? hi[v] : 0;
+};
+const hardwareField = (it, i) => `<div class="field" data-hardware="${i}" style="margin-top:12px"><label class="f">Is hanging hardware already on the back of the piece? — ${esc(pieceTitle0(it, i))}${req}</label>
+  ${seg(`items.${i}.hardware`, HARDWARE_OPTS.filter((v) => hwCfg()[v]).map((v) => [v, esc(hwCfg()[v].label) + (v === 'not_sure' ? ' <span class="fee">we’ll confirm on site</span>' : feeTag(hwCfg()[v].fee))]), 'stack')}</div>`;
 const hangSummary = (it, i) => {
   const name = pieceName(i);
   if (it.hangHeight === 'higher') {
@@ -499,7 +526,7 @@ const hangPieceBlock = (it, i) => {
   let html = '<div class="field" style="margin-top:14px" data-hangpiece="' + i + '">';
   html += '<label class="f">Hanging height — ' + title + '<span class="req">Required</span></label>';
   it.hangPick = higher ? (it.hangWhere || '') : 'standard';
-  html += seg(p + '.hangPick', HANG_PICKS, 'stack');
+  html += seg(p + '.hangPick', HANG_PICKS.map(([v, l]) => [v, l + feeTag(hangFeeFor(it, v))]), 'stack');
   if (!higher) {
     html += input(p + '.centerHeight', 'Center height (in), optional', { type: 'number', ph: '59', attrs: 'inputmode="decimal"' });
     html += '<p class="mini">We hang at 57–60" to center (gallery standard). Adjust only if you have a preference.</p>';
@@ -512,19 +539,43 @@ const hangPieceBlock = (it, i) => {
   html += '</div>';
   return html;
 };
-const accessText = (a) => esc(CADAccess.summary(a).join(' · ')) || 'Not answered yet';
+const accessText = (a) => esc(CADAccess.summary(a).map((x) => (x === 'Ground level, straight in (no stairs)' ? 'Same level the whole way (no stairs)' : x)).join(' · ')) || 'Not answered yet';
 // Access, asked like a phone call (Chad): how do we get in, then only the follow-ups that apply, then the doorway.
 const photoRow = (key, field, label, required) => {
   const a = S[key] || {};
   return `<div class="photos" style="margin:0 0 12px">${(a[field] || []).map((ph2) => `<img src="${esc(ph2)}" alt="">`).join('')}<label class="upload">＋ ${label}${required ? req : '<span> (helpful)</span>'}<input type="file" accept="image/*" multiple data-accessupload="${key}.${field}"></label></div>`;
 };
+// The whole path, not just the front door (Chad, Nov 21 2026). Saved on the same access fields pricing already uses:
+// "One flight" = stairs, 1 flight; "Two or more flights" = stairs, then 2 / 3 / 4+ (each flight is priced, so 2+ always costs more).
+const PATH_PICKS = [['ground', 'Same level the whole way (no stairs)'], ['steps', 'A few steps (3 or fewer)'], ['stairs1', 'One flight of stairs'], ['stairs2', 'Two or more flights'], ['elevator', 'Elevator'], ['not_sure', 'Not sure']];
+const pathPickOf = (a) => {
+  if (!a || !a.accessMode) return '';
+  if (a.accessMode !== 'stairs') return a.accessMode;
+  if (a.pathPick === 'stairs2' && !['1', 'half'].includes(String(a.stairFlights))) return 'stairs2';
+  if (['1', 'half'].includes(String(a.stairFlights))) return 'stairs1';
+  return String(a.stairFlights) ? 'stairs2' : (a.pathPick === 'stairs1' ? 'stairs1' : 'stairs2');
+};
+const manyPieces = () => S.items.length > 1;
+const pathQuestion = (key) => (key === 'pickup'
+  ? `How do we reach the spot where the ${manyPieces() ? 'pieces are' : 'piece is'} picked up?`
+  : `How do we reach the spot where the ${manyPieces() ? 'pieces go' : 'piece goes'}?`);
+function setPathPick(key, v) {
+  const a = S[key];
+  if (v === 'stairs1') { setAccessAnswer(key, `${key}.accessMode`, 'stairs'); a.pathPick = 'stairs1'; setAccessAnswer(key, `${key}.stairFlights`, '1'); }
+  else if (v === 'stairs2') {
+    const keep = ['2', '3', '4plus'].includes(String(a.stairFlights)) && a.accessMode === 'stairs' ? String(a.stairFlights) : '';
+    setAccessAnswer(key, `${key}.accessMode`, 'stairs'); a.pathPick = 'stairs2'; setAccessAnswer(key, `${key}.stairFlights`, keep);
+  } else { a.pathPick = v; setAccessAnswer(key, `${key}.accessMode`, v); }
+  persist();
+}
 const accessBlock = (key, a) => {
   const A = CADAccess;
   const big = A.firm(S.items);
   const mode = a.accessMode;
   const firmNote = '<p class="mini">We need this for large or heavy pieces.</p>';
   const opt = (label) => `${label} (optional)`;
-  let h = `<div class="field" data-access="${key}"><label class="f">How do we get in?${req}</label>${seg(`${key}.accessMode`, A.MODES, 'stack')}</div>`;
+  a.pathPick = pathPickOf(a);
+  let h = `<div class="field" data-access="${key}"><label class="f">${key === 'pickup' ? 'The whole way, from where we park to the piece' : 'The whole way, from where we park to where it’s placed or hung'}${req}</label>${seg(`${key}.pathPick`, PATH_PICKS, 'stack')}</div>`;
   if (mode === 'not_sure') h += `<p class="mini" style="margin:0 0 8px">${A.REVIEW_NOTE}</p>`;
   if (mode === 'elevator') {
     h += input(`${key}.floor`, 'Floor', { ph: 'e.g. 3, Basement', attrs: 'autocapitalize="words" maxlength="30"', req: true });
@@ -532,7 +583,8 @@ const accessBlock = (key, a) => {
     h += `<div class="field"><label class="f">Any stairs on the way?${req}</label>${seg(`${key}.elevatorStairs`, A.ELEV_STAIRS, 'wrap')}<p class="mini">Count steps before or after the elevator.</p></div>`;
   }
   if (A.usesStairs(a)) {
-    h += `<div class="field"><label class="f">How many flights?${req}</label>${seg(`${key}.stairFlights`, A.FLIGHTS, 'wrap')}
+    const multi = mode === 'stairs' && a.pathPick === 'stairs2';
+    if (mode !== 'stairs' || multi) h += `<div class="field"><label class="f">How many flights?${req}</label>${seg(`${key}.stairFlights`, multi ? A.FLIGHTS.filter(([v]) => ['2', '3', '4plus'].includes(v)) : A.FLIGHTS, 'wrap')}
       ${String(a.stairFlights) === '4plus' ? input(`${key}.stairs`, 'Total number of flights', { type: 'number', ph: 'e.g. 4', attrs: 'inputmode="numeric" min="4" step="1"', req: true }) : ''}</div>`;
     h += `<div class="field"><label class="f">Up or down?${req}</label>${seg(`${key}.stairDir`, A.DIRS, 'wrap')}</div>`;
     h += `<div class="field"><label class="f">${big ? 'Any tight turns or narrow spots?' + req : opt('Any tight turns or narrow spots?')}</label>${seg(`${key}.stairTurns`, A.YNS, 'wrap')}${big ? firmNote : ''}</div>`;
@@ -722,13 +774,81 @@ function deliveryBlock() {
     <div class="region">● ${esc((delAvail && (delAvail.area || delAvail.region)) || 'Your area')} route</div>
     ${days}`;
 }
+// Pickup + delivery on one screen (Chad, Nov 21 2026). The server returns the pickup days, the delivery days and, for each
+// pickup, the delivery days that work with it (leg=pairs: the same route rules leg=dropoff and the order check use).
+let pairs = null;
 async function loadDelivery() {
-  if (!needsTwoDates() || !S.schedule.date) return;
-  const { ok, j } = await api('/api/availability', { ...payload(), leg: 'dropoff' });
-  if (!ok) return;
-  delAvail = j;
-  if (S.schedule.deliveryDate && !j.days.some((d) => d.date === S.schedule.deliveryDate)) { S.schedule.deliveryDate = ''; persist(); }
+  if (!needsTwoDates()) return;
+  const { ok, j } = await api('/api/availability', { ...payload(), leg: 'pairs' });
+  if (!ok || !j || !j.delivery) return;
+  delAvail = j.delivery; pairs = j.pairs || {};
+  if (j.days) avail = { ...(avail || {}), region: j.region, zone: j.zone, area: j.area, days: j.days, rush: j.rush || [] };
+  const okPair = (p, d) => !!(pairs[p] && pairs[p].includes(d));
+  if (S.schedule.date && !(pairs[S.schedule.date])) { S.schedule.date = ''; S.rush = false; persist(); }
+  if (S.schedule.deliveryDate && !delAvail.days.some((d) => d.date === S.schedule.deliveryDate)) { S.schedule.deliveryDate = ''; persist(); }
+  if (S.schedule.date && S.schedule.deliveryDate && !okPair(S.schedule.date, S.schedule.deliveryDate)) { S.schedule.deliveryDate = ''; persist(); }
   if (STEPS[step] === 'When') renderWhenIdle();
+}
+const pairOk = (p, d) => !!(pairs && pairs[p] && pairs[p].includes(d));
+// What a card looks like: 'on' (chosen), 'dim' (another day in a column that already has a choice; tap to switch),
+// 'off' (doesn't work with the day chosen in the other column; can't be picked until that choice is cleared).
+const puState = (d) => {
+  const sel = S.schedule.date, del = S.schedule.deliveryDate;
+  if (sel === d.date && !!S.rush === !!d.rush) return 'on';
+  if (del && !pairOk(d.date, del)) return 'off';
+  return sel ? 'dim' : '';
+};
+const delState = (d) => {
+  const sel = S.schedule.deliveryDate, pu = S.schedule.date;
+  if (sel === d.date) return 'on';
+  if (pu && !pairOk(pu, d.date)) return 'off';
+  if (!pu && pairs && !Object.values(pairs).some((l) => l.includes(d.date))) return 'off';
+  return sel ? 'dim' : '';
+};
+// Each column shows its first few days, always including the chosen one and at least three that can still be picked.
+const PAIR_FIRST = 6;
+const pairWindow = (days, stateOf, key) => {
+  if (moreDays[key] || days.length <= PAIR_FIRST) return { list: days, btn: '' };
+  const usable = days.filter((d) => stateOf(d) !== 'off').length;
+  let shown = 0, open = 0; const list = [];
+  for (const d of days) {
+    const st = stateOf(d);
+    if (shown >= PAIR_FIRST && open >= Math.min(3, usable) && !days.slice(list.length).some((x) => stateOf(x) === 'on')) break;
+    list.push(d); shown++; if (st !== 'off') open++;
+  }
+  const rest = days.length - list.length;
+  return { list, btn: rest > 0 ? `<button type="button" class="linkbtn show-more-dates" data-moredays="${key}">More dates (${rest})</button>` : '' };
+};
+const pairCard = (d, kind) => {
+  const st = kind === 'pu' ? puState(d) : delState(d);
+  const [w, m, n] = d.label.replace(',', '').split(' ');
+  const attr = kind === 'pu' ? `data-date="${d.date}" data-rush="${d.rush ? 1 : ''}"` : `data-deldate="${d.date}"`;
+  const why = st === 'off' ? (kind === 'pu' ? 'Too late for the delivery day you picked' : 'Doesn’t work with the pickup day you picked') : '';
+  return `<button type="button" class="day ${st} ${d.rush ? 'rush' : ''}" ${attr} ${st === 'off' ? `aria-disabled="true" data-off="1" title="${why}"` : ''} aria-pressed="${st === 'on'}"><div class="dw">${w}</div><div class="dd">${m} ${n}</div><div class="rg">${d.rush ? 'Rush quote' : esc(d.shortLabel || d.routeLabel || d.region)}</div></button>`;
+};
+function pairBlock() {
+  const pu = (avail && avail.days) || [], rush = (avail && avail.rush) || [];
+  const del = (delAvail && delAvail.days) || [];
+  const pw = pairWindow(pu, puState, 'pu'), dw = pairWindow(del, delState, 'del');
+  const head = (label, iso, key) => `<div class="col-head"><span class="col-t">${label}</span>${iso ? `<span class="col-sel"><b>${esc(shortDate(iso))}</b><button type="button" class="linkbtn" data-clear="${key}" aria-label="Clear ${label.toLowerCase()} date">Clear</button></span>` : '<span class="col-sel mini">Not picked</span>'}</div>`;
+  const hint = S.schedule.date && S.schedule.deliveryDate ? 'Both dates are set. Tap Clear on either one to change it.'
+    : S.schedule.date ? 'Now pick a delivery day. Grayed-out days don’t work with that pickup.'
+    : S.schedule.deliveryDate ? 'Now pick a pickup day. Grayed-out days are too late for that delivery.'
+    : 'Start with either one. We’ll gray out the days that don’t work together.';
+  const cross = crossRegion() ? `<p class="note">Pickup and delivery follow separate regional routes.</p>` : '';
+  return `<p class="pair-hint mini" data-pairhint>${hint}</p>${cross}
+    <div class="date-pair">
+      <div class="date-col" data-col="pu">${head('Pickup', S.schedule.date, 'pu')}
+        <div class="region">● ${esc((avail && avail.area) || 'Pickup')} route</div>
+        <div class="days col-days" data-reqblock="date">${pw.list.map((d) => pairCard(d, 'pu')).join('')}</div>${pw.btn}
+        ${rush.length ? `<p class="col-sub">Need a different pickup date?</p><div class="days col-days">${rush.map((d) => pairCard(d, 'pu')).join('')}</div>` : ''}
+      </div>
+      <div class="date-col" data-col="del">${head('Delivery', S.schedule.deliveryDate, 'del')}
+        <div class="region">● ${esc((delAvail && delAvail.area) || 'Delivery')} route</div>
+        ${delAvail ? `<div class="days col-days" data-reqblock="deldate">${dw.list.map((d) => pairCard(d, 'del')).join('')}</div>${dw.btn}` : '<p class="mini" data-reqblock="deldate">Finding delivery days…</p>'}
+      </div>
+    </div>
+    <p class="mini">Same-day delivery is available when one route serves both addresses. Same-day isn’t available between Northern and Southern California.</p>`;
 }
 
 // ---------- photo rules (Chad, Nov 19): required only when special handling is on. Weight "Not sure" never requires a photo. ----------
@@ -754,6 +874,7 @@ const weightOk = (it) => !weightRequired(it) || !!it.weightUnsure || num(it.weig
 function updateItemHints(i) {
   const it = S.items[i]; if (!it) return;
   const vh = app.querySelector(`[data-valhint="${i}"]`); if (vh) vh.textContent = valueHint(it);
+  const hw = app.querySelector(`[data-heavywall="${i}"]`); if (hw) { const h = heavyWallNote(it, i); if (hw.innerHTML !== h) hw.innerHTML = h; }
   const r = itemPhotoReason(it);
   app.querySelectorAll(`[data-photoreq="${i}"]`).forEach((el) => { el.textContent = r; el.hidden = !r; });
   app.querySelectorAll(`[data-photolbl="${i}"]`).forEach((el) => { el.innerHTML = r ? req : ' (optional)'; });
@@ -767,7 +888,7 @@ const frameTypeField = (item, i) => `<div class="field" data-frametype="${i}"><l
 const framingBlock = (item, i) => {
   if (!FRAMING_TYPES.includes(item.type || 'painting')) return '';
   const p = `items.${i}`;
-  const glass = needsGlass(item) ? `<div class="field" data-glass="${i}"><label class="f">Glass? — ${pieceName(i)}${req}</label>${seg(`${p}.glazing`, [['yes', 'Yes'], ['no', 'No']])}<p class="mini">Does this piece have a glass front?</p></div>` : '';
+  const glass = needsGlass(item) ? `<div class="field" data-glass="${i}"><label class="f">Glass? — ${pieceName(i)}${req}</label>${seg(`${p}.glazing`, [['yes', 'Yes'], ['no', 'No']])}<p class="mini">Any glass on the piece, framed or not.</p></div>` : '';
   return `<div class="field" style="margin-top:6px" data-framing="${i}"><label class="f">Framed? — ${pieceName(i)}${req}</label>${seg(`${p}.framed`, [['yes', 'Yes'], ['no', 'No']])}</div>
     ${glass}
     <div data-frametype-wrap="${i}">${needsFrameType(item) ? frameTypeField(item, i) : ''}</div>`;
@@ -784,7 +905,25 @@ const syncFrameType = (i) => {
   updateNext();
 };
 const handlingBlock = (item, i) => `${toggle(`items.${i}.fragile`, 'Special handling needed', '', true)}
-    <p class="mini" style="margin:-6px 0 10px">Only for pieces outside normal handling: extremely fragile, large protrusions or awkward shapes, can’t be stood upright, or needs custom crating. Paintings, framed art, mirrors, ceramics and solid sculpture don’t need this.</p>`;
+    <p class="mini" style="margin:-6px 0 10px">Only for pieces outside normal handling: extremely fragile, large protrusions or awkward shapes, can’t be stood upright, or needs custom crating. Standard pieces, such as normal paintings, framed art, mirrors, ceramics and solid sculpture, don’t need this.</p>`;
+// Heavy wall pieces (Chad, Nov 21 2026): surcharge on pickup & delivery by weight; over the limit = custom quote, no booking.
+const WALL_WEIGHT_TYPES = () => (((CFG && CFG.pricing && CFG.pricing.wallArtWeight) || {}).types || ['painting', 'photograph', 'mirror', 'wallart']);
+const wallWeightCfg = () => ((CFG && CFG.pricing && CFG.pricing.wallArtWeight) || { tiers: [], maxLb: 400 });
+const isWallWeightPiece = (it) => WALL_WEIGHT_TYPES().includes(it.type === 'decor' && it.furnitureKind === 'Mirror' ? 'mirror' : (it.type || 'painting'));
+const wallTooHeavy = (it) => isWallWeightPiece(it) && !it.weightUnsure && num(it.weight) > (wallWeightCfg().maxLb || Infinity);
+const wallWeightFee = (it) => {
+  if (!isWallWeightPiece(it) || it.weightUnsure || wallTooHeavy(it)) return 0;
+  const hit = (wallWeightCfg().tiers || []).slice().sort((a, b) => b.overLb - a.overLb).find((r) => num(it.weight) > r.overLb);
+  return hit ? hit.fee : 0;
+};
+const QUOTE_EMAIL = () => ((CFG && CFG.company && CFG.company.email) || 'contact@californiaartdelivery.com');
+const customQuoteHref = (it, i) => `mailto:${QUOTE_EMAIL()}?subject=${encodeURIComponent('Custom quote request: heavy wall piece')}&body=${encodeURIComponent(`Hi CAD,\n\nI’d like a custom quote for a heavy piece.\n\n${pieceTitle0(it, i)}\nType: ${TYPE_LABEL(it.type)}\nSize: ${[it.w, it.h, it.d].filter(Boolean).join(' x ') || '?'} in\nWeight: about ${fmtNum(it.weight)} lb\nPickup: ${[S.pickup.city, S.pickup.zip].filter(Boolean).join(' ') || '?'}\nDelivery: ${[S.dropoff.city, S.dropoff.zip].filter(Boolean).join(' ') || '?'}\n\nThanks!`)}`;
+const heavyWallNote = (it, i) => {
+  if (!isWallWeightPiece(it) || shipService()) return '';
+  if (wallTooHeavy(it)) return `<div class="heavy-block" role="alert"><b>Pieces this heavy need a custom quote.</b><span>Wall pieces over ${wallWeightCfg().maxLb} lb can’t be booked online. Send us the details and we’ll price it for you.</span><a class="btn primary quote-btn" href="${esc(customQuoteHref(it, i))}" data-customquote="${i}">Request a custom quote</a><span class="mini">Opens an email to ${esc(QUOTE_EMAIL())}. Or <a href="https://californiaartdelivery.com/pages/contact" target="_blank" rel="noopener">use our contact form</a>.</span></div>`;
+  const fee = wallWeightFee(it);
+  return fee ? `<p class="mini heavy-fee">Heavy piece: +${fmt(fee)} on pickup &amp; delivery.</p>` : '';
+};
 const weightField = (item, i, { required = false, approx = false } = {}) => {
   const p = `items.${i}`;
   const label = approx ? `Approx. weight — ${pieceName(i)} (lb)` : `Weight — ${pieceName(i)} (lb)`;
@@ -795,6 +934,7 @@ const weightField = (item, i, { required = false, approx = false } = {}) => {
       <button type="button" class="pill-btn ${item.weightUnsure ? 'on' : ''}" data-weightunsure="${i}">${item.weightUnsure ? '✓ Not sure' : 'Not sure'}</button>
     </div>
     ${item.weightUnsure ? '<p class="mini" style="margin:0 0 8px">No problem, you can skip this.</p>' : input(`${p}.weight`, '', { ph: approx ? 'e.g. 200' : 'e.g. 40', attrs: `inputmode="decimal" aria-label="${label}"` }) + `<p class="mini">${required ? 'Pick a weight or Not sure; it affects the price.' : 'Pounds. Approximate is fine.'}</p>`}
+    <div data-heavywall="${i}">${heavyWallNote(item, i)}</div>
   </div>`;
 };
 const shipExtras = (item, i) => {
@@ -809,11 +949,11 @@ const shipExtras = (item, i) => {
 };
 const shipReady = () => S.items.every((it) => weightOk(it) && num(it.value) > 0 && dimsOk(it))
   && !!S.shipping.serviceLevel && !!(S.shipping.shipBy || S.shipping.flexible);
-const LEVELS = [['curbside', 'Curbside', 'Delivered to the curb or loading dock.'], ['inside', 'Inside delivery', 'Carried in and placed in the room of your choice.'], ['unpack', 'Inside + unpack & install', 'We unpack, place or hang, and check every piece.'], ['unpack_debris', 'Unpack, install + debris removal', 'Full white-glove: all packing removed.']];
+const LEVELS = [['curbside', 'Curbside', 'Delivered to the curb or loading dock.'], ['inside', 'Inside delivery', 'Carried in and placed in the room of your choice.'], ['unpack', 'Inside + unpack & install', 'We unpack, place or hang, and check every piece.'], ['unpack_debris', 'Unpack, install + debris removal', 'Full white glove: all packing removed.']];
 const levelText = (v) => (LEVELS.find((l) => l[0] === v) || [, '—'])[1];
 const timingText = (s) => [s.shipBy && `Ship by ${shortDate(s.shipBy)}`, s.arriveBy && `Arrive by ${shortDate(s.arriveBy)}`, s.flexible ? 'Flexible' : ''].filter(Boolean).join(' · ') || 'Flexible';
 const destText = (a) => [a.street, [a.city, intlDest(a) ? '' : a.state].filter(Boolean).join(', '), a.zip, intlDest(a) ? a.country : ''].filter(Boolean).map(esc).join(', ');
-const OOS_NOTE = 'Pickups and deliveries outside California are custom quoted as Shipping. Within California we always provide white-glove delivery. Samantha prices your job and emails you a quote; nothing is charged until you approve it.';
+const OOS_NOTE = 'Pickups and deliveries outside California are custom quoted as Shipping. Within California we always provide white glove delivery. Samantha prices your job and emails you a quote; nothing is charged until you approve it.';
 
 // ---------- small steps ----------
 // Each booking step (What, Where, When, Pay) is shown as a few short screens ("panels"), a handful of questions at a time.
@@ -867,6 +1007,7 @@ const editBtn = (target, label = 'Edit') => `<button type="button" class="edit" 
 // ---------- piece list: Edit · Duplicate · Remove, Quick edit pieces ----------
 // UI-only state (never saved): which piece is asking to be removed / duplicated, and which Quick edit rows are open.
 let removeAskId = '', dupAsk = null, dupCount = 1, quickOpen = false;
+const openExtras = new Set(); // address screens whose optional access details are expanded (UI only)
 const openQuick = new Set();
 const pieceFacts = (it) => {
   const dims = [it.w, it.h, it.d].filter(Boolean).join(' × ');
@@ -968,6 +1109,10 @@ const yourPieces = (o) => {
     return `<div class="sum-row" data-yp="${i}"><span><b>Piece ${i + 1}</b>${String(it.description || '').trim() ? ' — ' + esc(String(it.description).trim()) : ''}<br><span class="muted">${esc([TYPE_LABEL(it.type), dims && dims + ' in'].filter(Boolean).join(' · '))}</span></span><span class="amt">${num(it.value) > 0 ? fmt(num(it.value)) : '—'}${num(it.value) > 0 ? '<br><span class="muted">declared value</span>' : ''}</span></div>`;
   }).join('')}</div></details>`;
 };
+// Description helper (Chad, Nov 21 2026): examples of what helps, not "just the medium".
+const descHint = (type) => (['furniture', 'decor'].includes(type) ? 'For example: material or style, maker or designer, etc.'
+  : ['sculpture', 'other'].includes(type) ? 'For example: material (bronze, marble, glass?), artist or maker, etc.'
+  : 'For example: medium (oil, acrylic?), relief or heavy texture?, artist name, etc.');
 // ---------- views ----------
 const roleLabel = (key) => (key === 'pickup' ? 'Pickup contact role' : S.service === 'install_only' ? 'Install contact role' : 'Delivery contact role');
 const views = {
@@ -991,8 +1136,7 @@ const views = {
         ${kindRow}
         ${input(`${p}.description`, type === 'custom' ? 'Your request' : 'Description of this piece', { ph, req: true })}
         ${type === 'custom' ? '<p class="mini" style="margin:0 0 6px">Tell us what you need in the description. CAD reviews it and sends a custom quote; nothing is charged until you approve it.</p>'
-          : pieceHasSize(item, ship) ? '<p class="mini desc-hint" data-deschint style="margin:-4px 0 10px">Just the medium or type, like oil on canvas. You’ll add size next.</p>'
-          : '<p class="mini desc-hint" data-deschint style="margin:-4px 0 10px">Just the medium or type, like oil on canvas.</p>'}
+          : `<p class="mini desc-hint" data-deschint style="margin:-4px 0 10px">${descHint(type)}</p>`}
       </div>`;
     };
     const pieceTitle = (i) => (S.items.length > 1 ? `Piece ${i + 1}: what is it?` : `What are we ${svcVerb()}?`);
@@ -1013,7 +1157,7 @@ const views = {
         <div class="card pc-list" data-pclist>${S.items.map((it, i) => pieceListRow(it, i)).join('')}</div>
         <button type="button" class="add" id="addItem">＋ Add another piece</button>
         ${quickEditBlock()}
-        <p class="mini">${ship ? 'Shipping is for anything going outside California, in the US or overseas, and is always custom quoted. Within California we always provide white-glove delivery. Nothing is charged until you approve Samantha’s quote.' : `${esc(CFG.notice || '')} Jobs with an address outside California are custom quoted as Shipping. Within California we always provide white-glove delivery.`}</p>`));
+        <p class="mini">${ship ? 'Shipping is for anything going outside California, in the US or overseas, and is always custom quoted. Within California we always provide white glove delivery. Nothing is charged until you approve Samantha’s quote.' : `Jobs with an address outside California are custom quoted as Shipping. Within California we always provide white glove delivery.`}</p>`));
     }
     return panels.join('');
   },
@@ -1035,13 +1179,23 @@ const views = {
         <div class="row keep addr3">${input(`${key}.city`, 'City', { ph: key === 'pickup' ? 'San Francisco' : 'West Hollywood', req: !optional })}${input(`${key}.state`, 'State', { ph: 'CA', attrs: 'autocomplete="address-level1" maxlength="14"' })}${input(`${key}.zip`, 'ZIP', { ph: key === 'pickup' ? '94103' : '90069', req: !optional, attrs: 'inputmode="numeric" autocomplete="postal-code" maxlength="10"' })}</div>`}
         ${key === 'dropoff' && shipService() ? `<div class="field" style="margin-top:4px"><label class="f">Destination type</label>${seg(`${key}.locationType`, [['residential', 'Residential'], ['commercial', 'Commercial']])}</div>` : ''}
         ${input(`${key}.business`, 'Business or gallery (optional)', { ph: 'e.g. gallery, showroom, hotel' })}
-      </div>`);
+      </div>${accessExtras(key, a)}`);
+    };
+    // Tight spaces, parking, access hours and special instructions (Chad, Nov 21 2026): one collapsed, optional section on the
+    // address screen instead of its own screen, so a regular customer flies through. Opens by itself when anything is filled in.
+    const accessExtras = (key, a) => {
+      const any = !!(a.technicalCarry || a.parkingRestricted || String(a.hours || '').trim() || String(a.notes || '').trim());
+      const open = any || openExtras.has(key);
+      return `<details class="card access-extras" data-extras="${key}" ${open ? 'open' : ''}><summary>Add access details <span class="opt">(optional)</span><span class="mini">Tight spaces, parking, access hours, special instructions</span></summary>
+        <div class="extras-body">${accessBlock(key, a).extra}
+        <div class="field" style="margin:0"><label class="f" for="f-${key}.notes">Special instructions</label><textarea id="f-${key}.notes" data-path="${key}.notes" placeholder="Gate codes, who to ask for, anything else">${esc(a.notes)}</textarea></div></div></details>`;
     };
     const whereWord = (key) => (key === 'pickup' ? 'pickup' : S.service === 'install_only' ? 'install' : shipService() ? 'destination' : 'delivery');
     const contactPanel = (key, optional = false) => {
       const a = get(key);
-      return panel(`${key}-contact`, `<h1>Who will meet us at ${key === 'pickup' ? 'pickup' : S.service === 'install_only' ? 'the install' : shipService() ? 'the destination' : 'delivery'}?</h1><p class="sub">The person on site who can let us in.</p><div class="card">
-        <div class="sub-head first"><span>On-site <b>${whereWord(key)}</b> contact</span><button type="button" class="pill-btn ${a.sameAsMe ? 'on' : ''}" data-same="${key}">${a.sameAsMe ? '✓ Same as me' : 'Same as me'}</button></div>
+      // Chad, Nov 21 2026: "Pickup contact" / "Delivery contact". Nobody has to be on site, so no "let us in" line.
+      return panel(`${key}-contact`, `<h1>Who’s the ${whereWord(key)} contact?</h1><div class="card">
+        <div class="sub-head first"><span><b>${whereWord(key)[0].toUpperCase() + whereWord(key).slice(1)}</b> contact</span><button type="button" class="pill-btn ${a.sameAsMe ? 'on' : ''}" data-same="${key}">${a.sameAsMe ? '✓ Same as me' : 'Same as me'}</button></div>
         <div class="row keep">${input(`${key}.contactName`, 'Name', { ph: 'Name', req: !optional })}${input(`${key}.contactPhone`, 'Mobile', { type: 'tel', ph: '(310) 555-0100', req: !optional, attrs: 'autocomplete="tel"' })}</div>
         <div data-rolewrap="${key}" ${a.sameAsMe ? 'hidden' : ''}>${select(`${key}.contactRole`, roleLabel(key), CONTACT_ROLES, { req: !optional, placeholder: 'Please choose one', rerender: true })}
         ${a.contactRole === 'Other' ? input(`${key}.contactRoleOther`, 'Describe their role', { req: true, ph: 'e.g. House sitter' }) : ''}</div>
@@ -1052,10 +1206,8 @@ const views = {
       const ab = accessBlock(key, a);
       const at = `<p class="sub">${key === 'pickup' ? 'Pickup' : S.service === 'install_only' ? 'Install' : shipService() ? 'Destination' : 'Delivery'}${a.street ? ' · ' + esc(a.street) : ''}</p>`;
       return [
-        panel(`${key}-access`, `<h1>How do we get in?</h1>${at}<div class="card">${ab.inn}</div>`),
-        panel(`${key}-doors`, `<h1>Doors, docks and fit</h1>${at}<div class="card">${ab.doors || '<p class="mini" style="margin:0">Tell us how we get in first.</p>'}</div>`),
-        panel(`${key}-extra`, `<h1>Anything else about this address?</h1>${at}<div class="card">${ab.extra}
-        <div class="field" style="margin:0"><label class="f" for="f-${key}.notes">Special instructions</label><textarea id="f-${key}.notes" data-path="${key}.notes" placeholder="Gate codes, who to ask for, anything else">${esc(a.notes)}</textarea></div></div>`),
+        panel(`${key}-access`, `<h1>${pathQuestion(key)}</h1>${at}<div class="card">${ab.inn}</div>`),
+        panel(`${key}-doors`, `<h1>Doors, docks and fit</h1>${at}<div class="card">${ab.doors || '<p class="mini" style="margin:0">Tell us how we reach the spot first.</p>'}</div>`),
       ];
     };
     const out = [];
@@ -1070,10 +1222,11 @@ const views = {
         ${toggle('heard.repeatClient', 'I’ve ordered with CAD before', 'Welcome back.', true)}
         ${!S.heard.repeatClient ? `${select('heard.source', 'How did you hear about us?', HEARD_SOURCES, { req: true, placeholder: 'Please choose one', rerender: true })}
         ${S.heard.source === 'referral' ? `${select('heard.referrerKind', 'Who referred you?', REFERRER_KINDS, { req: true, placeholder: 'Please choose one', rerender: true })}
-        ${S.heard.referrerKind ? `${input('heard.referrerName', 'Referrer name (optional)', { ph: 'Name' })}
-        <div class="row keep">${input('heard.referrerPhone', 'Referrer phone (optional)', { type: 'tel', ph: '(415) 555-0123', attrs: 'autocomplete="tel"' })}${input('heard.referrerEmail', 'Referrer email (optional)', { type: 'email', attrs: 'autocapitalize="off" autocomplete="email"' })}</div>
+        ${input('heard.referrerName', 'Referrer name (optional)', { ph: 'Name' })}
+        <div class="row keep">${input('heard.referrerPhone', 'Referrer mobile (optional)', { type: 'tel', ph: '(415) 555-0123', attrs: 'autocomplete="off"' })}${input('heard.referrerEmail', 'Referrer email (optional)', { type: 'email', attrs: 'autocapitalize="off" autocomplete="off"' })}</div>
         ${BUSINESS_REFERRERS.includes(S.heard.referrerKind) ? input('heard.businessName', 'Business name (optional)', { ph: 'Gallery or showroom name' }) : ''}
-        <p class="mini member-pitch">If someone referred you, we’d love to thank them.</p>` : ''}` : ''}
+        <p class="mini member-pitch">If someone referred you, we’d love to thank them.</p>` : ''}
+        ${HEARD_DETAIL[S.heard.source] ? input('heard.sourceDetail', HEARD_DETAIL[S.heard.source][0], { ph: HEARD_DETAIL[S.heard.source][1] }) : ''}
         ${S.heard.source === 'other' ? input('heard.sourceOther', 'Tell us where', { req: true, ph: 'Where did you hear about us?' }) : ''}` : ''}
       </div>`));
     if (svc().needsPickup) { out.push(addrPanel('pickup'), contactPanel('pickup'), ...accessPanels('pickup')); }
@@ -1087,7 +1240,7 @@ const views = {
     if (hasHanging() && !isShip()) {
       out.push(panel('hang', `<h1>About the walls</h1><p class="sub">For hanging.</p><div class="card">
         ${select('dropoff.wallType', 'Wall type', ['Not sure', 'Drywall', 'Plaster', 'Concrete / brick', 'Wood', 'Tile / stone', 'Glass'])}
-        <div class="field" style="margin:0"><label class="f">Hanging hardware</label>${seg('dropoff.hardware', [['CAD brings it', 'CAD brings it'], ['On site', 'On site'], ['Not sure', 'Not sure']])}</div></div>`));
+        ${S.items.map((it, i) => (isHung(it) ? hardwareField(it, i) : '')).join('')}</div>`));
       S.items.forEach((it, i) => { if (isHung(it)) out.push(panel(`hang-p${i}`, `<h1>How high should we hang it?</h1><div class="card">${hangPieceBlock(it, i)}</div>`)); });
     }
     if (S.items.some(pieceNeedsStairwellFit)) {
@@ -1125,8 +1278,18 @@ const views = {
     const tail = `${ready ? promiseCard(crossRegionLine(quoteData && quoteData.regions) || (sel && sel.routeLabel) || (region + ' route')) : ''}
       <div class="card" style="margin-top:14px">${toggle('dedicated', 'Dedicated trip', 'A van and crew just for your job, at a time that works for you.', true, 'first')}</div>
       <p class="mini">Rush and dedicated trips are priced individually; you’ll see the price before paying.</p>`;
-    const split = two && !!S.schedule.date;
-    return panel('date', pickupHtml + (split ? '' : tail)) + (split ? panel('deldate', deliveryBlock() + tail) : '');
+    if (two) {
+      const dsel = delAvail && (delAvail.days || []).find((d) => d.date === S.schedule.deliveryDate);
+      const pairHtml = `<h1 class="when-h1">Choose your dates</h1><p class="sub">Our van follows a weekly route. Pick a pickup day or a delivery day first, whichever matters more to you.</p>
+        ${pairBlock()}
+        ${intro ? `<p class="mini">${intro}</p>` : ''}
+        ${sel ? routeHint(sel) : dsel ? routeHint(dsel) : ''}
+        ${S.schedule.date ? `<div class="pair-pref"><p class="col-sub">Pickup · ${esc(shortDate(S.schedule.date))}</p>${timePrefBlock('schedule.timePref', 'schedule.timeNote')}</div>` : ''}
+        ${S.schedule.deliveryDate ? `<div class="pair-pref"><p class="col-sub">Delivery · ${esc(shortDate(S.schedule.deliveryDate))}</p>${timePrefBlock('schedule.deliveryTimePref', 'schedule.deliveryTimeNote')}</div>` : ''}
+        ${S.schedule.date || S.schedule.deliveryDate ? timeReassure : ''}`;
+      return panel('date', pairHtml + tail);
+    }
+    return panel('date', pickupHtml + tail);
   },
 
   ShipWhen() {
@@ -1288,7 +1451,7 @@ const siteReview = (title, a, goto) => {
     a.hours && ['Access hours', esc(a.hours)],
     ['Access', accessText(a)],
     a.parkingRestricted && ['Parking / loading', esc(a.parkingNote || 'Restrictions')],
-    a === S.dropoff && hasHanging() && ['Hanging', `${esc(a.wallType || 'Wall type not sure')} · hardware: ${esc(a.hardware || 'not sure')}${S.items.map((it, i) => isHung(it) ? '<br>' + esc(hangSummary(it, i)) : '').join('')}`],
+    a === S.dropoff && hasHanging() && ['Hanging', `${esc(a.wallType || 'Wall type not sure')}${S.items.map((it, i) => isHung(it) ? '<br>' + esc(hangSummary(it, i)) + (it.hardware ? ' · ' + esc(hardwareText(it.hardware)) : '') : '').join('')}`],
     a.notes && ['Notes', esc(a.notes)],
   ].filter(Boolean);
   return `<h2>${esc(title)}${goto ? ' ' + editBtn(goto) : ''}</h2><div class="card">${rows.map(([k, v]) => `<div class="sum-row"><span>${k}</span><span>${v}</span></div>`).join('')}</div>`;
@@ -1316,10 +1479,11 @@ function itemGapList(it, i, name) {
       if (it.type !== 'custom' && !(num(it.value) > 0)) add(`#f-items.${i}.value`, `Declared value — ${p}`, 'Please enter the value of this piece.');
       if (!weightOk(it)) add(`[data-weight="${i}"]`, `Weight — ${p}`, 'Please enter the weight, or tap Not sure.');
     }
+    if (!shipService() && wallTooHeavy(it)) add(`[data-heavywall="${i}"]`, `Weight — ${p}`, `Pieces this heavy need a custom quote. Wall pieces over ${wallWeightCfg().maxLb} lb can’t be booked online.`);
     if (needsDims(it)) { const dp = V.dimProblem(it); if (dp) add(`#f-items.${i}.${dp.key}`, `Size — ${p}`, dp.message); }
     if (FRAMING_TYPES.includes(it.type || 'painting')) {
       if (it.framed !== 'yes' && it.framed !== 'no') add(`[data-framing="${i}"]`, `Framed? — ${p}`, 'Please tell us if this piece is framed.');
-      else if (needsGlass(it) && !['yes', 'no'].includes(it.glazing)) add(`[data-glass="${i}"]`, `Glass — ${p}`, 'Please tell us if this piece has a glass front.');
+      if (needsGlass(it) && !['yes', 'no'].includes(it.glazing)) add(`[data-glass="${i}"]`, `Glass — ${p}`, 'Please tell us if this piece has glass.');
       if (needsFrameType(it) && !FRAME_TYPE_OPTS.some(([v]) => v === it.frameType)) add(`[data-frametype="${i}"]`, `Frame type — ${p}`, 'Please choose a frame type.');
     }
     if (!photosOk(it)) add(`[data-photolbl="${i}"]`, `Photos — ${p}`, 'Please add a photo of this piece.');
@@ -1350,8 +1514,8 @@ function missingFields(name = STEPS[step]) {
       if (key === 'dropoff' && shipService() && !String(a.country || '').trim()) add('#f-dropoff.country', 'Country', 'Please enter the country.');
       // Street (with a number), a plausible city and a 5-digit ZIP (or ZIP+4): the same checks the server runs (public/validate.js).
       V.addressProblems(a, title).forEach((pr) => add(`#f-${key}.${pr.field}`, `${{ street: 'Street address', city: 'City', zip: 'ZIP' }[pr.field]} — ${title}`, pr.message));
-      if (!String(a.contactName || '').trim()) add(`#f-${key}.contactName`, `On-site name — ${title}`, 'Please enter the on-site contact’s name.');
-      if (!String(a.contactPhone || '').trim()) add(`#f-${key}.contactPhone`, `On-site mobile — ${title}`, 'Please enter the on-site contact’s mobile number.');
+      if (!String(a.contactName || '').trim()) add(`#f-${key}.contactName`, `Contact name — ${title}`, 'Please enter the contact’s name.');
+      if (!String(a.contactPhone || '').trim()) add(`#f-${key}.contactPhone`, `Contact mobile — ${title}`, 'Please enter the contact’s mobile number.');
       if (a.sameAsMe) { /* role = the booker's own "I am a…" (required above); no role field */ }
       else if (!String(a.contactRole || '').trim()) add(`#f-${key}.contactRole`, roleLabel(key), 'Please choose the contact’s role.');
       else if (a.contactRole === 'Other' && !String(a.contactRoleOther || '').trim()) add(`#f-${key}.contactRoleOther`, 'Describe their role', 'Please describe the contact’s role.');
@@ -1365,6 +1529,7 @@ function missingFields(name = STEPS[step]) {
         const p = pieceName(i);
         if (it.hangHeight === 'higher' && !it.hangWhere) add(`#f-items.${i}.hangWhere`, `Where? — ${p}`, 'Please tell us where this piece will hang.');
         else if (it.hangHeight === 'higher' && it.hangWhere === 'other' && !String(it.hangWhereOther || '').trim()) add(`#f-items.${i}.hangWhereOther`, `Where? — ${p}`, 'Please tell us where this piece will hang.');
+        if (!HARDWARE_OPTS.includes(it.hardware)) add(`[data-hardware="${i}"]`, `Hanging hardware — ${p}`, 'Please tell us what hanging hardware is on the back of this piece.');
         if (!hangPhotosOk(it)) add(`[data-hangupload="${i}"]`, `Photos of the stairwell — ${p}`, 'Please add a photo of the stairwell.');
       });
     }
@@ -1373,7 +1538,7 @@ function missingFields(name = STEPS[step]) {
       if (key === 'pickup' && !svc().needsPickup) return;
       const where = key === 'pickup' ? 'Pickup' : shipService() ? 'Destination' : S.service === 'install_only' ? 'Installation' : 'Delivery';
       const ACCESS_GAP = {
-        accessMode: [`[data-seg="${key}.accessMode"]`, 'How do we get in?', 'Please tell us how we get in.'],
+        accessMode: [`[data-seg="${key}.pathPick"]`, 'How do we reach the spot?', 'Please tell us how we reach the spot, the whole way.'],
         stairFlights: [`[data-seg="${key}.stairFlights"]`, 'How many flights?', 'Please choose how many flights of stairs.'],
         stairs: [`#f-${key}.stairs`, 'Total number of flights', 'Enter the total number of flights (4 or more).'],
         elevatorStairs: [`[data-seg="${key}.elevatorStairs"]`, 'Any stairs on the way?', 'Please tell us if there are stairs on the way to the elevator.'],
@@ -1947,18 +2112,25 @@ app.addEventListener('click', async (e) => {
   if (t.dataset.wallet) return pay(CFG.stripe ? 'stripe' : t.dataset.wallet);
   const sg = t.closest('[data-seg]'); const hp = sg && sg.dataset.seg.match(/^items\.(\d+)\.hangPick$/);
   if (hp) { const it = S.items[+hp[1]]; const v = t.dataset.v; if (v === 'standard') { it.hangHeight = 'standard'; it.hangWhere = ''; } else { it.hangHeight = 'higher'; it.hangWhere = v; } set(sg.dataset.seg, v); render(); return; }
+  const pth = sg && sg.dataset.seg.match(/^(pickup|dropoff)\.pathPick$/);
+  if (pth) { setPathPick(pth[1], t.dataset.v); render(); return; }
   const acc = sg && sg.dataset.seg.match(/^(pickup|dropoff)\.(accessMode|stairFlights|stairDir|stairTurns|serviceElevator|dock|elevatorStairs|doorway|fits)$/);
   if (acc) { setAccessAnswer(acc[1], sg.dataset.seg, t.dataset.v); render(); return; }
   if (sg) { const v = t.dataset.v; set(sg.dataset.seg, isNaN(v) ? v : Number(v)); render(); return; }
   const paySeg = t.closest('[data-pay-method]'); if (paySeg) { payMethod = t.dataset.v; render(); return; }
   const chips = t.closest('[data-chips]'); if (chips) { set(chips.dataset.chips, t.dataset.v); render(); return; }
   if (t.dataset.moredays) { moreDays[t.dataset.moredays] = true; render(); return; }
+  if (t.dataset.clear) {
+    if (t.dataset.clear === 'pu') { S.schedule.date = ''; S.rush = false; S.schedule.timePref = 'none'; S.schedule.timeNote = ''; }
+    else { S.schedule.deliveryDate = ''; S.schedule.deliveryTimePref = 'none'; S.schedule.deliveryTimeNote = ''; }
+    persist(); render(); return;
+  }
+  if (t.dataset.off) { uploadToast(t.dataset.date ? 'That pickup day is too late for the delivery day you picked. Clear the delivery day to see every pickup day.' : 'That delivery day doesn’t work with the pickup day you picked. Clear the pickup day to see every delivery day.'); return; }
   if (t.dataset.date) {
-    const changed = S.schedule.date !== t.dataset.date;
     S.schedule.date = t.dataset.date; S.rush = !!t.dataset.rush;
-    if (changed) { S.schedule.deliveryDate = ''; delAvail = null; }
+    if (needsTwoDates() && S.schedule.deliveryDate && !pairOk(S.schedule.date, S.schedule.deliveryDate)) S.schedule.deliveryDate = '';
     persist(); render();
-    if (needsTwoDates()) loadDelivery();
+    if (needsTwoDates() && !pairs) loadDelivery();
     return;
   }
   if (t.dataset.changePickup != null) {
@@ -1966,10 +2138,11 @@ app.addEventListener('click', async (e) => {
     return;
   }
   if (t.dataset.level) { S.shipping.serviceLevel = t.dataset.level; persist(); render(); return; }
-  if (t.dataset.deldate) { S.schedule.deliveryDate = t.dataset.deldate; persist(); render(); return; }
+  if (t.dataset.deldate) { S.schedule.deliveryDate = t.dataset.deldate; if (S.schedule.date && !pairOk(S.schedule.date, S.schedule.deliveryDate)) { S.schedule.date = ''; S.rush = false; } persist(); render(); return; }
   if (t.id === 'newOrder') { sessionStorage.clear(); location.href = '/'; }
 });
 
+app.addEventListener('toggle', (e) => { const d = e.target; if (d && d.dataset && d.dataset.extras) { if (d.open) openExtras.add(d.dataset.extras); else openExtras.delete(d.dataset.extras); } }, true);
 // Photo uploads: never fail silently (a dropped HEIC or a network error used to just do nothing).
 const uploadToast = (msg) => {
   let t = document.getElementById('uploadToast');
@@ -2077,7 +2250,7 @@ async function backToReview() {
       if (r.ok && r.j && r.j.days) {
         avail = r.j;
         if (S.schedule.date && ![...avail.days, ...avail.rush].some((d) => d.date === S.schedule.date)) { S.schedule.date = ''; S.rush = false; S.schedule.deliveryDate = ''; persist(); }
-        if (needsTwoDates() && S.schedule.date) await loadDelivery();
+        if (needsTwoDates()) await loadDelivery();
       }
     }
   } finally { busy = false; }
@@ -2104,14 +2277,14 @@ async function goNext() {
     try {
       const { ok, j } = await api('/api/availability', payload());
       if (!ok) { const nl = $('#needLine'); if (nl && j && j.error) { nl.textContent = j.error; nl.hidden = false; } return; }
-      avail = j;
+      avail = j; pairs = null; delAvail = null;
       if (S.schedule.date && ![...avail.days, ...avail.rush].some((d) => d.date === S.schedule.date)) { S.schedule.date = ''; S.rush = false; persist(); }
     } finally { busy = false; updateNext(); }
     if (!avail || !avail.days) return;
   }
   if (name === 'When' && !avail && !isShip()) return;
   step++; sub = ''; render();
-  if (STEPS[step] === 'When' && needsTwoDates() && S.schedule.date) loadDelivery();
+  if (STEPS[step] === 'When' && needsTwoDates()) loadDelivery();
 }
 $('#nextBtn').addEventListener('click', goNext);
 // Enter = Next (never on the payment screen, so a stray Enter can't charge anyone; never inside a text box that needs line breaks).
@@ -2149,7 +2322,7 @@ app.addEventListener('keydown', (e) => {
     if (saved >= STEPS.indexOf('When') && !isShip()) {
       const r = await api('/api/availability', payload());
       avail = r.ok ? r.j : null;
-      if (avail && S.schedule.date) await loadDelivery();
+      if (avail && needsTwoDates()) await loadDelivery();
     }
     step = saved;
     if (step >= STEPS.indexOf('When') && !isShip() && !(avail && avail.days)) step = STEPS.indexOf('Where');

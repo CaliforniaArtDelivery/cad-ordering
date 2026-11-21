@@ -78,9 +78,36 @@ module.exports = {
       midInches: 72,
       deliveryFee: 25,
       install: {
-        upTo72: { small: 25, medium: 50, large: 100 },
-        over72: { small: 75, medium: 100, large: 150 },
+        // Smoothed (Chad, Nov 21 2026): even $50 steps small -> medium -> large, counting the +$25 large-frame pickup & delivery fee,
+        // so large stays where it was. Was upTo72 25/50/100 and over72 75/100/150 (steps of $25 then $75 incl. the delivery fee).
+        upTo72: { small: 25, medium: 75, large: 100 },
+        over72: { small: 75, medium: 125, large: 150 },
       },
+    },
+    // Heavy wall pieces (Chad, Nov 21 2026): painting, photograph, mirror, other wall art. Added to pickup & delivery (not install-only).
+    // Strictly over each weight. Chad gave 150 lb = +$100 and skipped 250 lb; filled in as +$150 and +$250 so every step goes up.
+    // Over maxLb a wall piece can't be booked online: the customer requests a custom quote.
+    wallArtWeight: {
+      types: ['painting', 'photograph', 'mirror', 'wallart'],
+      tiers: [
+        { overLb: 350, fee: 400 },
+        { overLb: 300, fee: 300 },
+        { overLb: 250, fee: 250 },
+        { overLb: 200, fee: 200 },
+        { overLb: 150, fee: 150 },
+        { overLb: 100, fee: 100 },
+        { overLb: 50, fee: 50 },
+      ],
+      maxLb: 400,
+    },
+    // Hanging hardware already on the back of each hung piece (Chad, Nov 21 2026), per piece, install jobs only.
+    hangHardware: {
+      wire: { label: 'Wire already installed', fee: 0 },
+      zbar: { label: 'Z-bar already installed', fee: 45 },
+      cleat: { label: 'French cleat already installed', fee: 55 },
+      needs_wire: { label: 'No hardware, needs D-rings and wire installed', fee: 55 },
+      needs_zbar: { label: 'No hardware, needs a Z-bar installed', fee: 75 },
+      not_sure: { label: 'Not sure', fee: 0, note: 'We’ll confirm on site.' },
     },
     // Height/location install surcharge (install jobs only), from the Hanging height question.
     hangInstall: {

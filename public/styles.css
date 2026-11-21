@@ -349,3 +349,47 @@ input.dim{-moz-appearance:textfield;appearance:textfield}
 .chk{display:flex;align-items:center;gap:8px;font-size:13.5px;color:var(--muted);margin:-4px 0 10px;cursor:pointer}
 .chk input{width:18px;height:18px;margin:0;accent-color:var(--navy)}
 .modal .btn:not(.primary),.discount-card .btn{background:#e9e6df;color:var(--ink,#1c2a3a)}
+
+/* ---- Nov 21 2026 (Chad): pickup + delivery dates on one screen ---- */
+.date-pair{display:grid;grid-template-columns:1fr 1fr;gap:12px;align-items:start;margin:6px 0 14px}
+.date-col{background:var(--sand);border-radius:var(--r);padding:12px;min-width:0}
+.date-col .region{font-size:12.5px;padding:6px 11px;margin-bottom:10px;max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block}
+.col-head{display:flex;justify-content:space-between;align-items:baseline;gap:6px;margin:2px 2px 10px;min-height:28px}
+.col-t{font-size:13px;font-weight:650;letter-spacing:.08em;text-transform:uppercase;color:var(--navy)}
+.col-sel{display:flex;align-items:baseline;gap:2px;font-size:14px;white-space:nowrap}
+.col-sel.mini{margin:0;font-size:12.5px}
+.col-sel .linkbtn{padding:6px 2px;min-height:32px}
+.col-sub{font-size:13px;font-weight:600;color:var(--muted);margin:14px 2px 8px}
+.col-days{grid-template-columns:repeat(auto-fill,minmax(98px,1fr));gap:8px}
+.day.dim{opacity:.55}
+.day.dim:hover{opacity:.85}
+.day.off{opacity:.3;cursor:not-allowed;box-shadow:none;background:transparent;border-color:var(--line)}
+.day.off .dd{text-decoration:line-through;text-decoration-thickness:1px}
+.pair-hint{margin:0 0 12px;font-size:14px}
+.pair-pref{margin-top:6px}
+.pair-pref h2{margin-top:6px}
+@media(max-width:520px){
+  .date-pair{gap:8px}
+  .date-col{padding:10px 8px}
+  .col-days{grid-template-columns:1fr;gap:6px}
+  .col-days .day{padding:10px 6px;border-radius:14px}
+  .col-days .day .dd{font-size:18px}
+  .col-head{flex-direction:column;align-items:flex-start;gap:0;margin-bottom:8px}
+}
+
+/* ---- Nov 21 2026: optional access details, fees on choices, heavy wall piece block ---- */
+details.access-extras{padding:0;margin-top:2px}
+details.access-extras>summary{cursor:pointer;list-style:none;padding:16px 18px;min-height:48px;display:flex;flex-direction:column;gap:2px;font-weight:600;position:relative;padding-right:44px}
+details.access-extras>summary::-webkit-details-marker{display:none}
+details.access-extras>summary::after{content:"＋";position:absolute;right:18px;top:16px;font-weight:600}
+details.access-extras[open]>summary::after{content:"–"}
+details.access-extras>summary .opt{font-weight:500;color:var(--muted)}
+details.access-extras>summary .mini{margin:0;font-weight:400}
+details.access-extras .extras-body{padding:0 18px 18px}
+.seg .fee{font-weight:500;color:var(--muted);white-space:nowrap;margin-left:4px}
+.seg button.on .fee{color:var(--ink)}
+.heavy-block{display:flex;flex-direction:column;gap:8px;background:#fbf3f1;border:1px solid #f0d6d1;border-radius:14px;padding:14px;margin:8px 0 4px;font-size:15px;line-height:1.4}
+.heavy-block b{color:var(--err)}
+.heavy-block .quote-btn{display:inline-block;text-align:center;text-decoration:none;align-self:flex-start}
+.heavy-block .mini a{color:inherit}
+.heavy-fee{color:var(--ink)}

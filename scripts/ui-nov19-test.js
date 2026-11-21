@@ -49,7 +49,7 @@ const hdr = (t) => console.log('\n[' + t + ']');
         else if (f.t === 'DIV' && /^(pickup|dropoff)\./.test(f.k) && !(await page.$(`[data-seg="${f.k}"] button.on`))) { await page.click(`[data-seg="${f.k}"] button >> nth=0`); await page.waitForTimeout(120); }
       }
       if (await page.locator('[data-reqblock="date"] .day:not(.rush):visible').count()) { await page.click('[data-reqblock="date"] .day:not(.rush):visible >> nth=0'); await page.waitForTimeout(250); }
-      if (await page.locator('[data-deldate]:visible').count()) { await page.click('[data-deldate]:visible >> nth=0'); await page.waitForTimeout(250); }
+      if (await page.locator('[data-deldate]:not([data-off]):visible').count()) { await page.click('[data-deldate]:not([data-off]):visible >> nth=0'); await page.waitForTimeout(250); }
       const before = await panel(); await next();
       if ((await panel()) === before) return before; // blocked
     }
@@ -59,7 +59,7 @@ const hdr = (t) => console.log('\n[' + t + ']');
   const onePiece = async (value) => {
     await fill('items.0.description', 'Canvas'); await next();
     await fill('items.0.w', 30); await fill('items.0.h', 40); await fill('items.0.d', 2);
-    if (await page.$('[data-seg="items.0.framed"]')) await page.click('[data-seg="items.0.framed"] [data-v="no"]');
+    if (await page.$('[data-seg="items.0.framed"]')) await page.click('[data-seg="items.0.framed"] [data-v="no"]'); if (await page.$(`[data-seg="items.0.glazing"]`)) await page.click(`[data-seg="items.0.glazing"] [data-v="no"]`);
     await next(); await fill('items.0.value', value); await next();
   };
 
@@ -76,7 +76,7 @@ const hdr = (t) => console.log('\n[' + t + ']');
     await page.fill('[data-path="items.0.w"]', '');
     for (const bad of ['1', '1e3', '-5']) {
       await fill('items.0.w', bad); await fill('items.0.h', 40); await fill('items.0.d', 2);
-      if (await page.$('[data-seg="items.0.framed"]')) await page.click('[data-seg="items.0.framed"] [data-v="no"]');
+      if (await page.$('[data-seg="items.0.framed"]')) await page.click('[data-seg="items.0.framed"] [data-v="no"]'); if (await page.$(`[data-seg="items.0.glazing"]`)) await page.click(`[data-seg="items.0.glazing"] [data-v="no"]`);
       await next();
       ok((await panel()) === 'p0b' && /Size/.test(await need()), `width "${bad}" blocks Next on the size screen`, await need());
     }

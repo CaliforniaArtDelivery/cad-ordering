@@ -127,6 +127,7 @@ app.get('/api/config', (_, res) => res.json({
     wallDecorKinds: config.pricing.furniture.wallDecorKinds,
     sizeLabels: config.pricing.furniture.sizeLabels,
     valuationRate: config.pricing.valuation.rate,
+    wallArtWeight: config.pricing.wallArtWeight, hangHardware: config.pricing.hangHardware, hangInstall: config.pricing.hangInstall,
   },
   stripe: !!stripe, livemode: false, testMode: !stripe && TEST_MODE, notice: config.pricing.exampleRatesNotice,
 }));
@@ -168,6 +169,28 @@ app.post('/api/availability', (req, res) => {
   const addr = first && (first.zip || first.city) ? first : o.dropoff;
   const region = sched.regionFor(addr);
   const zone = sched.zoneFor(addr);
+  // leg=pairs (Chad, Nov 21 2026): pickup AND delivery days on one screen. Nothing new is decided here: pickup days are the normal
+  // list above, and the delivery days valid for a pickup P are exactly what leg=dropoff returns for P (and what scheduleErrors
+  // accepts): route days for the delivery address on or after P. `pairs` lists them per pickup, so either date can be picked first.
+  if (o.leg === 'pairs' && svc.needsPickup && svc.needsDropoff && o.dropoff) {
+    const puDays = sched.availableDays(addr, { order: o });
+    const rush = config.scheduling.rushEnabled ? sched.rushDays(addr, new Date(), 7, o) : [];
+    const all = [...puDays, ...rush].map((d) => d.date).sort();
+    const dRegion = sched.regionFor(o.dropoff), dZone = sched.zoneFor(o.dropoff);
+    const out = { region, zone, area: sched.customerAreaName(zone, region), days: puDays, rush, delivery: { region: dRegion, zone: dZone, area: sched.customerAreaName(dZone, dRegion), days: [] }, pairs: {} };
+    if (!all.length) return res.json(out);
+    const delFrom = (iso) => sched.availableDays(o.dropoff, { from: new Date(iso + 'T12:00:00Z'), count: 400, order: o, leadTime: 0 });
+    const fromFirst = delFrom(all[0]);
+    // The column runs from the first pickup to showDays delivery days after the last pickup (each pickup keeps the same
+    // choices leg=dropoff would show it).
+    const last = all[all.length - 1];
+    const startLast = fromFirst.findIndex((d) => d.date >= last);
+    const end = startLast < 0 ? fromFirst.length : Math.min(fromFirst.length, startLast + config.scheduling.showDays);
+    out.delivery.days = fromFirst.slice(0, end);
+    const col = new Set(out.delivery.days.map((d) => d.date));
+    all.forEach((p) => { out.pairs[p] = delFrom(p).map((d) => d.date).filter((d) => col.has(d)); });
+    return res.json(out);
+  }
   res.json({
     region, zone, area: sched.customerAreaName(zone, region),
     days: sched.availableDays(addr, { order: o }),
@@ -234,6 +257,8 @@ function validate(o) {
   else forPieces('a description', (it) => !String(it.description || '').trim());
   forPieces('a valid item type', (it) => !TYPES[it.type || 'painting']);
   forPieces('Framed? (and Glass? / Frame type when they apply)', (it) => framingErrors([it]));
+  // Wall pieces over 400 lb (Chad, Nov 21 2026) can't be booked online: the form sends the customer to Request a custom quote.
+  if (o.service !== 'crating_shipping') forPieces('a custom quote: wall pieces over 400 lb can’t be booked online. Please request a custom quote at contact@californiaartdelivery.com', (it) => require('./lib/pricing').wallArtTooHeavy(it));
   const siteContact = (a) => a && String(a.contactName || '').trim() && String(a.contactPhone || '').trim();
   // Address checks (Samantha, Nov 19): street (with a number), a plausible city and a 5-digit ZIP (or ZIP+4) at every stop.
   if (SERVICES[o.service]?.needsPickup) {
@@ -281,7 +306,7 @@ function validate(o) {
     if (!o.shipping?.shipBy && !o.shipping?.flexible) errs.push('ship date or flexibility');
   } else {
     if (!o.schedule?.date) errs.push('schedule');
-    // In-California white-glove jobs: every piece needs a declared value (protection / high-value handling depend on it).
+    // In-California white glove jobs: every piece needs a declared value (protection / high-value handling depend on it).
     // $0 (or blank) is never accepted as a declared value; only a custom request, which CAD always quotes itself, has none.
     forPieces('a declared value above $0', (it) => it.type !== 'custom' && !(numVal(it.value) > 0));
     const twoDates = SERVICES[o.service]?.needsPickup && SERVICES[o.service]?.needsDropoff;
@@ -400,7 +425,7 @@ app.post('/api/orders', (req, res) => {
     emails: [],
   };
   order.quote = quote(order);  // server-side price is authoritative
-  // The opt-out is only recorded when there was protection to decline (an eligible piece up to $50,000, in-California white-glove job).
+  // The opt-out is only recorded when there was protection to decline (an eligible piece up to $50,000, in-California white glove job).
   if (order.protectionDeclined && !(order.quote.protectionOption && order.quote.protectionOption.declined)) { delete order.protectionDeclined; delete order.protectionDeclinedAt; }
   if (order.needsManualReview) teamAlert(`NEEDS MANUAL REVIEW: order ${order.id} was submitted with an old quantity entry`, `Order ${order.id}: ${order.manualReviewReason}\nPieces:\n${piecesOf(order).map((it, i) => '  ' + require('./lib/itemtypes').pieceDetail(it, i)).join('\n')}`);
   // Normal orders hold their date while the client pays. Review orders (pencil-in, helper, Monday OC) hold it while the team decides.
