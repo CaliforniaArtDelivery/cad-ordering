@@ -2051,19 +2051,21 @@ const milesApart = (a, b) => { const R = 3959, rad = (d) => (d * Math.PI) / 180;
 async function checkZipCity(key) {
   const a = S[key]; if (!a || intlDest(a)) return;
   const zip = (String(a.zip || '').match(/^\d{5}/) || [])[0], city = String(a.city || '').trim();
-  const rawSt = String(a.state || '').trim();
-  const caZip = !!zip && (() => { const k = parseInt(zip.slice(0, 3), 10); return k >= 900 && k <= 961; })();
-  // Blank state counts as California only for a California ZIP; otherwise the state must be a 2-letter code.
-  const st = /^(ca|calif\.?|california)$/i.test(rawSt) || (!rawSt && caZip) ? 'ca' : rawSt.toLowerCase();
   const show = (html) => { const el = app.querySelector(`[data-zipcheck="${key}"]`); if (el) { el.innerHTML = html; el.hidden = !html; } };
-  if (!zip || !city || !/^[a-z]{2}$/.test(st)) return show('');
-  if (!(zip in zipCache)) { const j = await geoGet(`https://api.zippopotam.us/us/${zip}`); zipCache[zip] = j && j.places ? j.places.map((pl) => ({ name: pl['place name'], at: [+pl.latitude, +pl.longitude] })) : []; }
-  const ck = st + '/' + city.toLowerCase();
-  if (!(ck in cityCache)) { const j = await geoGet(`https://api.zippopotam.us/us/${st}/${encodeURIComponent(city.toLowerCase())}`); cityCache[ck] = j && j.places ? j.places.map((pl) => [+pl.latitude, +pl.longitude]) : []; }
+  if (!zip || city.length < 2) return show('');
+  if (!(zip in zipCache)) { const j = await geoGet(`https://api.zippopotam.us/us/${zip}`); zipCache[zip] = j && j.places ? j.places.map((pl) => ({ name: pl['place name'], st: String(pl['state abbreviation'] || '').toLowerCase(), at: [+pl.latitude, +pl.longitude] })) : []; }
+  const zp = zipCache[zip];
+  if (!zp.length || !/^[a-z]{2}$/.test(zp[0].st)) return show('');
+  // Look the typed city up in the ZIP's own state, so a correct out-of-state address never gets a false hint.
+  const ck = zp[0].st + '/' + city.toLowerCase();
+  if (!(ck in cityCache)) { const j = await geoGet(`https://api.zippopotam.us/us/${zp[0].st}/${encodeURIComponent(city.toLowerCase())}`); cityCache[ck] = j && j.places ? j.places.map((pl) => [+pl.latitude, +pl.longitude]) : []; }
   const cur = S[key]; if ((String(cur.zip || '').match(/^\d{5}/) || [])[0] !== zip || String(cur.city || '').trim() !== city) return;
-  const zp = zipCache[zip], cp = cityCache[ck];
+  const cp = cityCache[ck];
+  const norm = (x) => String(x).toLowerCase().replace(/[^a-z]/g, '');
+  if (zp.some((pl) => norm(pl.name) === norm(city))) return show('');
   // Only flag a clear mismatch: the ZIP is more than 15 miles from every ZIP of the typed city (neighborhood names never trip it).
-  if (!zp.length || !cp.length || cp.some((c) => milesApart(c, zp[0].at) <= 15)) return show('');
+  if (cp.length && cp.some((c) => milesApart(c, zp[0].at) <= 15)) return show('');
+  if (!cp.length) return show(''); // unknown city name (or the lookup is down): stay quiet
   const nm = esc(zp[0].name);
   show(`ZIP ${esc(zip)} is in ${nm}, not ${esc(city)}. <button type="button" class="link" data-zipfix="${key}" data-city="${nm}">Use ${nm}</button>`);
 }
