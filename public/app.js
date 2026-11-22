@@ -226,6 +226,14 @@ const outsideCA = (a) => {
   return false;
 };
 const shipService = () => !!svc().shipping;
+// A California address (US, state CA or a 9xx California ZIP). Used to stop CA-to-CA jobs from going through Shipping.
+const inCA = (a) => {
+  if (!a || outsideCA(a)) return false;
+  const st = String(a.state || '').trim();
+  const z = String(a.zip || '').match(/\b\d{5}\b/);
+  return /^(ca|calif\.?|california)$/i.test(st) || !!(z && (() => { const n = parseInt(z[0].slice(0, 3), 10); return n >= 900 && n <= 961; })());
+};
+const shipInsideCA = () => shipService() && inCA(S.pickup) && inCA(S.dropoff);
 const outOfState = () => !shipService() && !!S.service && ((svc().needsPickup && outsideCA(S.pickup)) || outsideCA(S.dropoff));
 const isShipState = () => shipService() || outOfState();
 const isShip = isShipState;
@@ -301,7 +309,7 @@ const api = async (url, body) => {
     const j = await r.json().catch(() => ({}));
     return { ok: r.ok, j };
   } catch (e) {
-    return { ok: false, net: true, j: { error: 'Connection hiccup. Please try again.' } };
+    return { ok: false, net: true, j: { error: 'We couldn’t send that. Check your connection and tap again.' } };
   }
 };
 
@@ -321,10 +329,10 @@ const ICONS = {
 };
 
 const DESC = {
-  pickup_delivery: 'White glove pickup and delivery of fine art, sculpture, luxury furniture, décor, antiques and other valuable or fragile pieces, placed exactly where you want them.',
-  delivery_install: 'Everything above, plus expert installation of paintings, mirrors and wall décor.',
-  install_only: 'Already on site. We hang paintings, mirrors and wall décor.',
-  crating_shipping: 'For anything going outside California, anywhere in the US or overseas, by air or ground. Delivering within California? Choose Pickup + Delivery above.',
+  pickup_delivery: 'White glove pickup and delivery, placed exactly where you want it.',
+  delivery_install: 'Everything above, plus expert installation of paintings, mirrors and wall decor.',
+  install_only: 'Already on site. We hang paintings, mirrors and wall decor.',
+  crating_shipping: 'Outside California, anywhere in the US or overseas. Within California, choose Pickup + Delivery.',
 };
 // CAD are fine art handlers, not movers: the items-step heading names what we are actually doing for the chosen service.
 const SVC_VERB = { pickup_delivery: 'delivering', delivery_install: 'delivering and installing', install_only: 'installing', crating_shipping: 'shipping', delivery: 'delivering', pickup: 'picking up' };
@@ -729,7 +737,11 @@ const crossRegion = () => !!(quoteData && quoteData.regions && quoteData.regions
 const REGION_NAME = { NorCal: 'Northern California', SoCal: 'Southern California' };
 const regionName = (r) => REGION_NAME[r] || r || '';
 // Cross-region jobs (e.g. SF pickup, LA delivery): name both regions instead of one route label.
-const crossRegionLine = (rg) => (rg && rg.pickup && rg.dropoff && rg.pickup !== rg.dropoff ? `Pickup: ${regionName(rg.pickup)} · Delivery: ${regionName(rg.dropoff)}` : '');
+const crossRegionLine = (rg, pu = S.pickup, dr = S.dropoff) => {
+  if (!(rg && rg.pickup && rg.dropoff && rg.pickup !== rg.dropoff)) return '';
+  const pc = String((pu && pu.city) || '').trim(), dc = String((dr && dr.city) || '').trim();
+  return pc && dc ? `${pc} → ${dc}` : `${regionName(rg.pickup)} → ${regionName(rg.dropoff)}`;
+};
 const needsTwoDates = () => !!(svc().needsPickup && svc().needsDropoff && !isShip());
 const routeHint = (day) => (day && day.routeType === 'downAndBack')
   ? `<p class="mini route-hint">This is a down-and-back route, so we have more flexibility to come early or on our way back.</p>`
@@ -953,7 +965,7 @@ const LEVELS = [['curbside', 'Curbside', 'Delivered to the curb or loading dock.
 const levelText = (v) => (LEVELS.find((l) => l[0] === v) || [, '—'])[1];
 const timingText = (s) => [s.shipBy && `Ship by ${shortDate(s.shipBy)}`, s.arriveBy && `Arrive by ${shortDate(s.arriveBy)}`, s.flexible ? 'Flexible' : ''].filter(Boolean).join(' · ') || 'Flexible';
 const destText = (a) => [a.street, [a.city, intlDest(a) ? '' : a.state].filter(Boolean).join(', '), a.zip, intlDest(a) ? a.country : ''].filter(Boolean).map(esc).join(', ');
-const OOS_NOTE = 'Pickups and deliveries outside California are custom quoted as Shipping. Within California we always provide white glove delivery. Samantha prices your job and emails you a quote; nothing is charged until you approve it.';
+const OOS_NOTE = 'Pickups and deliveries outside California are custom quoted as Shipping. Within California we always provide white glove delivery. Our shipping team prices your job and emails you a quote; nothing is charged until you approve it.';
 
 // ---------- small steps ----------
 // Each booking step (What, Where, When, Pay) is shown as a few short screens ("panels"), a handful of questions at a time.
@@ -1141,7 +1153,7 @@ const views = {
     };
     const pieceTitle = (i) => (S.items.length > 1 ? `Piece ${i + 1}: what is it?` : `What are we ${svcVerb()}?`);
     const panels = [];
-    panels.push(panel('service', `<h1>${S.service === 'install_only' ? 'What are we installing?' : 'How can we help?'}</h1><p class="sub">Fine art, luxury furniture and décor are our specialty, and we handle other fragile or valuable pieces. Approximate sizes are fine.</p>
+    panels.push(panel('service', `<h1>${S.service === 'install_only' ? 'What are we installing?' : 'How can we help?'}</h1><p class="sub">Art, furniture, decor, and antiques are our specialty, plus other fragile or valuable pieces. Approximate sizes are fine.</p>
       <div class="choices">${Object.entries(CFG.services).map(([k, v]) => `<button type="button" class="choice ${S.service === k ? 'on' : ''}" data-service="${k}">
         <span class="ico">${ICONS[k]}</span><span class="txt"><b>${v.label}</b>${SUBTITLE[k] ? `<span class="svc-sub">${esc(SUBTITLE[k])}</span>` : ''}<span class="d">${DESC[k]}</span></span><span class="from">${base[k] == null ? 'Custom quote' : 'from ' + fmt(base[k])}</span></button>`).join('')}</div>
       <p class="mini" data-from-note>Starting prices don’t include declared value protection.</p>`));
@@ -1157,7 +1169,7 @@ const views = {
         <div class="card pc-list" data-pclist>${S.items.map((it, i) => pieceListRow(it, i)).join('')}</div>
         <button type="button" class="add" id="addItem">＋ Add another piece</button>
         ${quickEditBlock()}
-        <p class="mini">${ship ? 'Shipping is for anything going outside California, in the US or overseas, and is always custom quoted. Within California we always provide white glove delivery. Nothing is charged until you approve Samantha’s quote.' : `Jobs with an address outside California are custom quoted as Shipping. Within California we always provide white glove delivery.`}</p>`));
+        <p class="mini">${ship ? 'Shipping is for anything going outside California, in the US or overseas, and is always custom quoted. Within California we always provide white glove delivery. Nothing is charged until you approve our quote.' : `Jobs with an address outside California are custom quoted as Shipping. Within California we always provide white glove delivery.`}</p>`));
     }
     return panels.join('');
   },
@@ -1169,14 +1181,16 @@ const views = {
     const addrPanel = (key, optional = false) => {
       const a = get(key);
       const title = key === 'pickup' ? 'Where are we picking up?' : shipService() ? 'Where is it going?' : S.service === 'install_only' ? 'Where are we installing?' : 'Where are we delivering?';
-      return panel(`${key}-addr`, `<h1>${title}</h1>${oos()}<div class="card">
+      const caNote = key === 'dropoff' && shipInsideCA() ? `<div class="note ca-ship" data-cashipnote><b>This trip stays in California.</b> Shipping is for destinations outside California. Within California we deliver white glove ourselves. <button type="button" class="btn primary ca-switch" data-switchpd>Switch to Pickup + Delivery</button><span class="mini">Everything you entered stays.</span></div>` : '';
+      return panel(`${key}-addr`, `<h1>${title}</h1>${oos()}${caNote}<div class="card">
         ${key === 'dropoff' && shipService() ? input(`${key}.country`, 'Country', { ph: 'United States', attrs: 'autocomplete="country-name"', req: true }) : ''}
         ${key === 'dropoff' && shipService() && intlDest(a)
           ? `<div class="field"><label class="f" for="f-${key}.street">Full address${req}</label><textarea id="f-${key}.street" data-path="${key}.street" placeholder="Street, building, postal code, city, region">${esc(a.street)}</textarea></div>${input(`${key}.city`, 'City', { ph: 'e.g. London', req: true })}`
           : `${input(`${key}.street`, 'Street address', { ph: key === 'pickup' ? '2 Henry Adams St' : '8678 Melrose Ave', attrs: 'autocomplete="street-address"', req: !optional })}
         <label class="chk" data-nostreet><input type="checkbox" data-path="${key}.noStreetNumber" data-rerender ${a.noStreetNumber ? 'checked' : ''}> My address has no street number</label>
         ${a.noStreetNumber ? '<p class="mini" style="margin:-2px 0 8px">Describe it above (for example “Star Route” or the estate name). Our team will confirm the exact location with you before anything is charged.</p>' : ''}
-        <div class="row keep addr3">${input(`${key}.city`, 'City', { ph: key === 'pickup' ? 'San Francisco' : 'West Hollywood', req: !optional })}${input(`${key}.state`, 'State', { ph: 'CA', attrs: 'autocomplete="address-level1" maxlength="14"' })}${input(`${key}.zip`, 'ZIP', { ph: key === 'pickup' ? '94103' : '90069', req: !optional, attrs: 'inputmode="numeric" autocomplete="postal-code" maxlength="10"' })}</div>`}
+        <div class="row keep addr3">${input(`${key}.city`, 'City', { ph: key === 'pickup' ? 'San Francisco' : 'West Hollywood', req: !optional })}${input(`${key}.state`, 'State', { ph: 'CA', attrs: 'autocomplete="address-level1" maxlength="14"' })}${input(`${key}.zip`, 'ZIP', { ph: key === 'pickup' ? '94103' : '90069', req: !optional, attrs: 'inputmode="numeric" autocomplete="postal-code" maxlength="10"' })}</div>
+        <p class="mini zip-check" data-zipcheck="${key}" hidden></p>`}
         ${key === 'dropoff' && shipService() ? `<div class="field" style="margin-top:4px"><label class="f">Destination type</label>${seg(`${key}.locationType`, [['residential', 'Residential'], ['commercial', 'Commercial']])}</div>` : ''}
         ${input(`${key}.business`, 'Business or gallery (optional)', { ph: 'e.g. gallery, showroom, hotel' })}
       </div>${accessExtras(key, a)}`);
@@ -1305,14 +1319,13 @@ const views = {
         out.push(panel(`ship-p${i}c`, `<h1>Weight, value and care</h1><p class="piece-tag">${nm}</p><div class="card">${pieceCare(it, i, true)}</div>`));
       });
     }
-    out.push(panel('ship-level', `<h1>${out.length ? 'Service at the destination' : 'Shipping details'}</h1>${out.length ? '' : `<p class="sub">Everything Samantha needs to price your shipment.</p>${oos}`}
+    out.push(panel('ship-level', `<h1>${out.length ? 'Service at the destination' : 'Shipping details'}</h1>${out.length ? '' : `<p class="sub">Everything our shipping team needs to price your shipment.</p>${oos}`}
       ${outOfState() ? `<h2>Destination type</h2><div class="card">${seg('dropoff.locationType', [['residential', 'Residential'], ['commercial', 'Commercial']])}</div>` : ''}
       <h2>Service at the destination</h2><div class="choices" data-reqblock="serviceLevel">${LEVELS.map(lvl).join('')}</div>`));
     out.push(panel('ship-timing', `<h1>When should it ship?</h1><div class="card">
         <div class="row keep">${input('shipping.shipBy', 'Ship by', { type: 'date', attrs: `min="${today}"` })}${input('shipping.arriveBy', 'Arrive by (optional)', { type: 'date', attrs: `min="${today}"` })}</div>
         ${toggle('shipping.flexible', 'My dates are flexible', 'Flexible dates usually mean a better shipping rate.', true)}
-      </div>
-      <p class="mini">Fully insured through our shipping partners.</p>`));
+      </div>`));
     return out.join('');
   },
 
@@ -1348,7 +1361,7 @@ const views = {
       ${discountBlock()}
       ${sp ? '<div class="err" id="err"></div>' : `<h2>Payment</h2>${paymentBlock(q)}`}
       <p class="mini" data-protection-terms>${PROTECTION_TERMS}</p>
-      <p class="mini">${sp ? 'Samantha reviews your request and emails your price with a payment link. Nothing is charged until you approve it.' : 'Need to change or cancel? Reply to your confirmation email.'}</p>`);
+      <p class="mini">${sp ? 'Our team reviews your request and emails your price with a payment link. Nothing is charged until you approve it.' : 'Need to change or cancel? Reply to your confirmation email.'}</p>`);
   },
 
   ShipPay() {
@@ -1360,7 +1373,7 @@ const views = {
         ${input('payerOther.phone', 'Payer phone', { type: 'tel', req: true, ph: '(415) 555-0123', attrs: 'autocomplete="tel"' })}` : ''}
         ${S.payer === 'partner' && !(isBizReferral() && (S.heard.businessName || S.heard.referrerName || S.partner.name)) ? `<p class="mini">Add the referring partner in <button type="button" class="edit" style="padding:0" data-goto="1:heard">Where</button> so we know who to bill.</p>` : ''}</div>`;
     return panel('payer', `<h1>Who’s paying?</h1><p class="sub">Last question before your review.</p>${payerCard}`)
-      + panel('review', `<h1>Review your shipping request</h1><p class="sub">Samantha prices shipping and emails you a quote. Nothing is charged until you approve it.</p>${valueConfirmCard('review')}
+      + panel('review', `<h1>Review your shipping request</h1><p class="sub">Our shipping team prices your shipment and emails you a quote. Nothing is charged until you approve it.</p>${valueConfirmCard('review')}
       ${outOfState() ? `<p class="note" data-oos>${OOS_NOTE}</p>` : ''}
       <div class="promise quote" style="margin-top:0"><span class="pi">✈</span><span><b>${esc(timingText(sh))}</b><span>${esc(levelText(sh.serviceLevel))}</span></span>${editBtn('2:ship-timing')}</div>
       <div class="card">
@@ -1377,9 +1390,8 @@ const views = {
       ${siteReview('Destination details', S.dropoff, '1:dropoff-access')}
       <h2>Price</h2><div class="card">
         <div class="sum-row"><span>Shipping</span><span>Custom quote</span></div>
-        <div class="sum-row"><span>Insurance</span><span>Fully insured through our shipping partners</span></div>
-        <p class="mini" style="margin:4px 0 0">Declared value: ${fmt(declared)}.</p>
-        <p class="mini" style="margin:6px 0 0">Samantha sets the price for packing, shipping and destination service before anything is charged. Our shipping partner chooses the right packing for each piece.</p>
+        <div class="sum-row"><span>Declared value</span><span class="amt">${fmt(declared)}</span></div>
+        <p class="mini" style="margin:6px 0 0">Our shipping team sets the price for packing, shipping and destination service before anything is charged. Our shipping partner chooses the right packing for each piece.</p>
       </div>
       <div class="err" id="err"></div>`);
   },
@@ -1399,14 +1411,14 @@ const views = {
     const o = confirmed;
     if (o.status === 'pending_approval' && o.service === 'crating_shipping') {
       return `<div class="done"><div class="check">✓</div><h1>Shipping quote request received</h1>
-        <p class="sub">Request <b>${esc(o.id)}</b> is with Samantha. She’ll email ${esc(o.contact.email)} your shipping quote with a payment link. Nothing has been charged.</p></div>
+        <p class="sub">Request <b>${esc(o.id)}</b> is with our shipping team. We’ll email ${esc(o.contact.email)} your shipping quote with a payment link. Nothing has been charged.</p></div>
         ${o.outOfState ? `<p class="note">${OOS_NOTE}</p>` : ''}
         <div class="card">
           <div class="sum-row"><span>Service</span><span>Shipping</span></div>
           <div class="sum-row"><span>Destination</span><span>${destText(o.dropoff)}</span></div>
           <div class="sum-row"><span>Timing</span><span>${esc(timingText(o.shipping || {}))}</span></div>
           <div class="sum-row"><span>At destination</span><span>${esc(levelText((o.shipping || {}).serviceLevel))}</span></div>
-          <div class="sum-row"><span>Price</span><span>Custom quote from Samantha</span></div>
+          <div class="sum-row"><span>Price</span><span>Custom quote from our shipping team</span></div>
         </div>
         ${yourPieces(o)}
         <button type="button" class="btn ghost full" id="newOrder">Start a new booking</button>`;
@@ -1415,7 +1427,7 @@ const views = {
       const q = o.quote || quoteData;
       const rvw = !!(q && q.reviewOnly);
       return `<div class="done"><div class="check">✓</div><h1>${rvw ? 'Date request received' : 'Quote request received'}</h1>
-        <p class="sub">Request <b>${esc(o.id)}</b> is with Samantha. ${rvw ? `${esc(q.quoteNote || '')} We’ll email ${esc(o.contact.email)} within 1 business day to confirm your date and send a payment link.` : `We’ll email ${esc(o.contact.email)} a final price and a payment link. Nothing has been charged.`}</p></div>
+        <p class="sub">Request <b>${esc(o.id)}</b> is with our team. ${rvw ? `${esc(q.quoteNote || '')} We’ll email ${esc(o.contact.email)} within 1 business day to confirm your date and send a payment link.` : `We’ll email ${esc(o.contact.email)} a final price and a payment link. Nothing has been charged.`}</p></div>
         <div class="card">
           <div class="sum-row"><span>Service</span><span>${esc(o.serviceLabel)}${o.rush ? ' · rush' : ''}${o.dedicated ? ' · dedicated trip' : ''}</span></div>
           <div class="sum-row"><span>Preferred date</span><span>${esc(longDate(o.schedule.date))}${o.schedule.deliveryDate ? '<br>Delivery ' + esc(longDate(o.schedule.deliveryDate)) : ''}${timePrefSummary(o.schedule.timePref, o.schedule.timeNote) ? '<br><span class="muted">' + esc(timePrefSummary(o.schedule.timePref, o.schedule.timeNote)) + '</span>' : ''}</span></div>
@@ -1431,9 +1443,9 @@ const views = {
     const shipDone = o.service === 'crating_shipping';
     const delLine = o.schedule.deliveryDate ? `<p class="sub" style="margin:-4px 0 10px"><strong>Delivery: ${esc(longDate(o.schedule.deliveryDate))}</strong>${timePrefSummary(o.schedule.deliveryTimePref, o.schedule.deliveryTimeNote) ? ' · ' + esc(timePrefSummary(o.schedule.deliveryTimePref, o.schedule.deliveryTimeNote)) : ''}</p>` : '';
     return `<div class="done"><div class="check">✓</div><h1>${shipDone ? 'Your shipment is confirmed.' : `You’re booked for ${esc(longDate(o.schedule.date))}.`}</h1>${delLine}
-      <p class="sub">Order <b>${esc(o.id)}</b> is confirmed. A confirmation is on its way to ${esc(o.contact.email)}. ${shipDone ? 'Samantha will confirm packing and pickup dates by email.' : 'We’ll be in touch before your date to confirm the arrival window.'}</p></div>
+      <p class="sub">Order <b>${esc(o.id)}</b> is confirmed. A confirmation is on its way to ${esc(o.contact.email)}. ${shipDone ? 'Our shipping team will confirm packing and pickup dates by email.' : 'We’ll be in touch before your date to confirm the arrival window.'}</p></div>
       <div class="card"><div class="sum-row"><span>Service</span><span>${esc(o.serviceLabel)}</span></div>
-      ${shipDone ? `<div class="sum-row"><span>Timing</span><span>${esc(timingText(o.shipping || {}))}</span></div><div class="sum-row"><span>Destination</span><span>${destText(o.dropoff)}</span></div>` : `<div class="sum-row"><span>Route</span><span>${esc(crossRegionLine((o.quote || {}).regions) || (regionName(((o.quote || {}).regions || {}).pickup || o.schedule.region) + ' route'))}</span></div>`}
+      ${shipDone ? `<div class="sum-row"><span>Timing</span><span>${esc(timingText(o.shipping || {}))}</span></div><div class="sum-row"><span>Destination</span><span>${destText(o.dropoff)}</span></div>` : `<div class="sum-row"><span>Route</span><span>${esc(crossRegionLine((o.quote || {}).regions, o.pickup, o.dropoff) || (regionName(((o.quote || {}).regions || {}).pickup || o.schedule.region) + ' route'))}</span></div>`}
       <div class="sum-row"><span>Payment</span><span>${ach ? `<b>ACH processing</b> · ${fmt(p.amount)}` : `Paid ${fmt(p.amount)}`} · ${how}${p.method && p.method.startsWith('mock') ? ' (test)' : ''}${p.saved ? ' · saved' : ''}</span></div>
       ${o.quote.paymentPlan === 'deposit' ? `<div class="sum-row"><span>Balance due ${esc(o.quote.balanceWhen)}</span><span class="amt"><b>${fmt(o.quote.balanceDue)}</b></span></div>` : ''}
       <div class="total"><span>${accessTbc(o.quote) ? CADAccess.TBC_TOTAL : 'Order total'}</span><span class="amt">${fmt(o.quote.total)}</span></div>
@@ -1512,6 +1524,7 @@ function missingFields(name = STEPS[step]) {
       const a = S[key] || {};
       if (!required && !filled(a)) return;
       if (key === 'dropoff' && shipService() && !String(a.country || '').trim()) add('#f-dropoff.country', 'Country', 'Please enter the country.');
+      if (key === 'dropoff' && shipInsideCA()) add('#f-dropoff.state', 'Destination is in California', 'Shipping is for destinations outside California. Tap Switch to Pickup + Delivery.');
       // Street (with a number), a plausible city and a 5-digit ZIP (or ZIP+4): the same checks the server runs (public/validate.js).
       V.addressProblems(a, title).forEach((pr) => add(`#f-${key}.${pr.field}`, `${{ street: 'Street address', city: 'City', zip: 'ZIP' }[pr.field]} — ${title}`, pr.message));
       if (!String(a.contactName || '').trim()) add(`#f-${key}.contactName`, `Contact name — ${title}`, 'Please enter the contact’s name.');
@@ -1778,6 +1791,7 @@ function paintButton() {
   } else applyNextLabel(btn);
   const wait = missingNow().length > 0;
   const hold = busy || (quotePending && name === 'Pay' && isLastPanel());
+  btn.classList.toggle('is-busy', !!hold);
   if (hold) { btn.disabled = true; btn.classList.remove('is-wait'); btn.removeAttribute('aria-disabled'); }
   else { btn.disabled = false; btn.classList.toggle('is-wait', wait); if (wait) btn.setAttribute('aria-disabled', 'true'); else btn.removeAttribute('aria-disabled'); }
   paintRequired();
@@ -1811,6 +1825,7 @@ function render() {
   let sel = null;
   if (focusId) { try { sel = { s: ae.selectionStart, e: ae.selectionEnd, d: ae.selectionDirection, top: ae.scrollTop }; } catch (_) { sel = null; } }
   app.innerHTML = `<div class="view${stepChanged ? ' enter' : ''}">${html}</div>`;
+  if (stepChanged) { const de = $('#dockErr'); if (de) { de.hidden = true; de.textContent = ''; } }
   if (wantMissing && ids.length) { const m = missingFields()[0]; const pid = m && panelOfMissing(m); if (pid) sub = pid; }
   applyPanel();
   if (stepChanged) {
@@ -1841,7 +1856,7 @@ function render() {
   const pg = $('#progress'); if (pg) pg.setAttribute('aria-valuenow', String(pct));
   // "Step X of Y" counts the booking's main steps. Shipping and out-of-state quotes skip the date step, so they show one fewer.
   const mainSteps = STEPS.slice(0, 4).filter((n) => !(n === 'When' && isShip()));
-  const stepNo = mainSteps.indexOf(name) + 1;
+  const stepNo = (name === 'When' && isShip()) ? mainSteps.indexOf('Where') + 1 : mainSteps.indexOf(name) + 1;
   $('#stepsLabel').textContent = name === 'Done' ? (confirmed && confirmed.status === 'pending_approval' ? 'Quote requested' : 'Confirmed') : (stepNo ? `Step ${stepNo} of ${mainSteps.length}` : '');
   $('#backBtn').classList.toggle('hide', (step === 0 && isFirstPanel()) || name === 'Done' || !!existing);
   const noDock = name === 'Done';
@@ -1849,6 +1864,7 @@ function render() {
   app.classList.toggle('no-dock', noDock);
   paintButton();
   refreshQuote();
+  if (name === 'Where') { checkZipCity('pickup'); checkZipCity('dropoff'); }
   if (stepChanged) window.scrollTo(0, 0);
   else if (Math.abs(window.scrollY - y) > 1) window.scrollTo(0, y);
   measureDock();
@@ -2012,10 +2028,50 @@ app.addEventListener('change', (e) => {
   // Country changes the address form (international = free-form), so re-render. State / ZIP / city only toggle the
   // out-of-state note in place, so nothing the customer is typing gets interrupted.
   if (e.target.dataset.path === 'dropoff.country') { const k = shipKey(); if (k !== lastShipKey) { lastShipKey = k; render(); } }
-  else if (/^(pickup|dropoff)\.(state|zip|city)$/.test(e.target.dataset.path || '')) syncOosNote();
+  else if (/^(pickup|dropoff)\.(state|zip|city)$/.test(e.target.dataset.path || '')) { syncOosNote(); checkZipCity(e.target.dataset.path.split('.')[0]); }
+  else if (/^(pickup|dropoff)\.street$/.test(e.target.dataset.path || '')) splitStreet(e.target.dataset.path.split('.')[0]);
 });
+// A full address pasted into Street ("1 Ferry Building, San Francisco, CA 94111") is split into Street / City / State / ZIP,
+// so the review never shows the city twice (QA audit Nov 22, #6).
+function splitStreet(key) {
+  const a = S[key]; if (!a || intlDest(a)) return;
+  const m = String(a.street || '').trim().match(/^(.+?),\s*([A-Za-z .'-]+?),?\s+(CA|Calif\.?|California)\.?\s*(\d{5}(?:-\d{4})?)?\s*(?:,\s*(?:USA|US|United States))?$/i);
+  if (!m) return;
+  a.street = m[1].trim();
+  if (!String(a.city || '').trim() || a.city.trim().toLowerCase() === m[2].trim().toLowerCase()) a.city = m[2].trim();
+  a.state = 'CA';
+  if (m[4] && !String(a.zip || '').trim()) a.zip = m[4];
+  persist(); render(); checkZipCity(key);
+}
+// ZIP vs city cross-check (QA audit Nov 22, #6): a soft, non-blocking hint with a one-tap fix. The route is picked from the ZIP,
+// so a typo here would quietly book the wrong route day. Uses the public Zippopotam lookup; if it is unreachable, nothing shows.
+const zipCache = {}, cityCache = {};
+const geoGet = async (url) => { try { const r = await fetch(url); return r.ok ? await r.json() : null; } catch (_) { return null; } };
+const milesApart = (a, b) => { const R = 3959, rad = (d) => (d * Math.PI) / 180; const dLa = rad(b[0] - a[0]), dLo = rad(b[1] - a[1]); const h = Math.sin(dLa / 2) ** 2 + Math.cos(rad(a[0])) * Math.cos(rad(b[0])) * Math.sin(dLo / 2) ** 2; return 2 * R * Math.asin(Math.sqrt(h)); };
+async function checkZipCity(key) {
+  const a = S[key]; if (!a || intlDest(a)) return;
+  const zip = (String(a.zip || '').match(/^\d{5}/) || [])[0], city = String(a.city || '').trim();
+  const rawSt = String(a.state || '').trim();
+  const caZip = !!zip && (() => { const k = parseInt(zip.slice(0, 3), 10); return k >= 900 && k <= 961; })();
+  // Blank state counts as California only for a California ZIP; otherwise the state must be a 2-letter code.
+  const st = /^(ca|calif\.?|california)$/i.test(rawSt) || (!rawSt && caZip) ? 'ca' : rawSt.toLowerCase();
+  const show = (html) => { const el = app.querySelector(`[data-zipcheck="${key}"]`); if (el) { el.innerHTML = html; el.hidden = !html; } };
+  if (!zip || !city || !/^[a-z]{2}$/.test(st)) return show('');
+  if (!(zip in zipCache)) { const j = await geoGet(`https://api.zippopotam.us/us/${zip}`); zipCache[zip] = j && j.places ? j.places.map((pl) => ({ name: pl['place name'], at: [+pl.latitude, +pl.longitude] })) : []; }
+  const ck = st + '/' + city.toLowerCase();
+  if (!(ck in cityCache)) { const j = await geoGet(`https://api.zippopotam.us/us/${st}/${encodeURIComponent(city.toLowerCase())}`); cityCache[ck] = j && j.places ? j.places.map((pl) => [+pl.latitude, +pl.longitude]) : []; }
+  const cur = S[key]; if ((String(cur.zip || '').match(/^\d{5}/) || [])[0] !== zip || String(cur.city || '').trim() !== city) return;
+  const zp = zipCache[zip], cp = cityCache[ck];
+  // Only flag a clear mismatch: the ZIP is more than 15 miles from every ZIP of the typed city (neighborhood names never trip it).
+  if (!zp.length || !cp.length || cp.some((c) => milesApart(c, zp[0].at) <= 15)) return show('');
+  const nm = esc(zp[0].name);
+  show(`ZIP ${esc(zip)} is in ${nm}, not ${esc(city)}. <button type="button" class="link" data-zipfix="${key}" data-city="${nm}">Use ${nm}</button>`);
+}
 function syncOosNote() {
   if (STEPS[step] !== 'Where') return;
+  // Shipping with both ends in California: show (or remove) the Switch to Pickup + Delivery note in place.
+  const dp = app.querySelector('[data-panel="dropoff-addr"]');
+  if (dp && shipService() && !!dp.querySelector('[data-cashipnote]') !== shipInsideCA()) { render(); return; }
   app.querySelectorAll('[data-panel$="-addr"]').forEach((pn) => {
     const cur = pn.querySelector('[data-oos]');
     if (outOfState() && !cur) pn.querySelector('h1').insertAdjacentHTML('afterend', `<p class="note" data-oos>${OOS_NOTE}</p>`);
@@ -2050,6 +2106,12 @@ app.addEventListener('click', async (e) => {
   if (t.hasAttribute('data-protection-add')) { S.protectionDeclined = false; persist(); refreshQuote(); return; }
   if (t.hasAttribute('data-discount-apply')) { applyDiscount(); return; }
   if (t.hasAttribute('data-discount-remove')) { S.discountCode = ''; discountMsg = null; persist(); refreshQuote(); paintDiscount(); return; }
+  if (t.dataset.zipfix) { const k = t.dataset.zipfix; S[k].city = t.dataset.city; persist(); render(); return; }
+  if (t.dataset.switchpd != null) {
+    // CA-to-CA job started as Shipping: keep every answer, switch the service, and land on the delivery address to continue.
+    S.service = 'pickup_delivery'; S.dropoff.country = ''; persist(); avail = null; quoteData = null;
+    step = STEPS.indexOf('Where'); sub = 'dropoff-addr'; render(); return;
+  }
   if (t.dataset.service) {
     // No auto-scroll here: the page stays exactly where the user's thumb left it.
     if (t.dataset.service === 'install_only') {
@@ -2189,7 +2251,10 @@ async function uploadPhotos(i, files) {
   S.items[i].photos = [...(S.items[i].photos || []), ...r.files]; persist(); updateNext(); renderWhenIdle(); // Next frees up right away, even if the screen redraw waits for a text box to lose focus
 }
 
-const showErr = (msg) => { const el = $('#err'); if (el) el.textContent = msg; };
+const showErr = (msg) => {
+  const el = $('#err'); if (el) el.textContent = msg;
+  const d = $('#dockErr'); if (d) { d.textContent = msg || ''; d.hidden = !msg; measureDock(); }
+};
 async function placeOrder() {
   const sig = JSON.stringify(payload());
   if (orderId && orderSig === sig) return { ok: true };
@@ -2204,7 +2269,7 @@ async function pay(method) {
   if (!existing && !canContinue()) return;
   busy = true; updateNext();
   try {
-    const err = $('#err'); if (err) err.textContent = '';
+    showErr('');
     if (!existing) {
       const r = await placeOrder();
       if (!r.ok) return showErr(r.error);

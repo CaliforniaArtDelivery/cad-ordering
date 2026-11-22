@@ -6,6 +6,14 @@ const crypto = require('crypto');
 const config = require('./config');
 const { quote, isOutOfState, applyApprovedPrice, protectionLabel, SERVICES, OFFERED_SERVICES, displayFrom, FURNITURE_KINDS, DECOR_KINDS, needsStairwellFit, numVal } = require('./lib/pricing');
 const sched = require('./lib/scheduling');
+const GEO = require('./lib/geo');
+// A US address in California (state CA or a California ZIP). Unknown or blank addresses are never treated as California.
+const inCaliforniaUS = (a) => {
+  if (!a || typeof a !== 'object' || GEO.outsideCA(a)) return false;
+  const zip = String(a.zip || '').match(/\b\d{5}\b/);
+  return /^(ca|calif\.?|california)$/i.test(String(a.state || '').trim()) || !!(zip && GEO.isCaZip(zip[0]));
+};
+
 const schedule = require('./lib/schedule');
 const sheetSync = require('./lib/sheets-sync');
 const email = require('./lib/email');
@@ -382,6 +390,9 @@ const payerCopy = (o) => (o.payer === 'other' && o.payerOther && /\S+@\S+\.\S+/.
 
 app.post('/api/orders', (req, res) => {
   const b = req.body;
+  // Shipping is for destinations outside California (QA audit Nov 22): a CA-to-CA job booked as Shipping is refused with a clear way forward.
+  if (b && SERVICES[b.service] && SERVICES[b.service].shipping && !b.partnerOrder && inCaliforniaUS(b.pickup) && inCaliforniaUS(b.dropoff))
+    return res.status(400).json({ error: 'Shipping is for destinations outside California. For a delivery within California, choose Pickup + Delivery.', caToCa: true });
   const errs = validate(b);
   if (errs.some((e) => /^FULL:/.test(e))) return res.status(409).json({ error: 'That date just filled up. Please go back and pick another date.', full: [String((b.schedule || {}).date || '')] });
   if (errs.length) return res.status(400).json({ error: 'Missing: ' + errs.join(', ') });
