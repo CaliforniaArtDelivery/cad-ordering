@@ -404,7 +404,7 @@ details.access-extras .extras-body{padding:0 18px 18px}
 .chk input{width:22px;height:22px}
 /* Address row: label tags never wrap, so City / State / ZIP inputs line up. On phones, City is full width, then State + ZIP. */
 .row.addr3 label.f{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.row.addr3{align-items:end}
+.row.addr3{align-items:start}
 @media(max-width:520px){.row.addr3{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}.row.addr3 > :first-child{grid-column:1 / -1}}
 /* City/ZIP mismatch: same amber box as the California note; actions left-aligned (QA re-check S1). */
 .zip-check:not([hidden]){display:block;margin:0 0 12px;padding:12px 14px;border-radius:var(--r);background:#fff4d6;color:#5c4400;font-size:15px;line-height:1.4}
