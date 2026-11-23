@@ -28,7 +28,7 @@
   // Shown next to the price whenever access is flagged for review (mode, fit or elevator stairs = Not sure).
   const PRICE_NOTE = 'Access isn’t confirmed yet. If it needs an added fee, we’ll go over it with you and get your OK before charging it.';
   // The customer still pays the base amount now; these labels replace "Total" and "Due today · paid in full at booking".
-  const TBC_TOTAL = 'Estimated total (before access check)';
+  const TBC_TOTAL = 'Total (before access check)';
   const TBC_DUE = 'Due today (base price)';
   const wholeFlights = (v) => { const n = num(v); return has(v) && Number.isInteger(n) && n >= 4 && /^\s*\d+\s*$/.test(String(v)); };
 

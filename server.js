@@ -419,13 +419,13 @@ app.post('/api/orders', (req, res) => {
     // No member rate on the public site (Chad, Nov 19 2026): never stored from the request.
     member: false, memberCode: '', memberCompany: '',
     // Declared value protection is included unless the customer explicitly declined it; the choice is kept for CAD's records.
-    ...(b.protectionDeclined === true ? { protectionDeclined: true, protectionDeclinedAt: new Date().toISOString() } : {}),
+    // Declared value protection is always included on eligible pieces (Chad, Nov 23 2026): there is no opt-out to record.
     // Only the code text is kept; the server re-prices with it (quote.discount holds the amount actually taken off).
     ...(b.discountCode && DISCOUNTS.lookup(b.discountCode).ok ? { discountCode: DISCOUNTS.norm(b.discountCode) } : {}),
     heard: b.heard || {},
     referral: !!b.referral,
     // In-CA: mandatory on pieces valued $50K or less (none offered above). Shipping quotes: the customer's choice.
-    declaredValueProtection: shipping ? false : (b.protectionDeclined !== true && (b.items || []).some((it) => numVal(it.value) > 0 && numVal(it.value) <= 50000)),
+    declaredValueProtection: shipping ? false : ((b.items || []).some((it) => numVal(it.value) > 0 && numVal(it.value) <= 50000)),
     ...(b._legacyQty ? { legacyQty: b._legacyQty, needsManualReview: true, manualReviewReason: 'Legacy quantity: ' + legacyNote(b._legacyQty) + '. Original entry kept in legacyQty. Please confirm each piece\u2019s details and value with the customer.' } : {}),
     items: (b.items || []).map(routeDecorMirror), pickup: b.pickup || {}, dropoff: b.dropoff || {},
     contact: b.contact, partner: b.partner || {}, payer: b.payer || 'me', payerOther: b.payerOther || {},
@@ -438,7 +438,6 @@ app.post('/api/orders', (req, res) => {
   };
   order.quote = quote(order);  // server-side price is authoritative
   // The opt-out is only recorded when there was protection to decline (an eligible piece up to $50,000, in-California white glove job).
-  if (order.protectionDeclined && !(order.quote.protectionOption && order.quote.protectionOption.declined)) { delete order.protectionDeclined; delete order.protectionDeclinedAt; }
   if (order.needsManualReview) teamAlert(`NEEDS MANUAL REVIEW: order ${order.id} was submitted with an old quantity entry`, `Order ${order.id}: ${order.manualReviewReason}\nPieces:\n${piecesOf(order).map((it, i) => '  ' + require('./lib/itemtypes').pieceDetail(it, i)).join('\n')}`);
   // Normal orders hold their date while the client pays. Review orders (pencil-in, helper, Monday OC) hold it while the team decides.
   if (!special || (rv.needed && !order.rush && !order.dedicated)) { const held = holdSlots(order, special); if (!held.ok) return res.status(409).json({ error: 'That date just filled up. Please go back and pick another date.', full: held.full }); }
@@ -471,9 +470,17 @@ function sendConfirmationEmails(id) {
 // Payment is confirmed server-side (webhook or pay call). The booking is only CONFIRMED to the customer once the schedule row is
 // durably saved: until then the order shows scheduleStatus "pending" (exception queue + alert to Samantha if it keeps failing).
 function finalize(id, payment) {
+  const before = findOrder(id);
+  const firstConfirm = !!(before && before.status !== 'confirmed');
   const o = update(id, (ord) => { if (ord.status === 'confirmed') return; ord.status = 'confirmed'; ord.payment = payment; delete ord.statusNote; ord.scheduleStatus = sheetSync.configured() ? 'pending' : 'not_configured'; });
   if (!o) return null;
   const cur = findOrder(id);
+  // Paid bookings that trip a Date Guard rule (remote area, Monday OC, NEED HELPER, oversized, no street number): the team checks them.
+  if (firstConfirm && cur.review && (cur.review.reasons || []).length && !cur.rush && !cur.dedicated) teamAlert(`CHECK PAID BOOKING ${cur.id} (${(cur.review.kinds || []).join(', ')})`,
+    `Order ${cur.id} is PAID and booked online. Call the client to confirm the date and arrival window.\n`
+    + `Client: ${(cur.contact || {}).name || ''} ${(cur.contact || {}).phone || ''} ${(cur.contact || {}).email || ''}\n`
+    + `Date(s): ${(cur.schedule || {}).date || 'none'}${(cur.schedule || {}).deliveryDate ? ' / delivery ' + cur.schedule.deliveryDate : ''}\n`
+    + `Check: ${(cur.review.reasons || []).map((r) => r.text).join(' | ')}`);
   if (!cur.emails.find((e) => e.kind === 'confirmation' || e.kind === 'payment_received')) {
     if (sheetSync.configured()) {
       const sent = email.send('payment_received', cur);

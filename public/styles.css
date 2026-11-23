@@ -430,3 +430,9 @@ details.access-extras .extras-body{padding:0 18px 18px}
 .note.ca-ship b{color:#3d2e00}
 .note.ca-ship .ca-switch{min-height:48px}
 .note.ca-ship .mini{margin:0;color:#5c4400}
+/* Nov 23 2026 (Chad): the bar's label and price never slide under Back or the main button at 320–430px. */
+.dock-row{gap:12px}
+.estimate{flex:1 1 auto;min-width:0;overflow:hidden}
+.est-label{overflow:hidden;text-overflow:ellipsis;letter-spacing:.08em}
+.dock-actions{flex:0 0 auto;align-items:center}
+@media(max-width:380px){.btn.back{font-size:15px;padding:14px 6px;min-width:44px}.dock-row{gap:8px}}

@@ -153,7 +153,7 @@ const payload = () => {
   syncHeardPayload(o);
   // No member rate (Chad, Nov 19 2026). Protection is included unless the customer explicitly removed it; the discount code is the applied one only.
   ['member', 'memberCode', 'memberVerified', 'memberCompany', 'memberError', 'discountInput', 'discountMsg'].forEach((k) => delete o[k]);
-  if (o.protectionDeclined !== true) delete o.protectionDeclined;
+  delete o.protectionDeclined; // always included (Chad, Nov 23 2026)
   if (!String(o.discountCode || '').trim()) delete o.discountCode;
   return o;
 };
@@ -621,9 +621,9 @@ const accessBlock = (key, a) => {
 const feeNoteHtml = (q) => (q && q.accessFeeNote ? `<p class="mini access-fee-note" data-access-fee-note>${esc(q.accessFeeNote)}</p>` : '');
 const payPlan = (q) => {
   if (isQuote(q)) {
-    return `<div class="plan"><div class="plan-head">Quote request · no payment due yet</div>
-      ${q.reviewOnly ? `<div class="sum-row"><span>Estimated price</span><span class="amt"><b>${fmt(q.total)}</b></span></div>` : q.tripPremium ? `<div class="sum-row"><span>Regular rate</span><span class="amt">${fmt(q.regularTotal || q.total)}</span></div>
-      <div class="sum-row"><span>Estimated range</span><span class="amt"><b>${fmt(q.quoteRange.low)}–${fmt(q.quoteRange.high)}</b></span></div>` : '<div class="sum-row"><span>Price</span><span>Priced by CAD</span></div>'}
+    return `<div class="plan">
+      ${q.tripPremium ? `<div class="sum-row"><span>Regular rate</span><span class="amt">${fmt(q.regularTotal || q.total)}</span></div>
+      <div class="sum-row"><span>Price range</span><span class="amt"><b>${fmt(q.quoteRange.low)}–${fmt(q.quoteRange.high)}</b></span></div>` : '<div class="sum-row"><span>Price</span><span>Priced by CAD</span></div>'}
       ${q.extraQuoted ? `<div class="sum-row"><span>${esc(q.extraQuoted)}</span><span>Quoted by CAD</span></div>` : ''}
       <p class="mini" style="margin:4px 0 10px">${esc(q.quoteNote || 'CAD sets a final price in this range. Nothing is charged until you approve it and pay.')}</p></div>`;
   }
@@ -640,22 +640,12 @@ const accessTbc = (q) => !!(q && (q.notes || []).includes(CADAccess.PRICE_NOTE))
 const fmtRow = (n) => (Number(n) < 0 ? '−' + fmt(-Number(n)) : fmt(n));
 const isProtLine = (l) => /^Declared value protection/.test(l.label);
 // Declared value protection controls (Chad, Nov 19 2026): small, visible text links, never a big toggle and never hidden.
-const protectionRemoveBtn = '<button type="button" class="linkbtn" data-protection-remove>Remove protection</button>';
-const protectionRows = (q, withProtection) => {
-  const opt = q && q.protectionOption;
-  if (!withProtection || !opt || !opt.declined) return '';
-  const addBack = existing ? '' : `<button type="button" class="linkbtn" data-protection-add>Add protection back (+${fmt(opt.amount)})</button>`;
-  return `<div class="sum-row" data-protection-declined><span>Declared value protection: declined</span><span class="amt">${addBack || 'Declined'}</span></div>`;
-};
 const priceCard = (q, withProtection) => {
-  const lastProt = q ? q.lines.map(isProtLine).lastIndexOf(true) : -1;
-  const canDecline = withProtection && !existing && q && q.protection && lastProt >= 0;
   return `<div class="card price-card">
-  ${q ? q.lines.map((l, i) => `<div class="sum-row"><span>${esc(l.label)}${canDecline && i === lastProt ? ` ${protectionRemoveBtn}` : ''}</span><span class="amt">${l.included ? 'Included' : fmtRow(l.amount)}</span></div>`).join('') : '<div class="sum-row"><span>Calculating…</span><span class="amt"></span></div>'}
-  ${q ? protectionRows(q, withProtection) : ''}
+  ${q ? q.lines.map((l, i) => `<div class="sum-row"><span>${esc(l.label)}</span><span class="amt">${l.included ? 'Included' : fmtRow(l.amount)}</span></div>`).join('') : '<div class="sum-row"><span>Calculating…</span><span class="amt"></span></div>'}
   ${withProtection && protectionNote(q) ? `<p class="mini" style="margin:6px 0 0" data-protection-note>${protectionNote(q)}</p>` : ''}
   ${q && q.discount && q.discount.applied && q.discount.note && q.discount.note !== 'invalid' ? `<p class="mini" style="margin:6px 0 0" data-discount-note>${esc(q.discount.note)}</p>` : ''}
-  ${q ? `${accessTbc(q) ? `<p class="mini access-tbc" data-access-tbc><b>${esc(CADAccess.PRICE_NOTE)}</b></p>` : ''}${isQuote(q) && !q.tripPremium && !q.reviewOnly ? '' : `<div class="total"><span>${q.reviewOnly ? 'Estimated price' : isQuote(q) ? 'Regular rate' : accessTbc(q) ? CADAccess.TBC_TOTAL : 'Total'}</span><span class="amt">${fmt(q.regularTotal || q.total)}</span></div>`}${payPlan(q)}` : ''}
+  ${q ? `${accessTbc(q) ? `<p class="mini access-tbc" data-access-tbc><b>${esc(CADAccess.PRICE_NOTE)}</b></p>` : ''}${isQuote(q) && !q.tripPremium ? '' : `<div class="total"><span>${isQuote(q) ? 'Regular rate' : accessTbc(q) ? CADAccess.TBC_TOTAL : 'Total'}</span><span class="amt">${fmt(q.regularTotal || q.total)}</span></div>`}${payPlan(q)}` : ''}
 </div>`;
 };
 
@@ -688,25 +678,6 @@ async function applyDiscount() {
   }
   paintDiscount();
 }
-// "Remove protection" asks first (Chad, Nov 19 2026). Keep is the default and the primary button; only Yes drops the line.
-function confirmDeclineProtection() {
-  const ov = document.createElement('div');
-  ov.className = 'modal-ov'; ov.setAttribute('data-protection-dialog', '');
-  ov.innerHTML = `<div class="modal" role="alertdialog" aria-modal="true" aria-label="Decline declared value protection" aria-describedby="protMsg">
-    <p id="protMsg">Are you sure you want to decline declared value protection? Without it, CAD's liability is limited.</p>
-    <div class="modal-btns"><button type="button" class="btn primary" data-pdlg="keep">Keep protection</button><button type="button" class="btn" data-pdlg="yes">Yes, remove protection</button></div></div>`;
-  const close = () => { ov.remove(); document.removeEventListener('keydown', onKey, true); };
-  const onKey = (e) => { if (e.key === 'Escape') { e.preventDefault(); close(); } };
-  ov.addEventListener('click', (e) => {
-    const b = e.target.closest('[data-pdlg]');
-    if (b && b.dataset.pdlg === 'yes') { S.protectionDeclined = true; persist(); close(); refreshQuote(); return; }
-    if (b || e.target === ov) close();
-  });
-  document.addEventListener('keydown', onKey, true);
-  document.body.appendChild(ov);
-  const k = ov.querySelector('[data-pdlg="keep"]'); if (k) k.focus();
-}
-
 // ---------- payment block (shared by new orders and payment links) ----------
 const paymentBlock = (q) => {
   const saveToggle = CFG.payment.savePaymentMethod ? toggleRaw('saveMethod', saveMethod, 'Save this payment method', 'We keep it on file with CAD for future bookings.') : '';
@@ -768,7 +739,7 @@ const promiseCard = (sub, extraStyle = '', editTarget = '') => {
     ? [timePrefSummary(S.schedule.timePref, S.schedule.timeNote) && `Pickup: ${timePrefSummary(S.schedule.timePref, S.schedule.timeNote)}`,
        timePrefSummary(S.schedule.deliveryTimePref, S.schedule.deliveryTimeNote) && `Delivery: ${timePrefSummary(S.schedule.deliveryTimePref, S.schedule.deliveryTimeNote)}`].filter(Boolean).join(' · ')
     : timePrefSummary(S.schedule.timePref, S.schedule.timeNote);
-  const line = sp ? (S.rush || S.dedicated ? 'Preferred date · confirmed with your quote' : 'Price confirmed with your quote')
+  const line = sp ? (S.rush || S.dedicated ? 'Preferred date' : (prefs || sub || ''))
     : (prefs || sub || '');
   return `<div class="promise ${sp ? 'quote' : ''}" style="${extraStyle}"><span class="pi">${sp ? '⏱' : '✓'}</span><span><b>${title}</b><span>${esc(line)}</span></span>${editTarget ? editBtn(editTarget) : ''}</div>`;
 };
@@ -780,7 +751,7 @@ function deliveryBlock() {
     : `<div class="days" data-reqblock="deldate">${dayWindow(delAvail.days, S.schedule.deliveryDate, 'del').list.map(card).join('')}</div>${dayWindow(delAvail.days, S.schedule.deliveryDate, 'del').btn}
       ${routeHint(sel)}
       ${S.schedule.deliveryDate ? timePrefBlock('schedule.deliveryTimePref', 'schedule.deliveryTimeNote') : ''}`;
-  const cross = crossRegion() ? `<p class="note">Pickup and delivery follow separate regional routes. Your selected dates are shown above.</p>` : '';
+  const cross = '';
   const chip = `<div class="pickup-chip" data-pickup-chip><span><b>Pickup</b> ${esc(shortDate(S.schedule.date))}</span><button type="button" class="edit" data-change-pickup>Change</button></div>`;
   return `${chip}
     <h1 class="when-h1">Choose your delivery date</h1>
@@ -850,7 +821,7 @@ function pairBlock() {
     : S.schedule.date ? 'Now pick a delivery day. Grayed-out days don’t work with that pickup.'
     : S.schedule.deliveryDate ? 'Now pick a pickup day. Grayed-out days are too late for that delivery.'
     : 'Start with either one. We’ll gray out the days that don’t work together.';
-  const cross = crossRegion() ? `<p class="note">Pickup and delivery follow separate regional routes.</p>` : '';
+  const cross = '';
   return `<p class="pair-hint mini" data-pairhint>${hint}</p>${cross}
     <div class="date-pair">
       <div class="date-col" data-col="pu">${head('Pickup', S.schedule.date, 'pu')}
@@ -873,7 +844,7 @@ const sitePhotosOk = () => true;
 const hangPhotosOk = (it) => it.hangHeight !== 'higher' || it.hangWhere !== 'stairwell' || (it.hangPhotos || []).length > 0;
 const valueHint = (it) => (shipService() ? 'The value of this one piece. Our shipping partner uses it for coverage.'
   : num(it.value) > 50000 ? 'The value of this one piece.'
-  : num(it.value) > 0 ? `Declared value protection: 1.5% of this piece’s declared value (${fmt(Math.round(num(it.value) * 1.5) / 100)} per piece), included. You can remove it at checkout.`
+  : num(it.value) > 0 ? `Declared value protection: 1.5% of this piece’s declared value (${fmt(Math.round(num(it.value) * 1.5) / 100)} per piece), included.`
   : PROTECTION_HINT);
 // Declared value protection (Chad + Dot, Nov 16 2026; made optional Nov 19 2026): 1.5% of each ELIGIBLE piece's declared value
 // (pieces valued $50,000 or less), INCLUDED by default with a visible "Remove protection" control. Never called insurance or full coverage.
@@ -883,7 +854,6 @@ const protectionNote = (q) => (q && q.protection && q.protection.amount > 0
   ? 'Declared value protection is 1.5% of the declared value of each eligible piece (valued up to $50,000), included in the price above.'
   : '');
 const PROTECTION_DOCK = 'Includes declared value protection';
-const PROTECTION_TERMS = 'Declared value protection applies to pieces valued up to $50,000.';
 const weightRequired = (it) => shipService() || it.type === 'sculpture' || it.type === 'other';
 const weightOk = (it) => !weightRequired(it) || !!it.weightUnsure || num(it.weight) > 0;
 function updateItemHints(i) {
@@ -1072,7 +1042,7 @@ const dupDialog = (it) => {
   return `<div class="pc-dup" data-dupdialog>
     <label class="f" for="dup-n">How many additional pieces would you like to create?</label>
     <input id="dup-n" type="number" min="1" max="${max}" inputmode="numeric" value="${n}" data-dupn>
-    <p class="mini">We’ll copy the details from this piece. You can edit each copy before submitting your request.</p>
+    <p class="mini">We’ll copy the details from this piece. You can edit each copy before you book.</p>
     ${hasPhotos ? `<label class="toggle"><span>Use this piece’s photos on the copies<small>Leave off to add each piece’s own photos.</small></span><span class="sw"><input type="checkbox" id="dup-photos" data-dupphotos><i></i></span></label>` : '<p class="mini">Photos aren’t copied. Each piece gets its own photos when they’re needed.</p>'}
     <div class="pc-dup-btns"><button type="button" class="btn primary" id="dupGo" data-dupgo="${esc(it.id)}">${dupLabel(n)}</button><button type="button" class="btn ghost" data-dupcancel>Cancel</button></div>
   </div>`;
@@ -1349,7 +1319,7 @@ const views = {
         ${S.payer === 'partner' && !(isBizReferral() && (S.heard.businessName || S.heard.referrerName || S.partner.name)) ? `<p class="mini">Add the referring partner in <button type="button" class="edit" style="padding:0" data-goto="1:heard">Where</button> so we know who to bill.</p>` : ''}</div>`;
     const payerName = S.payer === 'other' ? (S.payerOther.name || 'Someone else') : S.payer === 'partner' ? 'Referring partner' : 'Me';
     return panel('payer', `<h1>Who’s paying?</h1><p class="sub">Last question before your review.</p>${payerCard}`)
-      + panel('review', `<h1>${sp ? 'Review your request' : 'Review & pay'}</h1><p class="sub">${sp ? 'CAD sets the final price before anything is charged.' : 'Your job is booked as soon as payment goes through. We’ll email your confirmation right away.'}</p>${valueConfirmCard('review')}
+      + panel('review', `<h1>${sp ? 'Review your order' : 'Review & pay'}</h1><p class="sub">${sp ? 'Check the details, then send it to our team for pricing.' : 'Your job is booked as soon as payment goes through.'}</p>${valueConfirmCard('review')}
       ${promiseCard(crossRegionLine(quoteData && quoteData.regions) || (date && date.routeLabel) || (avail && avail.region ? avail.region + ' route' : 'Route day'), 'margin-top:0', '2:date')}
       <div class="card">
         <div class="sum-row"><span>Service</span><span>${esc(svc().label)}${S.rush ? ' · rush' : ''}${S.dedicated ? ' · dedicated trip' : ''} ${editBtn('0:service')}</span></div>
@@ -1361,13 +1331,12 @@ const views = {
       </div>
       ${svc().needsPickup ? siteReview('Pickup details', S.pickup, '1:pickup-access') : ''}
       ${siteReview(S.service === 'install_only' ? 'Installation details' : 'Delivery details', S.dropoff, '1:dropoff-access')}
-      <h2>${sp ? 'Estimated range' : 'Price'}</h2>
+      <h2>Price</h2>
       ${priceCard(q, true)}
       ${q && q.notes && q.notes.filter((n) => n !== CADAccess.PRICE_NOTE).length ? `<p class="mini">${q.notes.filter((n) => n !== CADAccess.PRICE_NOTE).map((n) => esc(n)).join(' ')}</p>` : ''}
       ${discountBlock()}
       ${sp ? '<div class="err" id="err"></div>' : `<h2>Payment</h2>${paymentBlock(q)}`}
-      <p class="mini" data-protection-terms>${PROTECTION_TERMS}</p>
-      <p class="mini">${sp ? 'Our team reviews your request and emails your price with a payment link. Nothing is charged until you approve it.' : 'Need to change or cancel? Reply to your confirmation email.'}</p>`);
+      <p class="mini">${sp ? 'We’ll email your price with a payment link.' : 'Need to change or cancel? Reply to your confirmation email.'}</p>`);
   },
 
   ShipPay() {
@@ -1409,8 +1378,7 @@ const views = {
       <div class="card"><div class="sum-row"><span>Service</span><span>${esc(o.serviceLabel)}${o.rush ? ' · rush' : ''}${o.dedicated ? ' · dedicated trip' : ''}</span></div>
         ${(o.items || []).map((i, n) => `<div class="sum-row"><span><b>${esc(pieceTitle0(i, n))}</b><br><span class="muted">${esc(TYPE_LABEL(i.type))}</span></span><span></span></div>`).join('')}</div>
       ${priceCard(q, false)}
-      <h2>Payment</h2>${paymentBlock(q)}
-      ${o.service === 'crating_shipping' ? '' : `<p class="mini" data-protection-terms>${PROTECTION_TERMS}</p>`}`);
+      <h2>Payment</h2>${paymentBlock(q)}`);
   },
 
   Done() {
@@ -1431,14 +1399,12 @@ const views = {
     }
     if (o.status === 'pending_approval') {
       const q = o.quote || quoteData;
-      const rvw = !!(q && q.reviewOnly);
-      return `<div class="done"><div class="check">✓</div><h1>${rvw ? 'Date request received' : 'Quote request received'}</h1>
-        <p class="sub">Request <b>${esc(o.id)}</b> is with our team. ${rvw ? `${esc(q.quoteNote || '')} We’ll email ${esc(o.contact.email)} within 1 business day to confirm your date and send a payment link.` : `We’ll email ${esc(o.contact.email)} a final price and a payment link. Nothing has been charged.`}</p></div>
+      return `<div class="done"><div class="check">✓</div><h1>Order received</h1>
+        <p class="sub">Order <b>${esc(o.id)}</b>. We’ll email ${esc(o.contact.email)} your price with a payment link.</p></div>
         <div class="card">
           <div class="sum-row"><span>Service</span><span>${esc(o.serviceLabel)}${o.rush ? ' · rush' : ''}${o.dedicated ? ' · dedicated trip' : ''}</span></div>
-          <div class="sum-row"><span>Preferred date</span><span>${esc(longDate(o.schedule.date))}${o.schedule.deliveryDate ? '<br>Delivery ' + esc(longDate(o.schedule.deliveryDate)) : ''}${timePrefSummary(o.schedule.timePref, o.schedule.timeNote) ? '<br><span class="muted">' + esc(timePrefSummary(o.schedule.timePref, o.schedule.timeNote)) + '</span>' : ''}</span></div>
-          ${q.reviewOnly ? `<div class="sum-row"><span>Estimated price</span><span class="amt"><b>${fmt(q.total)}</b></span></div>` : q.tripPremium ? `<div class="sum-row"><span>Regular rate</span><span class="amt">${fmt(q.regularTotal || q.total)}</span></div>
-          <div class="sum-row"><span>Estimated range</span><span class="amt"><b>${fmt(q.quoteRange.low)}–${fmt(q.quoteRange.high)}</b></span></div>` : '<div class="sum-row"><span>Price</span><span>Priced by CAD</span></div>'}
+          <div class="sum-row"><span>Date</span><span>${esc(longDate(o.schedule.date))}${o.schedule.deliveryDate ? '<br>Delivery ' + esc(longDate(o.schedule.deliveryDate)) : ''}${timePrefSummary(o.schedule.timePref, o.schedule.timeNote) ? '<br><span class="muted">' + esc(timePrefSummary(o.schedule.timePref, o.schedule.timeNote)) + '</span>' : ''}</span></div>
+          ${q && q.tripPremium && q.quoteRange ? `<div class="sum-row"><span>Price range</span><span class="amt"><b>${fmt(q.quoteRange.low)}–${fmt(q.quoteRange.high)}</b></span></div>` : '<div class="sum-row"><span>Price</span><span>Set by our team</span></div>'}
         </div>
         ${yourPieces(o)}
         <button type="button" class="btn ghost full" id="newOrder">Start a new booking</button>`;
@@ -1706,14 +1672,13 @@ function paintEstimate() {
   const q = existing ? existing.quote : quoteData;
   const name = STEPS[step];
   { const pn = $('#estNote'); if (pn) pn.hidden = true; }
-  if (!S.service && !existing) { el.textContent = '—'; lbl.textContent = 'Estimate'; return; }
+  if (!S.service && !existing) { el.textContent = '—'; lbl.textContent = 'Total'; return; }
   if ((!existing && isShip()) || (q && q.shipping && !q.approvedPrice)) { el.textContent = 'Quote'; lbl.textContent = 'Shipping'; paintButton(); return; }
   if (!q) return;
-  if (q.reviewOnly) { el.textContent = fmt(q.total); lbl.textContent = 'Estimate · date to be confirmed'; }
-  else if (isQuote(q) && !q.tripPremium) { el.textContent = 'Quote'; lbl.textContent = 'Priced by CAD'; }
-  else if (isQuote(q) && q.quoteRange) { el.textContent = `${fmt(q.quoteRange.low)}–${fmt(q.quoteRange.high)}`; lbl.textContent = 'Estimated range'; }
-  else if (name === 'Pay') { el.textContent = fmt(q.dueNow); lbl.textContent = accessTbc(q) ? 'Estimate · access to confirm' : q.paymentPlan === 'deposit' ? 'Due today (50%)' : 'Due today'; }
-  else { el.textContent = fmt(q.total); lbl.textContent = name === 'What' ? 'Estimate · before access' : accessTbc(q) ? 'Estimate · access to confirm' : 'Estimate'; }
+  if (isQuote(q) && !q.tripPremium) { el.textContent = 'Quote'; lbl.textContent = 'Priced by CAD'; }
+  else if (isQuote(q) && q.quoteRange) { el.textContent = `${fmt(q.quoteRange.low)}–${fmt(q.quoteRange.high)}`; lbl.textContent = 'Price range'; }
+  else if (name === 'Pay') { el.textContent = fmt(q.dueNow); lbl.textContent = accessTbc(q) ? 'Due today (base)' : q.paymentPlan === 'deposit' ? 'Due today (50%)' : 'Total due'; }
+  else { el.textContent = fmt(q.total); lbl.textContent = name === 'What' ? 'Total so far' : accessTbc(q) ? 'Total (base)' : 'Total'; }
   el.classList.toggle('long', el.textContent.length > 9 && el.textContent.length <= 13); el.classList.toggle('xlong', el.textContent.length > 13);
   // The bar's price includes the protection charge (unless declined): say so under it.
   const pn = $('#estNote'); if (pn) { const on = !!(q.protection && q.protection.amount > 0 && !isQuote(q)); pn.hidden = !on; pn.textContent = on ? PROTECTION_DOCK : ''; }
@@ -1724,7 +1689,7 @@ function paintEstimate() {
 function refreshQuote() {
   if (existing) { paintEstimate(); return; }
   clearTimeout(qTimer);
-  if (S.service) { quotePending = true; const lb = $('#estLabel'); if (lb && STEPS[step] !== 'Done') lb.textContent = 'Updating estimate…'; updateNext(); }
+  if (S.service) { quotePending = true; const lb = $('#estLabel'); if (lb && STEPS[step] !== 'Done') lb.textContent = 'Updating…'; updateNext(); }
   qTimer = setTimeout(async () => {
     if (!S.service) { quotePending = false; paintEstimate(); return; }
     const seq = ++qSeq;
@@ -1792,9 +1757,15 @@ function paintButton() {
   if (name === 'Pay' && isLastPanel()) {
     // Access "Not sure": the customer pays the base price now (Dot round 4).
     const payWhat = q && accessTbc(q) ? (q.paymentPlan === 'deposit' ? '50% of base price ' : 'base price ') : '';
-    if (existing || !special()) btn.textContent = CFG.stripe ? `Pay ${payWhat}${q ? fmt(q.dueNow) : ''} on Stripe` : `Pay ${payWhat}${q ? fmt(q.dueNow) : ''}`;
-    else btn.textContent = isShip() ? 'Request quote' : S.rush ? 'Request a rush quote' : (quoteData && quoteData.reviewOnly) ? 'Request this date' : 'Request a quote';
     btn.classList.remove('next-desc');
+    if (existing || !special()) {
+      // Longest label that fits the bar without pushing or covering anything (320–430px phones).
+      const amt = q ? fmt(q.dueNow) : '';
+      const opts = payWhat ? [`Pay ${payWhat}${amt} and book`, `Pay ${amt} and book`, `Pay ${amt}`] : [`Pay ${amt} and book`, `Pay ${amt}`];
+      btn.textContent = opts[opts.length - 1];
+      const base = dockOverflowAmount();
+      btn.textContent = opts.find((t) => { btn.textContent = t; return dockOverflowAmount() <= base + 0.5; }) || opts[opts.length - 1];
+    } else btn.textContent = isShip() ? 'Request quote' : S.rush ? 'Request a rush quote' : 'Submit order';
   } else applyNextLabel(btn);
   const wait = missingNow().length > 0;
   const hold = busy || (quotePending && name === 'Pay' && isLastPanel());
@@ -1865,7 +1836,7 @@ function render() {
   // "Step X of Y" counts the booking's main steps. Shipping and out-of-state quotes skip the date step, so they show one fewer.
   const mainSteps = STEPS.slice(0, 4).filter((n) => !(n === 'When' && isShip()));
   const stepNo = (name === 'When' && isShip()) ? mainSteps.indexOf('Where') + 1 : mainSteps.indexOf(name) + 1;
-  $('#stepsLabel').textContent = name === 'Done' ? (confirmed && confirmed.status === 'pending_approval' ? 'Quote requested' : 'Confirmed') : (stepNo ? `Step ${stepNo} of ${mainSteps.length}` : '');
+  $('#stepsLabel').textContent = name === 'Done' ? (confirmed && confirmed.status === 'pending_approval' ? 'Received' : 'Confirmed') : (stepNo ? `Step ${stepNo} of ${mainSteps.length}` : '');
   $('#backBtn').classList.toggle('hide', (step === 0 && isFirstPanel()) || name === 'Done' || !!existing);
   const noDock = name === 'Done';
   $('#dock').classList.toggle('hide', noDock);
@@ -1910,7 +1881,7 @@ function renderWhenIdle() {
 }
 function wrapPriceCard() {
   // Give the price card a stable hook so the live quote can repaint just that card (no full re-render, no scroll jump).
-  const h2s = [...app.querySelectorAll('h2')].filter((h) => /^(Price|Estimated range)$/.test(h.textContent));
+  const h2s = [...app.querySelectorAll('h2')].filter((h) => /^Price$/.test(h.textContent));
   if (!h2s.length) return;
   const card = h2s[0].nextElementSibling;
   if (card && card.classList.contains('card')) { const w = document.createElement('div'); w.setAttribute('data-price', ''); card.replaceWith(w); w.appendChild(card); }
@@ -2133,8 +2104,6 @@ const shipKey = () => `${isShip()}|${intlDest(S.dropoff)}`;
 let lastShipKey = '', lastPhotoKey = '';
 app.addEventListener('click', async (e) => {
   const t = e.target.closest('button'); if (!t) return;
-  if (t.hasAttribute('data-protection-remove')) { confirmDeclineProtection(); return; }
-  if (t.hasAttribute('data-protection-add')) { S.protectionDeclined = false; persist(); refreshQuote(); return; }
   if (t.hasAttribute('data-discount-apply')) { applyDiscount(); return; }
   if (t.hasAttribute('data-discount-remove')) { S.discountCode = ''; discountMsg = null; persist(); refreshQuote(); paintDiscount(); return; }
   if (t.dataset.zipedit) { const z = document.getElementById(`f-${t.dataset.zipedit}.zip`); if (z) { z.focus(); z.select && z.select(); } return; }
