@@ -24,8 +24,8 @@ button{-webkit-tap-highlight-color:transparent;touch-action:manipulation}
 .mark{flex:none;background:var(--navy);color:#fff;font-weight:700;letter-spacing:.08em;font-size:12px;padding:7px 9px;border-radius:9px}
 .brand-name{font-weight:600;font-size:15px;letter-spacing:-.01em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .steps-label{flex:none;font-size:13px;color:var(--muted);white-space:nowrap}
-.progress{display:block;height:4px;border-radius:4px;background:var(--line);overflow:hidden;margin-top:16px}
-.progress i{display:block;height:100%;width:0;border-radius:4px;background:var(--navy);transition:width .45s var(--ease)}
+.progress{display:block;height:4px;border-radius:999px;background:var(--line);overflow:hidden;margin-top:16px}
+.progress i{display:block;height:100%;width:0;border-radius:999px;background:var(--navy);transition:width .45s var(--ease)}
 @media (prefers-reduced-motion:reduce){.progress i{transition:none}}
 
 .app{max-width:720px;margin:0 auto;padding:26px calc(var(--sar) + 20px) calc(var(--dock-h) + var(--kb-h, 0px) + 28px) calc(var(--sal) + 20px)}
@@ -42,7 +42,7 @@ h2{font-size:19px;letter-spacing:-.01em;margin:28px 0 10px;font-weight:600}
 .choices{display:grid;gap:10px}
 .choice{display:flex;align-items:center;gap:14px;width:100%;text-align:left;background:var(--card);border:1.5px solid transparent;border-radius:var(--r);padding:16px;cursor:pointer;font:inherit;color:inherit;box-shadow:0 1px 2px rgba(15,27,45,.05);transition:border-color .2s var(--ease),box-shadow .2s var(--ease)}
 .choice.on{border-color:var(--navy);box-shadow:0 0 0 3px rgba(15,27,45,.08)}
-.choice .ico{flex:none;width:44px;height:44px;border-radius:14px;background:var(--sand);display:grid;place-items:center;color:var(--ink)}
+.choice .ico{flex:none;width:44px;height:44px;border-radius:var(--r);background:var(--sand);display:grid;place-items:center;color:var(--ink)}
 .choice .ico svg{width:30px;height:30px;display:block;overflow:visible}
 .choice.on .ico{background:var(--navy);color:#fff}
 .choice .txt{min-width:0;flex:1}
@@ -74,12 +74,12 @@ input:focus,select:focus,textarea:focus{border-color:var(--navy);background:#fff
 .toggle small{display:block;color:var(--muted);font-size:13px;line-height:1.35;margin-top:2px}
 .sw{position:relative;width:51px;height:31px;flex:none}
 .sw input{position:absolute;opacity:0;width:0;height:0}
-.sw i{position:absolute;inset:0;background:#d9d6cf;border-radius:31px;transition:.25s var(--ease)}
+.sw i{position:absolute;inset:0;background:#d9d6cf;border-radius:999px;transition:.25s var(--ease)}
 .sw i:before{content:"";position:absolute;width:27px;height:27px;left:2px;top:2px;background:#fff;border-radius:50%;box-shadow:0 2px 6px rgba(0,0,0,.18);transition:.25s var(--ease)}
 .sw input:checked+i{background:var(--navy)}
 .sw input:checked+i:before{transform:translateX(20px)}
 .seg{display:flex;background:var(--bg);border-radius:var(--r);padding:4px;gap:4px}
-.seg button{flex:1;min-width:0;min-height:44px;border:0;background:transparent;font:inherit;font-size:16px;padding:11px 8px;border-radius:14px;cursor:pointer;color:var(--muted);white-space:normal;line-height:1.25;overflow-wrap:anywhere}
+.seg button{flex:1;min-width:0;min-height:44px;border:0;background:transparent;font:inherit;font-size:16px;padding:11px 8px;border-radius:var(--r);cursor:pointer;color:var(--muted);white-space:normal;line-height:1.25;overflow-wrap:anywhere}
 .seg button.on{background:#fff;color:var(--ink);box-shadow:0 1px 4px rgba(0,0,0,.08);font-weight:600}
 .seg.stack{flex-direction:column}
 .seg.wrap{flex-wrap:wrap}
@@ -92,7 +92,7 @@ input:focus,select:focus,textarea:focus{border-color:var(--navy);background:#fff
 .link.muted{color:var(--muted);font-weight:500}
 .add{width:100%;border:1.5px dashed #cfcac0;background:transparent;border-radius:var(--r);padding:16px;font:inherit;font-weight:600;color:var(--navy);cursor:pointer}
 .photos{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:12px}
-.photos img{width:56px;height:56px;object-fit:cover;border-radius:14px}
+.photos img{width:56px;height:56px;object-fit:cover;border-radius:var(--r)}
 .upload{display:inline-flex;align-items:center;gap:8px;background:var(--bg);border-radius:var(--r);padding:11px 14px;min-height:44px;font-size:16px;cursor:pointer}
 .upload input{display:none}
 .note{font-size:14px;color:var(--muted);background:var(--sand);border-radius:var(--r);padding:12px 14px;line-height:1.45;margin:12px 0}
@@ -113,7 +113,7 @@ input:focus,select:focus,textarea:focus{border-color:var(--navy);background:#fff
 .chip{border:1.5px solid var(--line);background:#fff;border-radius:999px;padding:10px 14px;min-height:44px;font:inherit;font-size:16px;cursor:pointer;color:var(--ink)}
 .chip.on{background:var(--navy);border-color:var(--navy);color:#fff}
 .promise{display:flex;gap:14px;align-items:center;background:var(--navy);color:#fff;border-radius:var(--r);padding:16px 18px;margin:18px 0 12px}
-.promise .pi{flex:none;width:40px;height:40px;border-radius:14px;background:rgba(255,255,255,.14);display:grid;place-items:center;font-size:18px}
+.promise .pi{flex:none;width:40px;height:40px;border-radius:var(--r);background:rgba(255,255,255,.14);display:grid;place-items:center;font-size:18px}
 .promise b{display:block;font-size:17px;letter-spacing:-.01em}
 .promise span{display:block;font-size:14px;opacity:.8;margin-top:2px}
 .promise.quote{background:#fff4d6;color:#5c4400}
@@ -399,14 +399,18 @@ details.access-extras .extras-body{padding:0 18px 18px}
 /* Tap targets: every text button is at least 44px tall. Negative margins keep the surrounding layout where it was. */
 .linkbtn,.edit,.show-more-dates,[data-protection-remove],.col-sel .linkbtn{display:inline-flex;align-items:center;min-height:44px;min-width:44px;justify-content:center;padding:0 8px;margin-top:-10px;margin-bottom:-10px;vertical-align:middle}
 .sum-row .edit,h2 .edit,.promise .edit,.pc-actions .edit{min-height:44px;min-width:44px;justify-content:center;padding:0 10px;margin-top:-10px;margin-bottom:-10px}
-.warn-line .link,.zip-check .link{min-height:44px;padding:0 6px;margin:-10px 0}
+.warn-line .link{min-height:44px;padding:0 6px;margin:-10px 0}
 .chk{min-height:44px;margin:-4px 0 6px;gap:10px}
 .chk input{width:22px;height:22px}
 /* Address row: label tags never wrap, so City / State / ZIP inputs line up. On phones, City is full width, then State + ZIP. */
 .row.addr3 label.f{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .row.addr3{align-items:end}
 @media(max-width:520px){.row.addr3{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}.row.addr3 > :first-child{grid-column:1 / -1}}
-.zip-check{margin:-4px 0 10px;color:var(--ink)}
+/* City/ZIP mismatch: same amber box as the California note; actions left-aligned (QA re-check S1). */
+.zip-check:not([hidden]){display:block;margin:0 0 12px;padding:12px 14px;border-radius:var(--r);background:#fff4d6;color:#5c4400;font-size:15px;line-height:1.4}
+.zip-check b{color:#3d2e00}
+.zip-actions{display:flex;flex-wrap:wrap;gap:0 18px;margin-top:2px}
+.zip-check .zip-actions .link{padding:0;margin:0;font-size:15px}
 /* Desktop: the dock lines up with the 680px content column instead of stretching to the screen edges. */
 .dock-row,.dock .need-line,.dock .est-note,.dock-err{max-width:680px;margin-left:auto;margin-right:auto}
 .dock-err{width:100%;color:var(--err);font-size:14px;line-height:1.35;margin-top:0;margin-bottom:0}

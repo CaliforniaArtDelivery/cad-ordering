@@ -91,7 +91,7 @@
   const US_RX = /^(us|u\.s\.a?\.?|usa|united states( of america)?|america)$/i;
   const isUS = (a) => !(a && a.country && String(a.country).trim() && !US_RX.test(String(a.country).trim()));
 
-  // Problems with one stop's address. [{ field: 'street'|'city'|'zip', message }]. Empty array = fine.
+  // Problems with one stop's address. [{ field: 'street'|'city'|'state'|'zip', message }]. Empty array = fine.
   // International shipping destinations (non-US country) are free-form, so only "street and city are given" applies.
   function addressProblems(a, label) {
     const out = [];
@@ -108,6 +108,15 @@
       const zip = String(a.zip == null ? '' : a.zip).trim();
       if (!zip) out.push({ field: 'zip', message: `Please enter the ${w}ZIP code (5 digits).` });
       else if (!zipOk(zip)) out.push({ field: 'zip', message: `ZIP must be 5 digits (or ZIP+4).` });
+      else {
+        // State vs ZIP (QA re-check Nov 22): "New York, CA 10001" is refused. California ZIPs are 900xx to 961xx and no
+        // other state uses them, so the check is exact whenever California is on either side. A blank state is not checked.
+        const st = String(a.state || '').trim();
+        const stCA = /^(ca|calif\.?|california)$/i.test(st);
+        const zipCA = (() => { const n = parseInt(zip.slice(0, 3), 10); return n >= 900 && n <= 961; })();
+        if (st && stCA && !zipCA) out.push({ field: 'zip', message: `ZIP ${zip.slice(0, 5)} isn’t in California. Fix the ZIP, or change the state.` });
+        else if (st && !stCA && zipCA) out.push({ field: 'state', message: `ZIP ${zip.slice(0, 5)} is in California, not ${st}. Change the state to CA, or fix the ZIP.` });
+      }
     }
     return out;
   }

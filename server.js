@@ -137,7 +137,7 @@ app.get('/api/config', (_, res) => res.json({
     valuationRate: config.pricing.valuation.rate,
     wallArtWeight: config.pricing.wallArtWeight, hangHardware: config.pricing.hangHardware, hangInstall: config.pricing.hangInstall,
   },
-  stripe: !!stripe, livemode: false, testMode: !stripe && TEST_MODE, notice: config.pricing.exampleRatesNotice,
+  stripe: !!stripe, livemode: false, stripeTestMode: !!stripe && key.startsWith('sk_test_'), testMode: !stripe && TEST_MODE, notice: config.pricing.exampleRatesNotice,
 }));
 app.post('/api/upload', upload.array('photos', 10), (req, res) => res.json({ files: (req.files || []).map((f) => `/uploads/${f.filename}`) }));
 app.post('/api/quote', (req, res) => res.json(quote(req.body)));
@@ -234,8 +234,9 @@ const reviewAlert = (o) => teamAlert(`REVIEW NEEDED: online request ${o.id} (${(
 // Short "Missing: ..." phrases for an address that fails the shared checks (public/validate.js). The street-required case is
 // already reported as 'pickup' / 'dropoff', so only the other problems are named here.
 function addressErrors(a, where) {
-  const word = { street: 'a street number in the street address', city: 'a valid city', zip: 'a valid 5-digit ZIP code' };
-  return VALID.addressProblems(a).filter((p) => !(p.field === 'street' && !String((a || {}).street || '').trim())).map((p) => `${where} ${word[p.field]}`);
+  const word = { street: 'a street number in the street address', city: 'a valid city', zip: 'a valid 5-digit ZIP code', state: 'a state that matches the ZIP code' };
+  const say = (p) => (p.field === 'zip' && /California/.test(p.message) ? 'a ZIP code that matches the state' : word[p.field]);
+  return VALID.addressProblems(a).filter((p) => !(p.field === 'street' && !String((a || {}).street || '').trim())).map((p) => `${where} ${say(p)}`);
 }
 // An address that fails the checks never gets a route or dates (Samantha, Nov 19: 123456 as a ZIP still returned a route).
 const badAddresses = (o, svc) => {

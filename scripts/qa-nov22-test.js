@@ -71,6 +71,21 @@ setTimeout(async () => {
     ok(/We couldn’t send that\. Check your connection and tap again\./.test(app), 'network error copy updated');
     const em = fs.readFileSync(path.join(__dirname, '..', 'lib', 'email.js'), 'utf8');
     ok(!/Samantha (prices|is preparing|is pricing)|She’ll email/.test(em), 'customer emails say "our team", not a staff first name');
+    hdr('5. Round 2 (QA re-check): state vs ZIP, badge, placeholders, review address');
+    const V = require('../public/validate');
+    const P = (a) => V.addressProblems({ street: '350 5th Ave', city: 'New York', ...a });
+    ok(P({ state: 'CA', zip: '10001' }).some((x) => x.field === 'zip' && /isn’t in California/.test(x.message)), '"New York, CA 10001" is refused (ZIP not in California)');
+    ok(P({ state: 'NY', zip: '94111' }).some((x) => x.field === 'state'), 'a California ZIP with state NY is refused');
+    ok(P({ state: 'NY', zip: '10001' }).length === 0 && P({ state: '', zip: '10001' }).length === 0, 'NY + 10001 and a blank state are fine');
+    const nyca = await post('/api/orders', ship({ dropoff: { ...stop('350 5th Ave', 'New York', '10001'), country: 'United States', locationType: 'residential' } }));
+    ok(nyca.status === 400 && /ZIP code that matches the state/.test(nyca.j.error), 'server refuses a "New York, CA 10001" destination', nyca);
+    const cfg = await (await fetch(BASE + '/api/config')).json();
+    ok(cfg.stripeTestMode === false && cfg.livemode === false, 'config reports stripeTestMode only when a Stripe test key is in use');
+    ok(/CFG\.stripeTestMode && !CFG\.livemode \? 'Stripe test mode' : 'Secure payment by Stripe'/.test(app), 'badge says "Stripe test mode" only in Stripe test mode');
+    ok(/shipDest \? '350 5th Ave'/.test(app) && /shipDest \? 'New York'/.test(app) && /shipDest \? '10118'/.test(app), 'Shipping destination uses out-of-state examples');
+    ok(/\[a\.state, a\.zip\]/.test(app), 'in-state review shows state and ZIP');
+    ok(/zipMismatch\[key\]/.test(app) && /City and ZIP don’t match/.test(app), 'a city/ZIP mismatch is a required fix (blocks Next)');
+    ok(/state: a\.state == null \? 'CA'/.test(app) && /function normShipState/.test(app), 'Shipping destination State starts blank');
   } catch (e) { fail++; console.log('  FAIL: exception', e && e.stack); }
   console.log(`\n${pass} passed, ${fail} failed`);
   process.exit(fail ? 1 : 0);

@@ -25,7 +25,7 @@ const migrateAddr = (a = {}) => {
   ].filter(Boolean);
   return {
     ...emptyAddr(),
-    street: a.street || '', city: a.city || '', state: a.state || 'CA', zip: a.zip || '', country: a.country || 'United States', locationType: a.locationType || '', business: a.business || '',
+    street: a.street || '', city: a.city || '', state: a.state == null ? 'CA' : String(a.state), zip: a.zip || '', country: a.country || 'United States', locationType: a.locationType || '', business: a.business || '',
     contactName: a.contactName || '', contactPhone: a.contactPhone || '', contactRole: a.contactRole || '', contactRoleOther: a.contactRoleOther || '', sameAsMe: a.sameAsMe === undefined ? true : !!a.sameAsMe, hours: a.hours || '', noStreetNumber: a.noStreetNumber === true,
     accessMode: a.accessMode || '', stairFlights: a.stairFlights ?? '', stairDir: a.stairDir || '', stairTurns: a.stairTurns || '', stairPhotos: a.stairPhotos || [],
     serviceElevator: a.serviceElevator || '', dock: a.dock || '', elevatorStairs: a.elevatorStairs || (a.elevatorSteps === 'steps' ? 'steps' : ''), doorway: a.doorway || '', doorPhotos: a.doorPhotos || [], narrowestIn: a.narrowestIn ?? '', accessReview: !!a.accessReview,
@@ -233,7 +233,9 @@ const inCA = (a) => {
   const z = String(a.zip || '').match(/\b\d{5}\b/);
   return /^(ca|calif\.?|california)$/i.test(st) || !!(z && (() => { const n = parseInt(z[0].slice(0, 3), 10); return n >= 900 && n <= 961; })());
 };
-const shipInsideCA = () => shipService() && inCA(S.pickup) && inCA(S.dropoff);
+// The destination needs a 5-digit ZIP before the "stays in California" note can show, so it never fires on a half-typed form.
+const shipInsideCA = () => shipService() && inCA(S.pickup) && inCA(S.dropoff) && /\b\d{5}\b/.test(String(S.dropoff.zip || ''));
+const caNoteHtml = () => `<div class="note ca-ship" data-cashipnote><b>This trip stays in California.</b> Shipping is for destinations outside California. Within California we deliver white glove ourselves. <button type="button" class="btn primary ca-switch" data-switchpd>Switch to Pickup + Delivery</button><span class="mini">Everything you entered stays.</span></div>`;
 const outOfState = () => !shipService() && !!S.service && ((svc().needsPickup && outsideCA(S.pickup)) || outsideCA(S.dropoff));
 const isShipState = () => shipService() || outOfState();
 const isShip = isShipState;
@@ -709,7 +711,8 @@ function confirmDeclineProtection() {
 const paymentBlock = (q) => {
   const saveToggle = CFG.payment.savePaymentMethod ? toggleRaw('saveMethod', saveMethod, 'Save this payment method', 'We keep it on file with CAD for future bookings.') : '';
   if (CFG.stripe) {
-    return `<div class="card"><span class="badge">Stripe test mode</span>
+    // "Stripe test mode" only when the server really runs a Stripe test key; otherwise a neutral label (QA re-check N1).
+    return `<div class="card"><span class="badge">${CFG.stripeTestMode && !CFG.livemode ? 'Stripe test mode' : 'Secure payment by Stripe'}</span>
       <p class="mini" style="margin:0 0 12px">You’ll pay on Stripe’s secure page: Apple Pay, Google Pay, card or bank (ACH).</p>${saveToggle}<div class="err" id="err"></div></div>`;
   }
   // Mock checkout (prefilled test numbers, mock Apple / Google Pay) only when the server runs with TEST_MODE=1.
@@ -1181,15 +1184,17 @@ const views = {
     const addrPanel = (key, optional = false) => {
       const a = get(key);
       const title = key === 'pickup' ? 'Where are we picking up?' : shipService() ? 'Where is it going?' : S.service === 'install_only' ? 'Where are we installing?' : 'Where are we delivering?';
-      const caNote = key === 'dropoff' && shipInsideCA() ? `<div class="note ca-ship" data-cashipnote><b>This trip stays in California.</b> Shipping is for destinations outside California. Within California we deliver white glove ourselves. <button type="button" class="btn primary ca-switch" data-switchpd>Switch to Pickup + Delivery</button><span class="mini">Everything you entered stays.</span></div>` : '';
+      // Shipping destination: out-of-state example text, never California examples (QA re-check N4).
+      const shipDest = key === 'dropoff' && shipService();
+      const caNote = key === 'dropoff' && shipInsideCA() ? caNoteHtml() : '';
       return panel(`${key}-addr`, `<h1>${title}</h1>${oos()}${caNote}<div class="card">
         ${key === 'dropoff' && shipService() ? input(`${key}.country`, 'Country', { ph: 'United States', attrs: 'autocomplete="country-name"', req: true }) : ''}
         ${key === 'dropoff' && shipService() && intlDest(a)
           ? `<div class="field"><label class="f" for="f-${key}.street">Full address${req}</label><textarea id="f-${key}.street" data-path="${key}.street" placeholder="Street, building, postal code, city, region">${esc(a.street)}</textarea></div>${input(`${key}.city`, 'City', { ph: 'e.g. London', req: true })}`
-          : `${input(`${key}.street`, 'Street address', { ph: key === 'pickup' ? '2 Henry Adams St' : '8678 Melrose Ave', attrs: 'autocomplete="street-address"', req: !optional })}
+          : `${input(`${key}.street`, 'Street address', { ph: key === 'pickup' ? '2 Henry Adams St' : shipDest ? '350 5th Ave' : '8678 Melrose Ave', attrs: 'autocomplete="street-address"', req: !optional })}
         <label class="chk" data-nostreet><input type="checkbox" data-path="${key}.noStreetNumber" data-rerender ${a.noStreetNumber ? 'checked' : ''}> My address has no street number</label>
         ${a.noStreetNumber ? '<p class="mini" style="margin:-2px 0 8px">Describe it above (for example “Star Route” or the estate name). Our team will confirm the exact location with you before anything is charged.</p>' : ''}
-        <div class="row keep addr3">${input(`${key}.city`, 'City', { ph: key === 'pickup' ? 'San Francisco' : 'West Hollywood', req: !optional })}${input(`${key}.state`, 'State', { ph: 'CA', attrs: 'autocomplete="address-level1" maxlength="14"' })}${input(`${key}.zip`, 'ZIP', { ph: key === 'pickup' ? '94103' : '90069', req: !optional, attrs: 'inputmode="numeric" autocomplete="postal-code" maxlength="10"' })}</div>
+        <div class="row keep addr3">${input(`${key}.city`, 'City', { ph: key === 'pickup' ? 'San Francisco' : shipDest ? 'New York' : 'West Hollywood', req: !optional })}${input(`${key}.state`, 'State', { ph: shipDest ? 'NY' : 'CA', attrs: 'autocomplete="address-level1" maxlength="14"' })}${input(`${key}.zip`, 'ZIP', { ph: key === 'pickup' ? '94103' : shipDest ? '10118' : '90069', req: !optional, attrs: 'inputmode="numeric" autocomplete="postal-code" maxlength="10"' })}</div>
         <p class="mini zip-check" data-zipcheck="${key}" hidden></p>`}
         ${key === 'dropoff' && shipService() ? `<div class="field" style="margin-top:4px"><label class="f">Destination type</label>${seg(`${key}.locationType`, [['residential', 'Residential'], ['commercial', 'Commercial']])}</div>` : ''}
         ${input(`${key}.business`, 'Business or gallery (optional)', { ph: 'e.g. gallery, showroom, hotel' })}
@@ -1333,7 +1338,8 @@ const views = {
     if (existing) return views.PayLink();
     if (isShip()) return views.ShipPay();
     const q = quoteData;
-    const addr = (a) => (a.street ? `${esc(a.street)}, ${esc(a.city)}` : '—');
+    // Full address with state and ZIP, so the customer can confirm the ZIP that sets their route (QA re-check N5).
+    const addr = (a) => (a.street ? [a.street, a.city, [a.state, a.zip].map((x) => String(x || '').trim()).filter(Boolean).join(' ')].map((x) => String(x || '').trim()).filter(Boolean).map(esc).join(', ') : '—');
     const sp = special();
     const date = avail && [...avail.days, ...avail.rush].find((d) => d.date === S.schedule.date);
     const siteRows = (label, a, goto) => (a && a.street ? `<div class="sum-row"><span>${label}</span><span>${addr(a)}<br><span class="muted">${esc(a.contactName)} · ${esc(formatPhone(a.contactPhone))}${a.sameAsMe ? (S.contact.clientType ? ` · ${esc(S.contact.clientType)}` : '') : a.contactRole ? ` · ${esc(a.contactRole === 'Other' ? (a.contactRoleOther || 'Other') : a.contactRole)}` : ''}</span> ${editBtn(goto)}</span></div>` : '');
@@ -1524,9 +1530,10 @@ function missingFields(name = STEPS[step]) {
       const a = S[key] || {};
       if (!required && !filled(a)) return;
       if (key === 'dropoff' && shipService() && !String(a.country || '').trim()) add('#f-dropoff.country', 'Country', 'Please enter the country.');
+      { const zm = zipMismatch[key]; if (zm && zm.zip === (String(a.zip || '').match(/^\d{5}/) || [])[0] && zm.city === String(a.city || '').trim()) add(`#f-${key}.zip`, `City and ZIP don’t match — ${title}`, `ZIP ${zm.zip} is in ${zm.place}. Tap Use ${zm.place}, or fix the ZIP.`); }
       if (key === 'dropoff' && shipInsideCA()) add('#f-dropoff.state', 'Destination is in California', 'Shipping is for destinations outside California. Tap Switch to Pickup + Delivery.');
       // Street (with a number), a plausible city and a 5-digit ZIP (or ZIP+4): the same checks the server runs (public/validate.js).
-      V.addressProblems(a, title).forEach((pr) => add(`#f-${key}.${pr.field}`, `${{ street: 'Street address', city: 'City', zip: 'ZIP' }[pr.field]} — ${title}`, pr.message));
+      V.addressProblems(a, title).forEach((pr) => add(`#f-${key}.${pr.field}`, `${{ street: 'Street address', city: 'City', state: 'State', zip: 'ZIP' }[pr.field]} — ${title}`, pr.message));
       if (!String(a.contactName || '').trim()) add(`#f-${key}.contactName`, `Contact name — ${title}`, 'Please enter the contact’s name.');
       if (!String(a.contactPhone || '').trim()) add(`#f-${key}.contactPhone`, `Contact mobile — ${title}`, 'Please enter the contact’s mobile number.');
       if (a.sameAsMe) { /* role = the booker's own "I am a…" (required above); no role field */ }
@@ -1801,6 +1808,7 @@ function paintButton() {
 let lastStep = -1, lastSub = null, poppingStep = false;
 const applyPanel = () => panelEls().forEach((p) => { p.hidden = p.dataset.panel !== sub; });
 function render() {
+  normShipState();
   if ((S.items || []).some(routeDecorMirror)) persist();
   const name = STEPS[step];
   // Done: forget the draft so a refresh or Continue can't book (or charge) the same job twice; a refresh shows this order again.
@@ -1989,6 +1997,7 @@ app.addEventListener('input', (e) => {
   } else {
     set(p, e.target.type === 'checkbox' ? e.target.checked : e.target.value);
   }
+  if (p === 'dropoff.state') shipStateTyped = true;
   if (p === 'contact.name' || p === 'contact.phone') syncSameAsMe();
   const m = p.match(/^(pickup|dropoff)\.contact(Name|Phone)$/);
   if (m && S[m[1]].sameAsMe) { S[m[1]].sameAsMe = false; persist(); const b = app.querySelector(`[data-same="${m[1]}"]`); if (b) { b.classList.remove('on'); b.textContent = 'Same as me'; } const rw = app.querySelector(`[data-rolewrap="${m[1]}"]`); if (rw) rw.hidden = false; paintButton(); }
@@ -2046,12 +2055,26 @@ function splitStreet(key) {
 // ZIP vs city cross-check (QA audit Nov 22, #6): a soft, non-blocking hint with a one-tap fix. The route is picked from the ZIP,
 // so a typo here would quietly book the wrong route day. Uses the public Zippopotam lookup; if it is unreachable, nothing shows.
 const zipCache = {}, cityCache = {};
+// A confirmed city/ZIP mismatch blocks Next until the customer takes the suggested city or fixes the ZIP (QA re-check S1).
+const zipMismatch = { pickup: null, dropoff: null };
+// Shipping destination: State starts blank (no "stays in California" note on an empty form). Typed "CA" is kept.
+let shipStateTyped = false;
+function normShipState() {
+  const d = S.dropoff; if (!d) return;
+  const untouched = !String(d.street || '').trim() && !String(d.city || '').trim() && !String(d.zip || '').trim();
+  if (shipService() && d.state === 'CA' && untouched && !shipStateTyped) { d.state = ''; persist(); }
+  else if (!shipService() && !String(d.state || '').trim() && !intlDest(d)) { d.state = 'CA'; persist(); }
+}
 const geoGet = async (url) => { try { const r = await fetch(url); return r.ok ? await r.json() : null; } catch (_) { return null; } };
 const milesApart = (a, b) => { const R = 3959, rad = (d) => (d * Math.PI) / 180; const dLa = rad(b[0] - a[0]), dLo = rad(b[1] - a[1]); const h = Math.sin(dLa / 2) ** 2 + Math.cos(rad(a[0])) * Math.cos(rad(b[0])) * Math.sin(dLo / 2) ** 2; return 2 * R * Math.asin(Math.sqrt(h)); };
 async function checkZipCity(key) {
   const a = S[key]; if (!a || intlDest(a)) return;
   const zip = (String(a.zip || '').match(/^\d{5}/) || [])[0], city = String(a.city || '').trim();
-  const show = (html) => { const el = app.querySelector(`[data-zipcheck="${key}"]`); if (el) { el.innerHTML = html; el.hidden = !html; } };
+  const show = (html, mm = null) => {
+    const prev = zipMismatch[key]; zipMismatch[key] = mm;
+    const el = app.querySelector(`[data-zipcheck="${key}"]`); if (el) { el.innerHTML = html; el.hidden = !html; }
+    if (!!prev !== !!mm && STEPS[step] === 'Where') { updateNext(); paintRequired(); }
+  };
   if (!zip || city.length < 2) return show('');
   if (!(zip in zipCache)) { const j = await geoGet(`https://api.zippopotam.us/us/${zip}`); zipCache[zip] = j && j.places ? j.places.map((pl) => ({ name: pl['place name'], st: String(pl['state abbreviation'] || '').toLowerCase(), at: [+pl.latitude, +pl.longitude] })) : []; }
   const zp = zipCache[zip];
@@ -2067,13 +2090,19 @@ async function checkZipCity(key) {
   if (cp.length && cp.some((c) => milesApart(c, zp[0].at) <= 15)) return show('');
   if (!cp.length) return show(''); // unknown city name (or the lookup is down): stay quiet
   const nm = esc(zp[0].name);
-  show(`ZIP ${esc(zip)} is in ${nm}, not ${esc(city)}. <button type="button" class="link" data-zipfix="${key}" data-city="${nm}">Use ${nm}</button>`);
+  show(`<b>City and ZIP don’t match.</b> ZIP ${esc(zip)} is in ${nm}, not ${esc(city)}. <span class="zip-actions"><button type="button" class="link" data-zipfix="${key}" data-city="${nm}">Use ${nm}</button><button type="button" class="link muted" data-zipedit="${key}">Fix the ZIP</button></span>`, { zip, city, place: zp[0].name });
 }
 function syncOosNote() {
   if (STEPS[step] !== 'Where') return;
   // Shipping with both ends in California: show (or remove) the Switch to Pickup + Delivery note in place.
   const dp = app.querySelector('[data-panel="dropoff-addr"]');
-  if (dp && shipService() && !!dp.querySelector('[data-cashipnote]') !== shipInsideCA()) { render(); return; }
+  // Updated in place (no re-render), so the field being typed in keeps its focus and value.
+  if (dp && shipService()) {
+    const cur = dp.querySelector('[data-cashipnote]'), want = shipInsideCA();
+    if (want && !cur) { const anchor = dp.querySelector('[data-oos]') || dp.querySelector('h1'); anchor.insertAdjacentHTML('afterend', caNoteHtml()); }
+    else if (!want && cur) cur.remove();
+    if (!!cur !== want) updateNext();
+  }
   app.querySelectorAll('[data-panel$="-addr"]').forEach((pn) => {
     const cur = pn.querySelector('[data-oos]');
     if (outOfState() && !cur) pn.querySelector('h1').insertAdjacentHTML('afterend', `<p class="note" data-oos>${OOS_NOTE}</p>`);
@@ -2108,10 +2137,11 @@ app.addEventListener('click', async (e) => {
   if (t.hasAttribute('data-protection-add')) { S.protectionDeclined = false; persist(); refreshQuote(); return; }
   if (t.hasAttribute('data-discount-apply')) { applyDiscount(); return; }
   if (t.hasAttribute('data-discount-remove')) { S.discountCode = ''; discountMsg = null; persist(); refreshQuote(); paintDiscount(); return; }
+  if (t.dataset.zipedit) { const z = document.getElementById(`f-${t.dataset.zipedit}.zip`); if (z) { z.focus(); z.select && z.select(); } return; }
   if (t.dataset.zipfix) { const k = t.dataset.zipfix; S[k].city = t.dataset.city; persist(); render(); return; }
   if (t.dataset.switchpd != null) {
     // CA-to-CA job started as Shipping: keep every answer, switch the service, and land on the delivery address to continue.
-    S.service = 'pickup_delivery'; S.dropoff.country = ''; persist(); avail = null; quoteData = null;
+    S.service = 'pickup_delivery'; S.dropoff.country = ''; if (!String(S.dropoff.state || '').trim()) S.dropoff.state = 'CA'; persist(); avail = null; quoteData = null;
     step = STEPS.indexOf('Where'); sub = 'dropoff-addr'; render(); return;
   }
   if (t.dataset.service) {
@@ -2126,6 +2156,7 @@ app.addEventListener('click', async (e) => {
       }
     }
     S.service = t.dataset.service;
+    normShipState();
     if (S.service === 'crating_shipping') { S.crating = false; S.rush = false; S.dedicated = false; }
     if (S.service === 'install_only') { S.crating = false; S.schedule.deliveryLater = false; }
     persist(); avail = null; render();
