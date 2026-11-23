@@ -8,7 +8,7 @@
   if (typeof module === 'object' && module.exports) module.exports = m; else root.CADAccess = m;
 })(typeof self !== 'undefined' ? self : this, function () {
   const MODES = [
-    ['ground', 'Ground level, straight in (no stairs)'],
+    ['ground', 'Same level (no stairs)'],
     ['steps', 'A few steps (3 or fewer)'],
     ['stairs', 'Stairs'],
     ['elevator', 'Elevator'],
@@ -23,6 +23,14 @@
   // Required (Chad, Nov 16): Not sure flags the stop for CAD to confirm.
   const ELEV_STAIRS = [['no', 'No'], ['steps', 'A few steps (3 or fewer)'], ['stairs', 'Stairs'], ['not_sure', 'Not sure']];
   const ELEV_STEPS = ELEV_STAIRS; // old name, kept for callers
+  // Chad, Nov 23 2026: "Two or more flights" picks the count from a list (2 through 10+); elevator asks regular or service,
+  // then whether the piece will fit (Not sure needs the client's acknowledgment); an optional outdoor path type.
+  const FLIGHT_COUNTS = [['2', '2 flights'], ['3', '3 flights'], ['4', '4 flights'], ['5', '5 flights'], ['6', '6 flights'], ['7', '7 flights'], ['8', '8 flights'], ['9', '9 flights'], ['10plus', '10+ flights']];
+  const ELEV_TYPES = [['regular', 'Regular'], ['service', 'Service']];
+  const ELEV_FIT = [['yes', 'Yes'], ['not_sure', 'Not sure']];
+  const PATH_TYPES = [['none', 'No'], ['sand', 'Sand'], ['gravel', 'Gravel'], ['flagstone', 'Flagstone or brick'], ['grass', 'Grass'], ['gate', 'Narrow gate']];
+  const roughPath = (a) => !!a && PATH_TYPES.some(([k]) => k === a.pathType) && a.pathType !== 'none';
+  const ACK_TEXT = 'If it doesn’t fit, we may leave it at the ground level, lobby or entry, and you take responsibility for it from there. CAD isn’t liable.';
   const MODE_KEYS = MODES.map(([k]) => k);
   const REVIEW_NOTE = 'We’ll confirm access with you before the job.';
   // Shown next to the price whenever access is flagged for review (mode, fit or elevator stairs = Not sure).
@@ -64,14 +72,19 @@
     if (mode !== 'elevator') { a.floor = ''; a.serviceElevator = ''; a.elevatorStairs = ''; }
     if (!ELEV_STAIRS.some(([k]) => k === a.elevatorStairs)) a.elevatorStairs = '';
     if (!usesStairs(a)) { a.stairFlights = ''; a.stairDir = ''; a.stairTurns = ''; a.stairPhotos = []; }
-    if (!YNS.some(([k]) => k === a.dock)) a.dock = '';
+    a.dock = ''; // loading dock question removed (Chad, Nov 23 2026)
+    if (mode !== 'elevator') { a.elevatorType = ''; a.elevatorFit = ''; }
+    if (a.elevatorFit !== 'not_sure') a.elevatorAck = false;
+    if (mode === 'elevator' && ELEV_TYPES.some(([k]) => k === a.elevatorType)) a.serviceElevator = a.elevatorType === 'service' ? 'yes' : 'no';
+    if (a.fits !== 'tight') a.fitNote = '';
+    if (has(a.pathType)) { if (!PATH_TYPES.some(([k]) => k === a.pathType)) a.pathType = ''; a.technicalCarry = roughPath(a); }
     a.stairPhotos = Array.isArray(a.stairPhotos) ? a.stairPhotos : [];
     a.doorPhotos = Array.isArray(a.doorPhotos) ? a.doorPhotos : [];
     if (!fitUnsure(a)) { a.doorPhotos = []; a.narrowestIn = ''; }
     else if (has(a.narrowestIn) && !(num(a.narrowestIn) > 0)) a.narrowestIn = '';
     if (usesStairs(a) && !['yes', 'not_sure'].includes(a.stairTurns)) a.stairPhotos = [];
     a.elevator = mode === 'elevator';
-    a.loadingDock = a.dock === 'yes';
+    a.loadingDock = false;
     // "Not sure": CAD confirms access before the job. Never priced as plain ground level without this flag.
     a.accessReview = needsReview(a);
     a.stairsPlus = false;
@@ -80,7 +93,8 @@
       a.steps = false;
       if (f === 'half') { a.stairKind = 'half'; a.stairs = 0.5; }
       else if (f === '4plus') { a.stairKind = 'flights'; a.stairsPlus = true; a.stairs = wholeFlights(a.stairs) ? num(a.stairs) : (has(a.stairs) && num(a.stairs) !== 0 ? String(a.stairs).trim() : ''); }
-      else if (['1', '2', '3'].includes(f)) { a.stairKind = 'flights'; a.stairs = Number(f); }
+      else if (f === '10plus') { a.stairKind = 'flights'; a.stairs = 10; }
+    else if (/^[1-9]$/.test(f)) { a.stairKind = 'flights'; a.stairs = Number(f); }
       else { a.stairKind = ''; a.stairs = 0; }
     };
     if (mode === 'ground' || mode === 'not_sure') { a.stairKind = 'none'; a.stairs = 0; a.steps = false; }
@@ -93,8 +107,11 @@
     return a;
   }
 
-  const stairPhotosNeeded = (a) => usesStairs(a) && ['yes', 'not_sure'].includes(a.stairTurns);
-  const doorPhotosNeeded = (a) => !!a && a.fits === 'tight';
+  // Photos are optional unless (Chad, Nov 23 2026): stairs plus a tight fit, or a rough/outdoor path with a big or heavy piece.
+  // (A stairwell install's photos are asked on the hanging screen.)
+  const stairPhotosNeeded = (a) => usesStairs(a) && a.fits === 'tight';
+  const sitePhotosNeeded = (a, items) => roughPath(a) && firm(items);
+  const doorPhotosNeeded = () => false;
 
   // What is still unanswered at one stop. Codes double as field names.
   function gaps(a, items) {
@@ -102,23 +119,25 @@
     if (!a) return out;
     const big = firm(items);
     if (!MODE_KEYS.includes(a.accessMode)) { out.push('accessMode'); return out; }
-    if (a.accessMode === 'elevator' && !has(a.floor)) out.push('floor');
-    if (a.accessMode === 'elevator' && !has(a.elevatorStairs)) out.push('elevatorStairs');
+    if (a.accessMode === 'elevator') {
+      if (!ELEV_TYPES.some(([k]) => k === a.elevatorType)) out.push('elevatorType');
+      if (!ELEV_FIT.some(([k]) => k === a.elevatorFit)) out.push('elevatorFit');
+      else if (a.elevatorFit === 'not_sure' && a.elevatorAck !== true) out.push('elevatorAck');
+    }
     if (usesStairs(a)) {
       if (!has(a.stairFlights)) out.push('stairFlights');
       else if (String(a.stairFlights) === '4plus' && !wholeFlights(a.stairs)) out.push('stairs');
-      if (!has(a.stairDir)) out.push('stairDir');
-      if (big && !has(a.stairTurns)) out.push('stairTurns');
-      if (stairPhotosNeeded(a) && !(a.stairPhotos || []).length) out.push('stairPhotos');
     }
     if (big && !has(a.fits)) out.push('fits');
-    if (doorPhotosNeeded(a) && !(a.doorPhotos || []).length) out.push('doorPhotos');
+    if (stairPhotosNeeded(a) && !(a.stairPhotos || []).length) out.push('stairPhotos');
+    if (sitePhotosNeeded(a, items) && !(a.sitePhotos || []).length) out.push('sitePhotos');
     return out;
   }
 
   const flightsWords = (a) => {
     const f = String(a.stairFlights == null ? '' : a.stairFlights);
-    if (f === 'half') return 'Half flight of stairs';
+    if (f === 'half') return 'About half a flight of stairs';
+    if (f === '10plus') return '10+ flights of stairs';
     const n = f === '4plus' ? (wholeFlights(a.stairs) ? num(a.stairs) : 0) : Number(f);
     if (!(n > 0)) return f === '4plus' ? '4+ flights of stairs' : 'Stairs';
     return `${plural(n, 'flight')} of stairs`;
@@ -137,13 +156,16 @@
     const bits = [];
     if (!a) return bits;
     const mode = a.accessMode;
-    if (mode === 'ground') bits.push('Ground level, straight in (no stairs)');
+    if (mode === 'ground') bits.push('Same level (no stairs)');
     else if (mode === 'steps') bits.push('A few steps (3 or fewer)');
     else if (mode === 'not_sure') bits.push(`Access not sure: ${REVIEW_NOTE}`);
     else if (mode === 'stairs') stairBits(a, bits, '');
     else if (mode === 'elevator') {
-      bits.push(has(a.floor) ? `Elevator, floor ${String(a.floor).trim()}` : 'Elevator');
-      if (YNS_WORD[a.serviceElevator]) bits.push(`Service elevator: ${YNS_WORD[a.serviceElevator]}`);
+      const et = a.elevatorType === 'service' ? 'Service elevator' : a.elevatorType === 'regular' ? 'Regular elevator' : 'Elevator';
+      bits.push(has(a.floor) ? `${et}, floor ${String(a.floor).trim()}` : et);
+      if (!a.elevatorType && YNS_WORD[a.serviceElevator]) bits.push(`Service elevator: ${YNS_WORD[a.serviceElevator]}`);
+      if (a.elevatorFit === 'yes') bits.push('Fits in the elevator');
+      else if (a.elevatorFit === 'not_sure') bits.push(`Not sure it fits in the elevator${a.elevatorAck ? ' (client accepted ground level, lobby or entry drop-off if it doesn’t)' : ''}`);
       if (a.elevatorStairs === 'no') bits.push('No stairs on the way');
       else if (a.elevatorStairs === 'steps') bits.push('A few steps (3 or fewer) on the way');
       else if (a.elevatorStairs === 'stairs') stairBits(a, bits, ' on the way to the elevator');
@@ -160,15 +182,15 @@
       if (a.fits === 'not_sure') bits.push('Not sure everything fits');
       return bits;
     }
-    if (YNS_WORD[a.dock]) bits.push(`Loading dock: ${YNS_WORD[a.dock]}`);
     if (a.doorway === 'single') bits.push('Single door');
     else if (a.doorway === 'double') bits.push('Double doors');
     else if (a.doorway === 'not_sure') bits.push('Doors: not sure');
     if (a.fits === 'yes') bits.push('Fits easily');
-    else if (a.fits === 'tight') bits.push('Tight fit');
+    else if (a.fits === 'tight') bits.push(String(a.fitNote || '').trim() ? `Tight fit: ${String(a.fitNote).trim().slice(0, 200)}` : 'Tight fit');
     else if (a.fits === 'not_sure') bits.push('Not sure everything fits');
     if (fitUnsure(a) && num(a.narrowestIn) > 0) bits.push(`Narrowest opening ${num(a.narrowestIn)} in`);
     if ((a.doorPhotos || []).length) bits.push(`${plural(a.doorPhotos.length, 'photo')} of the tight spot and the way in`);
+    if (roughPath(a)) bits.push(`Outdoor path: ${PATH_TYPES.find(([k]) => k === a.pathType)[1].toLowerCase()}`);
     return bits;
   }
   function needsReview(a) {
@@ -176,5 +198,9 @@
     return a.accessMode === 'not_sure' || a.fits === 'not_sure' || (a.accessMode === 'elevator' && a.elevatorStairs === 'not_sure');
   }
 
-  return { MODES, FLIGHTS, DIRS, YNS, DOORWAYS, FITS, ELEV_STAIRS, ELEV_STEPS, MODE_KEYS, REVIEW_NOTE, PRICE_NOTE, TBC_TOTAL, TBC_DUE, wholeFlights, HEAVY_LB, LONG_IN, isBigPiece, firm, normalize, gaps, summary, stairPhotosNeeded, doorPhotosNeeded, usesStairs, fitUnsure, needsReview, plural };
+  // Preferred times (Chad, Nov 23 2026): multi-select, stored as a comma list ("morning,midday"); "none" is exclusive.
+  const TIME_PREFS = [['none', 'No preference'], ['morning', 'Morning'], ['late_morning', 'Late morning'], ['midday', 'Midday'], ['early_afternoon', 'Early afternoon'], ['afternoon', 'Afternoon'], ['late_afternoon', 'Late afternoon'], ['early_evening', 'Early evening'], ['evening', 'Evening'], ['late_evening', 'Late evening']];
+  const timePrefList = (v) => String(v == null ? '' : v).split(',').map((x) => x.trim()).filter((x) => x && x !== 'none' && TIME_PREFS.some(([k]) => k === x));
+  const timePrefText = (v) => timePrefList(v).map((k) => TIME_PREFS.find(([x]) => x === k)[1]).join(', ');
+  return { TIME_PREFS, timePrefList, timePrefText, FLIGHT_COUNTS, ELEV_TYPES, ELEV_FIT, PATH_TYPES, roughPath, ACK_TEXT, sitePhotosNeeded, MODES, FLIGHTS, DIRS, YNS, DOORWAYS, FITS, ELEV_STAIRS, ELEV_STEPS, MODE_KEYS, REVIEW_NOTE, PRICE_NOTE, TBC_TOTAL, TBC_DUE, wholeFlights, HEAVY_LB, LONG_IN, isBigPiece, firm, normalize, gaps, summary, stairPhotosNeeded, doorPhotosNeeded, usesStairs, fitUnsure, needsReview, plural };
 });

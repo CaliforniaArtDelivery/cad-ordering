@@ -8,11 +8,11 @@ const stop = (street, city, zip, x = {}) => ({ street, city, state: 'CA', zip, c
 const piece = (x = {}) => ({ id: 'pcA' + Math.random().toString(36).slice(2, 6), type: 'painting', description: 'Oil on canvas', w: '40', h: '30', d: '2', framed: 'yes', glazing: 'no', frameType: '', value: '3000', weight: '', photos: [], hangHeight: 'standard', qty: 1, ...x });
 const state = () => ({ service: 'pickup_delivery', items: [piece()], contact: { name: 'QA Botschild Test', email: 'qa-test@example.com', phone: '3105550199', company: '', clientType: 'Collector' }, heard: { source: 'google' }, payer: 'me',
   pickup: stop('8678 Melrose Ave', 'West Hollywood', '90069'), dropoff: stop('100 N Palm Canyon Dr', 'Palm Springs', '92262'), schedule: { date: '', deliveryDate: '', timePref: 'none', deliveryTimePref: 'none' } });
-const BAD = /(?<!TEST MODE · )(?:nothing is charged)|request|quote|estimat|penciled|pencilled|confirm(s)? (it )?within|business day|no payment|samantha|remove protection|separate regional|final price|call us|date to be confirmed/i;
+const BAD = /(?<!TEST MODE · )(?:nothing is charged)|(?<!Other )request|(?<!custom )quote|loading dock|same-day|not guaranteed|ESTIMATE|estimat|penciled|pencilled|confirm(s)? (it )?within|business day|no payment|samantha|remove protection|separate regional|final price|call us|date to be confirmed/i;
 (async () => {
   const browser = await chromium.launch();
   const problems = []; const shots = [];
-  for (const [vw, vh] of [[390, 844], [320, 640], [430, 932], [1440, 1000]]) {
+  for (const [vw, vh] of (process.env.SIZES ? JSON.parse(process.env.SIZES) : [[393, 852], [320, 640], [430, 932], [1440, 1000]])) {
     const ctx = await browser.newContext({ viewport: { width: vw, height: vh }, deviceScaleFactor: vw < 500 ? 2 : 1, isMobile: vw < 500, hasTouch: vw < 500 });
     const page = await ctx.newPage();
     const jsErr = []; page.on('pageerror', (e) => jsErr.push(e.message));
@@ -36,6 +36,7 @@ const BAD = /(?<!TEST MODE · )(?:nothing is charged)|request|quote|estimat|penc
       if (r.over) problems.push(`${vw} ${label}: page scrolls sideways`);
       if (!r.back) problems.push(`${vw} ${label}: Back overlaps main button`);
       const m = r.text.match(BAD); if (m) problems.push(`${vw} ${label}: banned word "${m[0]}" near "${r.text.slice(Math.max(0, m.index - 60), m.index + 60).replace(/\n/g, ' | ')}"`);
+      if (vw === 393) require('fs').appendFileSync(`${OUT}/${TAG}_texts.txt`, `\n===== ${label}\n` + (await page.innerText('#app')));
       const f = `${OUT}/${TAG}_${vw}_${label}.png`; await page.screenshot({ path: f, fullPage: vw >= 1000 }); shots.push(f);
       return r;
     };
@@ -51,10 +52,10 @@ const BAD = /(?<!TEST MODE · )(?:nothing is charged)|request|quote|estimat|penc
     }
     const rev = await page.evaluate(() => document.body.innerText);
     if (!/Review & pay/.test(rev)) problems.push(`${vw}: review heading missing`);
-    if (!/^Pay \$245\.00/.test(r.btn)) problems.push(`${vw}: main button is "${r.btn}"`);
+    if (!/^Pay \$245( and book)?$/.test(r.btn)) problems.push(`${vw}: main button is "${r.btn}"`);
     if (/Declared value protection applies to pieces valued/.test(rev)) problems.push(`${vw}: repeated protection line still there`);
     if (vw === 1440) await page.screenshot({ path: `${OUT}/${TAG}_1440_review_full.png`, fullPage: true });
-    if (process.env.PAY === '1' && vw === 390) {
+    if (process.env.PAY === '1' && vw === 393) {
       await page.click('#nextBtn'); await page.waitForTimeout(4000);
       const done = await page.evaluate(() => ({ url: location.href, text: document.body.innerText }));
       const f = `${OUT}/${TAG}_390_after_pay.png`; await page.screenshot({ path: f, fullPage: true }); shots.push(f);

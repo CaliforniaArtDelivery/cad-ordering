@@ -285,6 +285,7 @@ function validate(o) {
     accessMode: 'access (how do we get in?)', stairFlights: 'number of flights', stairs: 'number of flights (4 or more)', stairDir: 'stairs up or down',
     stairTurns: 'tight turns on the stairs', stairPhotos: 'photos of the stairs and path', floor: 'elevator floor', elevatorStairs: 'stairs on the way to the elevator',
     fits: 'will everything fit easily', doorPhotos: 'photos of the tight spot and the way in',
+    elevatorType: 'regular or service elevator', elevatorFit: 'will it fit in the elevator', elevatorAck: 'elevator acknowledgment', sitePhotos: 'photos of the outdoor path',
   };
   const accessStops = [];
   if (SERVICES[o.service]?.needsPickup) accessStops.push(['pickup', o.pickup]);
@@ -431,7 +432,7 @@ app.post('/api/orders', (req, res) => {
     contact: b.contact, partner: b.partner || {}, payer: b.payer || 'me', payerOther: b.payerOther || {},
     schedule: shipping
       ? { date: '', region: 'Shipping', deliveryLater: false, deliveryDate: '', timePref: 'none', timeNote: '', deliveryTimePref: 'none', deliveryTimeNote: '' }
-      : { ...b.schedule, region: sched.regionForDate(new Date(b.schedule.date + 'T12:00:00Z')) },
+      : { ...b.schedule, timePref: ACCESS.timePrefList(b.schedule.timePref).join(',') || 'none', deliveryTimePref: ACCESS.timePrefList(b.schedule.deliveryTimePref).join(',') || 'none', region: sched.regionForDate(new Date(b.schedule.date + 'T12:00:00Z')) },
     notes: b.notes || '',
     ...(rv.kinds.length ? { review: rv } : {}),
     emails: [],

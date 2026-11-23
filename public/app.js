@@ -12,7 +12,7 @@ const emptyAddr = () => ({
   accessMode: '', stairFlights: '', stairDir: '', stairTurns: '', stairPhotos: [],
   serviceElevator: '', dock: '', elevatorStairs: '', doorway: '', doorPhotos: [], narrowestIn: '', accessReview: false,
   floor: '', loadingDock: false, elevator: false, stairs: 0, steps: false, stairKind: '',
-  fits: '', parkingRestricted: false, parkingNote: '', technicalCarry: false, sitePhotos: [],
+  fits: '', fitNote: '', pathType: '', elevatorType: '', elevatorFit: '', elevatorAck: false, parkingRestricted: false, parkingNote: '', technicalCarry: false, sitePhotos: [],
   centerHeight: '', wallType: '', hardware: '', highInstall: false, installLocation: '', wallPhotos: [],
   notes: '',
 });
@@ -33,6 +33,7 @@ const migrateAddr = (a = {}) => {
     stairs: a.stairs === '' ? '' : (Number(a.stairs) || 0), steps: !!a.steps, stairKind: a.accessMode ? (a.stairKind || '') : '',
     fits: a.fits || '', parkingRestricted: !!a.parkingRestricted, parkingNote: a.parkingNote || '',
     technicalCarry: !!a.technicalCarry, sitePhotos: a.sitePhotos || [],
+    fitNote: a.fitNote || '', pathType: a.pathType || '', elevatorType: a.elevatorType || '', elevatorFit: a.elevatorFit || '', elevatorAck: a.elevatorAck === true,
     centerHeight: a.centerHeight || '', wallType: a.wallType || '', hardware: a.hardware || '', highInstall: !!a.highInstall, installLocation: a.installLocation || (a.highInstall ? 'high' : ''), wallPhotos: a.wallPhotos || [],
     notes: extras.join(' · '),
   };
@@ -301,9 +302,8 @@ const hasHanging = () => hasInstall() && S.items.some(isHung);
 const isPlaced = (it) => !isHung(it);
 const longDate = (iso) => (iso ? new Date(iso + 'T12:00:00Z').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', timeZone: 'UTC' }) : '');
 const shortDate = (iso) => (iso ? new Date(iso + 'T12:00:00Z').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'UTC' }) : '');
-const TIME_PREF_OPTS = [['none', 'No preference'], ['midday', 'Midday'], ['afternoon', 'Afternoon / later in the day']];
-const timePrefLabel = (v) => (TIME_PREF_OPTS.find((x) => x[0] === v) || ['', ''])[1];
-const timePrefSummary = (pref, note) => [pref && pref !== 'none' ? timePrefLabel(pref) : '', String(note || '').trim()].filter(Boolean).join(' — ');
+const TIME_PREF_OPTS = CADAccess.TIME_PREFS;
+const timePrefSummary = (pref, note) => [CADAccess.timePrefText(pref), String(note || '').trim()].filter(Boolean).join(' — ');
 const windowText = (w) => (w || '').replace('Flexible / all day', 'flexible, all day');
 const api = async (url, body) => {
   try {
@@ -334,7 +334,7 @@ const DESC = {
   pickup_delivery: 'White glove pickup and delivery, placed exactly where you want it.',
   delivery_install: 'Everything above, plus expert installation of paintings, mirrors and wall decor.',
   install_only: 'Already on site. We hang paintings, mirrors and wall decor.',
-  crating_shipping: 'Outside California, anywhere in the US or overseas. Within California, choose Pickup + Delivery.',
+  crating_shipping: 'Outside California, anywhere in the US or overseas.',
 };
 // CAD are fine art handlers, not movers: the items-step heading names what we are actually doing for the chosen service.
 const SVC_VERB = { pickup_delivery: 'delivering', delivery_install: 'delivering and installing', install_only: 'installing', crating_shipping: 'shipping', delivery: 'delivering', pickup: 'picking up' };
@@ -557,12 +557,14 @@ const photoRow = (key, field, label, required) => {
 };
 // The whole path, not just the front door (Chad, Nov 21 2026). Saved on the same access fields pricing already uses:
 // "One flight" = stairs, 1 flight; "Two or more flights" = stairs, then 2 / 3 / 4+ (each flight is priced, so 2+ always costs more).
-const PATH_PICKS = [['ground', 'Same level the whole way (no stairs)'], ['steps', 'A few steps (3 or fewer)'], ['stairs1', 'One flight of stairs'], ['stairs2', 'Two or more flights'], ['elevator', 'Elevator'], ['not_sure', 'Not sure']];
+// Chad, Nov 23 2026: six answers, no "Not sure" (older saved answers still read).
+const PATH_PICKS = [['ground', 'Same level (no stairs)'], ['steps', 'A few steps (3 or fewer)'], ['half', 'About half a flight'], ['stairs1', 'One flight'], ['stairs2', 'Two or more flights'], ['elevator', 'Elevator']];
 const pathPickOf = (a) => {
   if (!a || !a.accessMode) return '';
   if (a.accessMode !== 'stairs') return a.accessMode;
-  if (a.pathPick === 'stairs2' && !['1', 'half'].includes(String(a.stairFlights))) return 'stairs2';
-  if (['1', 'half'].includes(String(a.stairFlights))) return 'stairs1';
+  if (String(a.stairFlights) === 'half') return 'half';
+  if (a.pathPick === 'stairs2' && String(a.stairFlights) !== '1') return 'stairs2';
+  if (String(a.stairFlights) === '1') return 'stairs1';
   return String(a.stairFlights) ? 'stairs2' : (a.pathPick === 'stairs1' ? 'stairs1' : 'stairs2');
 };
 const manyPieces = () => S.items.length > 1;
@@ -571,9 +573,10 @@ const pathQuestion = (key) => (key === 'pickup'
   : `How do we reach the spot where the ${manyPieces() ? 'pieces go' : 'piece goes'}?`);
 function setPathPick(key, v) {
   const a = S[key];
-  if (v === 'stairs1') { setAccessAnswer(key, `${key}.accessMode`, 'stairs'); a.pathPick = 'stairs1'; setAccessAnswer(key, `${key}.stairFlights`, '1'); }
+  if (v === 'half') { setAccessAnswer(key, `${key}.accessMode`, 'stairs'); a.pathPick = 'half'; setAccessAnswer(key, `${key}.stairFlights`, 'half'); }
+  else if (v === 'stairs1') { setAccessAnswer(key, `${key}.accessMode`, 'stairs'); a.pathPick = 'stairs1'; setAccessAnswer(key, `${key}.stairFlights`, '1'); }
   else if (v === 'stairs2') {
-    const keep = ['2', '3', '4plus'].includes(String(a.stairFlights)) && a.accessMode === 'stairs' ? String(a.stairFlights) : '';
+    const keep = CADAccess.FLIGHT_COUNTS.some(([k]) => k === String(a.stairFlights)) && a.accessMode === 'stairs' ? String(a.stairFlights) : '';
     setAccessAnswer(key, `${key}.accessMode`, 'stairs'); a.pathPick = 'stairs2'; setAccessAnswer(key, `${key}.stairFlights`, keep);
   } else { a.pathPick = v; setAccessAnswer(key, `${key}.accessMode`, v); }
   persist();
@@ -588,34 +591,31 @@ const accessBlock = (key, a) => {
   let h = `<div class="field" data-access="${key}"><label class="f">${key === 'pickup' ? 'The whole way, from where we park to the piece' : 'The whole way, from where we park to where it’s placed or hung'}${req}</label>${seg(`${key}.pathPick`, PATH_PICKS, 'stack')}</div>`;
   if (mode === 'not_sure') h += `<p class="mini" style="margin:0 0 8px">${A.REVIEW_NOTE}</p>`;
   if (mode === 'elevator') {
-    h += input(`${key}.floor`, 'Floor', { ph: 'e.g. 3, Basement', attrs: 'autocapitalize="words" maxlength="30"', req: true });
-    h += `<div class="field"><label class="f">${opt('Service elevator available?')}</label>${seg(`${key}.serviceElevator`, A.YNS, 'wrap')}</div>`;
-    h += `<div class="field"><label class="f">Any stairs on the way?${req}</label>${seg(`${key}.elevatorStairs`, A.ELEV_STAIRS, 'wrap')}<p class="mini">Count steps before or after the elevator.</p></div>`;
+    h += `<div class="field"><label class="f">Regular or service elevator?${req}</label>${seg(`${key}.elevatorType`, A.ELEV_TYPES, 'wrap')}</div>`;
+    h += `<div class="field"><label class="f">Are you sure it will fit in the elevator?${req}</label>${seg(`${key}.elevatorFit`, A.ELEV_FIT, 'wrap')}</div>`;
+    if (a.elevatorFit === 'not_sure') h += `<div data-reqblock="${key}-elevatorAck"><label class="toggle"><span>${esc(A.ACK_TEXT)}</span><span class="sw"><input type="checkbox" data-path="${key}.elevatorAck" ${a.elevatorAck ? 'checked' : ''}><i></i></span></label></div>`;
   }
-  if (A.usesStairs(a)) {
-    const multi = mode === 'stairs' && a.pathPick === 'stairs2';
-    if (mode !== 'stairs' || multi) h += `<div class="field"><label class="f">How many flights?${req}</label>${seg(`${key}.stairFlights`, multi ? A.FLIGHTS.filter(([v]) => ['2', '3', '4plus'].includes(v)) : A.FLIGHTS, 'wrap')}
-      ${String(a.stairFlights) === '4plus' ? input(`${key}.stairs`, 'Total number of flights', { type: 'number', ph: 'e.g. 4', attrs: 'inputmode="numeric" min="4" step="1"', req: true }) : ''}</div>`;
-    h += `<div class="field"><label class="f">Up or down?${req}</label>${seg(`${key}.stairDir`, A.DIRS, 'wrap')}</div>`;
-    h += `<div class="field"><label class="f">${big ? 'Any tight turns or narrow spots?' + req : opt('Any tight turns or narrow spots?')}</label>${seg(`${key}.stairTurns`, A.YNS, 'wrap')}${big ? firmNote : ''}</div>`;
-    if (A.stairPhotosNeeded(a)) h += `<p class="mini req-line">Photos of the stairs and path — required, so we can plan the carry.</p>${photoRow(key, 'stairPhotos', 'Photos of the stairs and path', true)}`;
+  if (A.usesStairs(a) && mode === 'stairs' && a.pathPick === 'stairs2') {
+    h += select(`${key}.stairFlights`, 'How many flights?', A.FLIGHT_COUNTS, { req: true, placeholder: 'Choose', rerender: true });
   }
   let d = '';
   if (mode) {
-    d += `<div class="field"><label class="f">${opt('Loading dock available?')}</label>${seg(`${key}.dock`, A.YNS, 'wrap')}</div>`;
     d += `<div class="field"><label class="f">${opt('Doors')}</label>${seg(`${key}.doorway`, A.DOORWAYS, 'wrap')}</div>`;
-    d += `<div class="field"><label class="f">${big ? 'Will everything fit easily?' + req : opt('Will everything fit easily?')}</label>${seg(`${key}.fits`, A.FITS, 'wrap')}<p class="mini">Think doors, halls, turns, stairs and the elevator.</p>${big ? firmNote : ''}</div>`;
-    if (A.doorPhotosNeeded(a)) d += `<p class="mini req-line">Please add a photo of the tight spot and the way in.</p>${photoRow(key, 'doorPhotos', 'Photos', true)}`;
-    else if (a.fits === 'not_sure') d += `<p class="mini" style="margin:0 0 8px">Photos help if you have them.</p>${photoRow(key, 'doorPhotos', 'Photos', false)}`;
-    if (A.fitUnsure(a)) d += input(`${key}.narrowestIn`, opt('Narrowest opening (inches)'), { type: 'number', ph: 'e.g. 30', attrs: 'inputmode="numeric" min="1" step="1"' });
+    d += `<div class="field"><label class="f">${big ? 'Will everything fit easily?' + req : opt('Will everything fit easily?')}</label>${seg(`${key}.fits`, A.FITS, 'wrap')}</div>`;
+    if (a.fits === 'tight') d += input(`${key}.fitNote`, opt('What’s tight?'), { ph: 'e.g. Narrow hallway turn', attrs: 'maxlength="200"' });
+    if (A.usesStairs(a) || a.fits === 'tight' || a.fits === 'not_sure') {
+      const need = A.stairPhotosNeeded(a);
+      d += photoRow(key, A.usesStairs(a) ? 'stairPhotos' : 'doorPhotos', A.usesStairs(a) ? 'Photos of the stairs and path' : 'Photos of the tight spot', need);
+    }
   }
-  const x = `${toggle(`${key}.technicalCarry`, 'Tight spaces, backyard or technical carry', 'Garden paths, gravel or flagstone, narrow side gates, or around the house.', true)}
-        ${a.technicalCarry ? `<p class="mini" style="margin:0 0 8px">Photos of the route are helpful if you have them — you can also send them later.</p><div class="photos" style="margin:0 0 12px">${(a.sitePhotos || []).map((ph2) => `<img src="${esc(ph2)}" alt="">`).join('')}<label class="upload">＋ Photos of the route (stairs, stairwell, narrow halls or path)<span> (helpful)</span><input type="file" accept="image/*" multiple data-siteupload="${key}"></label></div>` : ''}
+  const x = `<div class="field"><label class="f">${opt('Any outdoor or rough path?')}</label>${seg(`${key}.pathType`, A.PATH_TYPES, 'wrap')}</div>
+        ${A.roughPath(a) ? `<div class="photos" style="margin:0 0 12px">${(a.sitePhotos || []).map((ph2) => `<img src="${esc(ph2)}" alt="">`).join('')}<label class="upload">＋ Photos of the path${A.sitePhotosNeeded(a, S.items) ? req : '<span> (helpful)</span>'}<input type="file" accept="image/*" multiple data-siteupload="${key}"></label></div>` : ''}
         ${toggle(`${key}.parkingRestricted`, 'Parking or loading restrictions', '', true)}
         ${a.parkingRestricted ? input(`${key}.parkingNote`, '', { ph: 'e.g. Loading zone only 9–11am, permit needed', attrs: 'aria-label="Parking or loading restrictions"' }) : ''}
         ${input(`${key}.hours`, 'Access hours', { ph: 'e.g. 9am–5pm' })}`;
   return { inn: h, doors: d, extra: x };
 };
+
 
 // ---------- pricing blocks ----------
 const feeNoteHtml = (q) => (q && q.accessFeeNote ? `<p class="mini access-fee-note" data-access-fee-note>${esc(q.accessFeeNote)}</p>` : '');
@@ -716,17 +716,18 @@ const crossRegionLine = (rg, pu = S.pickup, dr = S.dropoff) => {
   const pc = String((pu && pu.city) || '').trim(), dc = String((dr && dr.city) || '').trim();
   return pc && dc ? `${pc} → ${dc}` : `${regionName(rg.pickup)} → ${regionName(rg.dropoff)}`;
 };
+// Pickup and delivery cities (e.g. "West Hollywood → Palm Springs"), never a single route name for a two-stop job.
+const tripLine = () => (needsTwoDates() && String(S.pickup.city || '').trim() && String(S.dropoff.city || '').trim() ? `${String(S.pickup.city).trim()} → ${String(S.dropoff.city).trim()}` : crossRegionLine(quoteData && quoteData.regions));
 const needsTwoDates = () => !!(svc().needsPickup && svc().needsDropoff && !isShip());
-const routeHint = (day) => (day && day.routeType === 'downAndBack')
-  ? `<p class="mini route-hint">This is a down-and-back route, so we have more flexibility to come early or on our way back.</p>`
-  : '';
-const timeReassure = `<div class="time-reassure"><p>We build each route day to serve everyone efficiently, so we can’t promise an exact time at booking. We’ll be in touch before your date to confirm the arrival window. Need a guaranteed time? Ask about a dedicated trip.</p></div>`;
-const timePrefBlock = (prefPath, notePath, { showReassure = false } = {}) => {
-  const pref = get(prefPath) || 'none';
-  return `<h2>Time preference or constraints <span class="opt">(not guaranteed)</span></h2>
-    <div class="chips" data-chips="${prefPath}">${TIME_PREF_OPTS.map(([v, l]) => `<button type="button" class="chip ${(pref || 'none') === v ? 'on' : ''}" data-v="${esc(v)}">${esc(l)}</button>`).join('')}</div>
-    ${input(notePath, 'Time note (optional)', { ph: 'e.g. Must be done by noon' })}
-    <p class="mini">Tell us any time limits in the note; we’ll do our best but can’t promise.</p>
+const routeHint = () => '';
+const timeReassure = ""; // the Dedicated trip toggle right below says it (Nov 23 2026)
+const timePrefBlock = (prefPath, notePath, { showReassure = false, explain = true } = {}) => {
+  const on = CADAccess.timePrefList(get(prefPath));
+  return `<h2>Preferred times <span class="opt">(we’ll do our best to accommodate)</span></h2>
+    <p class="mini" style="margin:-4px 0 8px">Select all that work.</p>
+    <div class="chips" data-chips="${prefPath}" data-multi>${TIME_PREF_OPTS.map(([v, l]) => `<button type="button" class="chip ${(v === 'none' ? !on.length : on.includes(v)) ? 'on' : ''}" data-v="${esc(v)}" aria-pressed="${(v === 'none' ? !on.length : on.includes(v)) ? 'true' : 'false'}">${esc(l)}</button>`).join('')}</div>
+    ${input(notePath, 'Timing notes (optional)', { ph: 'Anything we should know about timing' })}
+    ${explain ? `<p class="mini">We’ll do our best but can’t promise an exact time. As your date gets closer, and on the day, we’ll keep sending you narrower ETA windows. We serve clients all over the state, so a little flexibility helps us help everyone.</p>` : ''}
     ${showReassure ? timeReassure : ''}`;
 };
 const promiseCard = (sub, extraStyle = '', editTarget = '') => {
@@ -755,7 +756,7 @@ function deliveryBlock() {
   const chip = `<div class="pickup-chip" data-pickup-chip><span><b>Pickup</b> ${esc(shortDate(S.schedule.date))}</span><button type="button" class="edit" data-change-pickup>Change</button></div>`;
   return `${chip}
     <h1 class="when-h1">Choose your delivery date</h1>
-    <p class="sub">Pick a route day that serves the delivery address, on or after your pickup date. Same-day delivery is available when that route serves both areas. Same-day isn’t available between Northern and Southern California.</p>
+    <p class="sub">On or after your pickup date.</p>
     ${cross}
     <div class="region">● ${esc((delAvail && (delAvail.area || delAvail.region)) || 'Your area')} route</div>
     ${days}`;
@@ -834,7 +835,7 @@ function pairBlock() {
         ${delAvail ? `<div class="days col-days" data-reqblock="deldate">${dw.list.map((d) => pairCard(d, 'del')).join('')}</div>${dw.btn}` : '<p class="mini" data-reqblock="deldate">Finding delivery days…</p>'}
       </div>
     </div>
-    <p class="mini">Same-day delivery is available when one route serves both addresses. Same-day isn’t available between Northern and Southern California.</p>`;
+`;
 }
 
 // ---------- photo rules (Chad, Nov 19): required only when special handling is on. Weight "Not sure" never requires a photo. ----------
@@ -847,11 +848,11 @@ const valueHint = (it) => (shipService() ? 'The value of this one piece. Our shi
   : num(it.value) > 0 ? `Declared value protection: 1.5% of this piece’s declared value (${fmt(Math.round(num(it.value) * 1.5) / 100)} per piece), included.`
   : PROTECTION_HINT);
 // Declared value protection (Chad + Dot, Nov 16 2026; made optional Nov 19 2026): 1.5% of each ELIGIBLE piece's declared value
-// (pieces valued $50,000 or less), INCLUDED by default with a visible "Remove protection" control. Never called insurance or full coverage.
+// (pieces valued $50,000 or less), ALWAYS included, no opt-out (Chad, Nov 23 2026). Never called insurance or full coverage.
 // Over $50,000: no protection line, no note, no special hint (Chad, Nov 16 2026). The value is just for our records.
 const PROTECTION_HINT = 'The value of this one piece. Pieces valued up to $50,000 include declared value protection: 1.5% of their declared value.';
 const protectionNote = (q) => (q && q.protection && q.protection.amount > 0
-  ? 'Declared value protection is 1.5% of the declared value of each eligible piece (valued up to $50,000), included in the price above.'
+  ? 'Covers each piece valued up to $50,000.'
   : '');
 const PROTECTION_DOCK = 'Includes declared value protection';
 const weightRequired = (it) => shipService() || it.type === 'sculpture' || it.type === 'other';
@@ -890,7 +891,7 @@ const syncFrameType = (i) => {
   updateNext();
 };
 const handlingBlock = (item, i) => `${toggle(`items.${i}.fragile`, 'Special handling needed', '', true)}
-    <p class="mini" style="margin:-6px 0 10px">Only for pieces outside normal handling: extremely fragile, large protrusions or awkward shapes, can’t be stood upright, or needs custom crating. Standard pieces, such as normal paintings, framed art, mirrors, ceramics and solid sculpture, don’t need this.</p>`;
+    <p class="mini" style="margin:-6px 0 10px">Only for very fragile or awkward pieces, ones that can’t stand upright, or ones that need custom crating.</p>`;
 // Heavy wall pieces (Chad, Nov 21 2026): surcharge on pickup & delivery by weight; over the limit = custom quote, no booking.
 const WALL_WEIGHT_TYPES = () => (((CFG && CFG.pricing && CFG.pricing.wallArtWeight) || {}).types || ['painting', 'photograph', 'mirror', 'wallart']);
 const wallWeightCfg = () => ((CFG && CFG.pricing && CFG.pricing.wallArtWeight) || { tiers: [], maxLb: 400 });
@@ -1083,7 +1084,7 @@ const valueConfirmCard = (where) => {
     ${bulk}
     ${where === 'review' ? rows + (f.length === 1 ? '<p class="mini vc-fine">Confirming says: the declared value shown for this piece is correct.</p>' : '') : '<p class="mini">Or confirm one at a time in the list below.</p>'}</div>`;
 };
-const reviewPieces = () => `<div class="sum-row piece-review-note"><span class="mini" data-piece-note>Each piece is listed and priced separately. Please check the dimensions, declared value, handling requirements, and photos for every piece.</span></div>`
+const reviewPieces = () => `<div class="sum-row piece-review-note"><span class="mini" data-piece-note>Please check each piece’s details.</span></div>`
   + S.items.map((it, i) => `<div class="sum-row" data-review-piece="${i}"><span><b>${esc(pieceTitle0(it, i))}</b><br><span class="muted">${esc([pieceFacts(it), framingText(it), (it.photos || []).length ? `${it.photos.length} photo${it.photos.length === 1 ? '' : 's'}` : ''].filter(Boolean).join(' · '))}</span>${it.checkValue ? '<br><span class="tag warn">Check value</span>' : ''}</span><span>${editBtn(`0:p${i}a`)}</span></div>`).join('');
 // Confirmation page: every piece, by number (collapsed until opened).
 const yourPieces = (o) => {
@@ -1136,13 +1137,13 @@ const views = {
         if (pieceHasSize(item, ship)) panels.push(panel(`p${i}b`, `<h1>How big is it?</h1>${pieceTag(item, i)}<div class="card">${pieceSize(item, i, ship)}</div>`));
         panels.push(panel(`p${i}c`, `<h1>${ship ? 'Weight, value and care' : 'Value and care'}</h1>${pieceTag(item, i)}<div class="card">${pieceCare(item, i, ship)}</div>`));
       });
-      panels.push(panel('pieces-more', `<h1>Anything else to ${svcVerbShort()}?</h1><p class="sub">${S.items.length === 1 ? 'You’ve added one piece.' : `You’ve added ${S.items.length} pieces.`} Each piece is listed and priced separately. Add more, copy a piece, or tap Next to continue.</p>
+      panels.push(panel('pieces-more', `<h1>Anything else to ${svcVerbShort()}?</h1>
         ${flaggedPieces().length > 1 ? valueConfirmCard('list') : ''}
         ${listSummary()}
         <div class="card pc-list" data-pclist>${S.items.map((it, i) => pieceListRow(it, i)).join('')}</div>
         <button type="button" class="add" id="addItem">＋ Add another piece</button>
         ${quickEditBlock()}
-        <p class="mini">${ship ? 'Shipping is for anything going outside California, in the US or overseas, and is always custom quoted. Within California we always provide white glove delivery. Nothing is charged until you approve our quote.' : `Jobs with an address outside California are custom quoted as Shipping. Within California we always provide white glove delivery.`}</p>`));
+        ${ship ? '<p class="mini">Shipping is custom quoted. We’ll email your price before anything is charged.</p>' : ''}`));
     }
     return panels.join('');
   },
@@ -1173,7 +1174,7 @@ const views = {
     // Tight spaces, parking, access hours and special instructions (Chad, Nov 21 2026): one collapsed, optional section on the
     // address screen instead of its own screen, so a regular customer flies through. Opens by itself when anything is filled in.
     const accessExtras = (key, a) => {
-      const any = !!(a.technicalCarry || a.parkingRestricted || String(a.hours || '').trim() || String(a.notes || '').trim());
+      const any = !!(a.technicalCarry || CADAccess.roughPath(a) || a.parkingRestricted || String(a.hours || '').trim() || String(a.notes || '').trim());
       const open = any || openExtras.has(key);
       return `<details class="card access-extras" data-extras="${key}" ${open ? 'open' : ''}><summary>Add access details <span class="opt">(optional)</span><span class="mini">Tight spaces, parking, access hours, special instructions</span></summary>
         <div class="extras-body">${accessBlock(key, a).extra}
@@ -1196,11 +1197,11 @@ const views = {
       const at = `<p class="sub">${key === 'pickup' ? 'Pickup' : S.service === 'install_only' ? 'Install' : shipService() ? 'Destination' : 'Delivery'}${a.street ? ' · ' + esc(a.street) : ''}</p>`;
       return [
         panel(`${key}-access`, `<h1>${pathQuestion(key)}</h1>${at}<div class="card">${ab.inn}</div>`),
-        panel(`${key}-doors`, `<h1>Doors, docks and fit</h1>${at}<div class="card">${ab.doors || '<p class="mini" style="margin:0">Tell us how we reach the spot first.</p>'}</div>`),
+        panel(`${key}-doors`, `<h1>Doors and fit</h1>${at}<div class="card">${ab.doors || '<p class="mini" style="margin:0">Tell us how we reach the spot first.</p>'}</div>`),
       ];
     };
     const out = [];
-    out.push(panel('you', `<h1>Let’s start with you</h1><p class="sub">Who we’re working with.</p><div class="card">
+    out.push(panel('you', `<h1>Let’s start with you</h1><div class="card">
         ${input('contact.name', 'Full name', { attrs: 'autocomplete="name"', req: true })}
         <div class="row">${input('contact.email', 'Email', { type: 'email', attrs: 'autocomplete="email" autocapitalize="off"', req: true })}${input('contact.phone', 'Mobile', { type: 'tel', ph: '(415) 555-0123', attrs: 'autocomplete="tel"', req: true })}</div>
       </div>`));
@@ -1233,8 +1234,8 @@ const views = {
       S.items.forEach((it, i) => { if (isHung(it)) out.push(panel(`hang-p${i}`, `<h1>How high should we hang it?</h1><div class="card">${hangPieceBlock(it, i)}</div>`)); });
     }
     if (S.items.some(pieceNeedsStairwellFit)) {
-      out.push(panel('stairfit', `<h1>Stairwell fit</h1><div class="card">${S.items.map((it, i) => pieceNeedsStairwellFit(it) ? `<label class="toggle" data-reqblock="stairwellFit-${i}"><span>Piece ${i + 1}${it.description ? ` (${esc(it.description)})` : ''}: I confirm this piece will fit through the stairwell. If it doesn’t fit, CAD will leave it at the bottom of the stairs and the full price still applies.</span>
-        <span class="sw"><input type="checkbox" data-path="items.${i}.fitsStairwell" ${it.fitsStairwell ? 'checked' : ''}><i></i></span></label>` : '').join('')}</div>`));
+      out.push(panel('stairfit', `<h1>Stairwell fit</h1><div class="card">${S.items.map((it, i) => pieceNeedsStairwellFit(it) ? `<div data-reqblock="stairwellFit-${i}"><label class="toggle"><span>Piece ${i + 1}${it.description ? ` (${esc(it.description)})` : ''}: ${esc(CADAccess.ACK_TEXT)}</span>
+        <span class="sw"><input type="checkbox" data-path="items.${i}.fitsStairwell" ${it.fitsStairwell ? 'checked' : ''}><i></i></span></label></div>` : '').join('')}</div>`));
     }
     return out.join('');
   },
@@ -1264,16 +1265,16 @@ const views = {
       ${avail.rush.length ? `<h2>Need a different date?</h2><div class="days">${avail.rush.map(card).join('')}</div>` : ''}
       ${sel ? routeHint(sel) : ''}
       ${S.schedule.date ? timePrefBlock('schedule.timePref', 'schedule.timeNote', { showReassure: true }) : ''}`;
-    const tail = `${ready ? promiseCard(crossRegionLine(quoteData && quoteData.regions) || (sel && sel.routeLabel) || (region + ' route')) : ''}
+    const tail = `${ready ? promiseCard(tripLine() || (sel && sel.routeLabel) || (region + ' route')) : ''}
       <div class="card" style="margin-top:14px">${toggle('dedicated', 'Dedicated trip', 'A van and crew just for your job, at a time that works for you.', true, 'first')}</div>
-      <p class="mini">Rush and dedicated trips are priced individually; you’ll see the price before paying.</p>`;
+`;
     if (two) {
       const dsel = delAvail && (delAvail.days || []).find((d) => d.date === S.schedule.deliveryDate);
-      const pairHtml = `<h1 class="when-h1">Choose your dates</h1><p class="sub">Our van follows a weekly route. Pick a pickup day or a delivery day first, whichever matters more to you.</p>
+      const pairHtml = `<h1 class="when-h1">Choose your dates</h1>
         ${pairBlock()}
         ${intro ? `<p class="mini">${intro}</p>` : ''}
         ${sel ? routeHint(sel) : dsel ? routeHint(dsel) : ''}
-        ${S.schedule.date ? `<div class="pair-pref"><p class="col-sub">Pickup · ${esc(shortDate(S.schedule.date))}</p>${timePrefBlock('schedule.timePref', 'schedule.timeNote')}</div>` : ''}
+        ${S.schedule.date ? `<div class="pair-pref"><p class="col-sub">Pickup · ${esc(shortDate(S.schedule.date))}</p>${timePrefBlock('schedule.timePref', 'schedule.timeNote', { explain: !S.schedule.deliveryDate })}</div>` : ''}
         ${S.schedule.deliveryDate ? `<div class="pair-pref"><p class="col-sub">Delivery · ${esc(shortDate(S.schedule.deliveryDate))}</p>${timePrefBlock('schedule.deliveryTimePref', 'schedule.deliveryTimeNote')}</div>` : ''}
         ${S.schedule.date || S.schedule.deliveryDate ? timeReassure : ''}`;
       return panel('date', pairHtml + tail);
@@ -1318,9 +1319,9 @@ const views = {
         ${input('payerOther.phone', 'Payer phone', { type: 'tel', req: true, ph: '(415) 555-0123', attrs: 'autocomplete="tel"' })}` : ''}
         ${S.payer === 'partner' && !(isBizReferral() && (S.heard.businessName || S.heard.referrerName || S.partner.name)) ? `<p class="mini">Add the referring partner in <button type="button" class="edit" style="padding:0" data-goto="1:heard">Where</button> so we know who to bill.</p>` : ''}</div>`;
     const payerName = S.payer === 'other' ? (S.payerOther.name || 'Someone else') : S.payer === 'partner' ? 'Referring partner' : 'Me';
-    return panel('payer', `<h1>Who’s paying?</h1><p class="sub">Last question before your review.</p>${payerCard}`)
+    return panel('payer', `<h1>Who’s paying?</h1>${payerCard}`)
       + panel('review', `<h1>${sp ? 'Review your order' : 'Review & pay'}</h1><p class="sub">${sp ? 'Check the details, then send it to our team for pricing.' : 'Your job is booked as soon as payment goes through.'}</p>${valueConfirmCard('review')}
-      ${promiseCard(crossRegionLine(quoteData && quoteData.regions) || (date && date.routeLabel) || (avail && avail.region ? avail.region + ' route' : 'Route day'), 'margin-top:0', '2:date')}
+      ${promiseCard(tripLine() || (date && date.routeLabel) || (avail && avail.region ? avail.region + ' route' : 'Route day'), 'margin-top:0', '2:date')}
       <div class="card">
         <div class="sum-row"><span>Service</span><span>${esc(svc().label)}${S.rush ? ' · rush' : ''}${S.dedicated ? ' · dedicated trip' : ''} ${editBtn('0:service')}</span></div>
         ${reviewPieces()}
@@ -1347,7 +1348,7 @@ const views = {
         ${S.payer === 'other' ? `<div class="row" style="margin-top:12px">${input('payerOther.name', 'Payer name', { req: true })}${input('payerOther.email', 'Payer email', { type: 'email', req: true, attrs: 'autocapitalize="off" autocomplete="email"' })}</div>
         ${input('payerOther.phone', 'Payer phone', { type: 'tel', req: true, ph: '(415) 555-0123', attrs: 'autocomplete="tel"' })}` : ''}
         ${S.payer === 'partner' && !(isBizReferral() && (S.heard.businessName || S.heard.referrerName || S.partner.name)) ? `<p class="mini">Add the referring partner in <button type="button" class="edit" style="padding:0" data-goto="1:heard">Where</button> so we know who to bill.</p>` : ''}</div>`;
-    return panel('payer', `<h1>Who’s paying?</h1><p class="sub">Last question before your review.</p>${payerCard}`)
+    return panel('payer', `<h1>Who’s paying?</h1>${payerCard}`)
       + panel('review', `<h1>Review your shipping request</h1><p class="sub">Our shipping team prices your shipment and emails you a quote. Nothing is charged until you approve it.</p>${valueConfirmCard('review')}
       ${outOfState() ? `<p class="note" data-oos>${OOS_NOTE}</p>` : ''}
       <div class="promise quote" style="margin-top:0"><span class="pi">✈</span><span><b>${esc(timingText(sh))}</b><span>${esc(levelText(sh.serviceLevel))}</span></span>${editBtn('2:ship-timing')}</div>
@@ -1525,11 +1526,12 @@ function missingFields(name = STEPS[step]) {
       const where = key === 'pickup' ? 'Pickup' : shipService() ? 'Destination' : S.service === 'install_only' ? 'Installation' : 'Delivery';
       const ACCESS_GAP = {
         accessMode: [`[data-seg="${key}.pathPick"]`, 'How do we reach the spot?', 'Please tell us how we reach the spot, the whole way.'],
-        stairFlights: [`[data-seg="${key}.stairFlights"]`, 'How many flights?', 'Please choose how many flights of stairs.'],
+        stairFlights: [`#f-${key}.stairFlights`, 'How many flights?', 'Please choose how many flights of stairs.'],
         stairs: [`#f-${key}.stairs`, 'Total number of flights', 'Enter the total number of flights (4 or more).'],
-        elevatorStairs: [`[data-seg="${key}.elevatorStairs"]`, 'Any stairs on the way?', 'Please tell us if there are stairs on the way to the elevator.'],
-        stairDir: [`[data-seg="${key}.stairDir"]`, 'Up or down?', 'Please tell us if the stairs go up or down.'],
-        stairTurns: [`[data-seg="${key}.stairTurns"]`, 'Tight turns or narrow spots?', 'Please tell us about tight turns or narrow spots.'],
+        elevatorType: [`[data-seg="${key}.elevatorType"]`, 'Regular or service elevator?', 'Please choose regular or service elevator.'],
+        elevatorFit: [`[data-seg="${key}.elevatorFit"]`, 'Will it fit in the elevator?', 'Please tell us if it will fit in the elevator.'],
+        elevatorAck: [`[data-reqblock="${key}-elevatorAck"]`, 'Elevator acknowledgment', 'Please check the box to continue.'],
+        sitePhotos: [`[data-siteupload="${key}"]`, 'Photos of the path', 'Please add a photo of the path.'],
         stairPhotos: [`[data-accessupload="${key}.stairPhotos"]`, 'Photos of the stairs and path', 'Please add a photo of the stairs and path.'],
         floor: [`#f-${key}.floor`, 'Floor', 'Please enter the floor.'],
         fits: [`[data-seg="${key}.fits"]`, 'Will everything fit easily?', 'Please tell us if everything will fit easily.'],
@@ -1538,7 +1540,7 @@ function missingFields(name = STEPS[step]) {
       CADAccess.gaps(a, S.items).forEach((g) => { const [sel, label, msg] = ACCESS_GAP[g]; add(sel, `${label} — ${where}`, msg); });
     });
     S.items.forEach((it, i) => {
-      if (pieceNeedsStairwellFit(it) && !it.fitsStairwell) add(`[data-reqblock="stairwellFit-${i}"]`, `Stairwell fit — ${pieceName(i)}`, 'Please confirm this piece will fit through the stairwell.');
+      if (pieceNeedsStairwellFit(it) && !it.fitsStairwell) add(`[data-reqblock="stairwellFit-${i}"]`, `Stairwell fit — ${pieceName(i)}`, 'Please check the box to continue.');
     });
     return out;
   }
@@ -1990,6 +1992,8 @@ app.addEventListener('toggle', (e) => {
 app.addEventListener('change', (e) => {
   if (e.target.dataset.path && e.target.tagName === 'SELECT') {
     set(e.target.dataset.path, e.target.value);
+    const sf = (e.target.dataset.path || '').match(/^(pickup|dropoff)\.stairFlights$/);
+    if (sf) { CADAccess.normalize(S[sf[1]]); persist(); }
     const mk = (e.target.dataset.path || '').match(/^items\.(\d+)\.furnitureKind$/);
     if (mk && routeDecorMirror(S.items[+mk[1]])) persist();
     refreshQuote();
@@ -2178,11 +2182,17 @@ app.addEventListener('click', async (e) => {
   if (hp) { const it = S.items[+hp[1]]; const v = t.dataset.v; if (v === 'standard') { it.hangHeight = 'standard'; it.hangWhere = ''; } else { it.hangHeight = 'higher'; it.hangWhere = v; } set(sg.dataset.seg, v); render(); return; }
   const pth = sg && sg.dataset.seg.match(/^(pickup|dropoff)\.pathPick$/);
   if (pth) { setPathPick(pth[1], t.dataset.v); render(); return; }
-  const acc = sg && sg.dataset.seg.match(/^(pickup|dropoff)\.(accessMode|stairFlights|stairDir|stairTurns|serviceElevator|dock|elevatorStairs|doorway|fits)$/);
+  const acc = sg && sg.dataset.seg.match(/^(pickup|dropoff)\.(accessMode|stairFlights|stairDir|stairTurns|serviceElevator|elevatorType|elevatorFit|pathType|elevatorStairs|doorway|fits)$/);
   if (acc) { setAccessAnswer(acc[1], sg.dataset.seg, t.dataset.v); render(); return; }
   if (sg) { const v = t.dataset.v; set(sg.dataset.seg, isNaN(v) ? v : Number(v)); render(); return; }
   const paySeg = t.closest('[data-pay-method]'); if (paySeg) { payMethod = t.dataset.v; render(); return; }
-  const chips = t.closest('[data-chips]'); if (chips) { set(chips.dataset.chips, t.dataset.v); render(); return; }
+  const chips = t.closest('[data-chips]');
+  if (chips && 'multi' in chips.dataset) {
+    const v = t.dataset.v; let on = CADAccess.timePrefList(get(chips.dataset.chips));
+    if (v === 'none') on = []; else on = on.includes(v) ? on.filter((x) => x !== v) : [...on, v];
+    set(chips.dataset.chips, on.length ? CADAccess.TIME_PREFS.map(([k]) => k).filter((k) => on.includes(k)).join(',') : 'none'); render(); return;
+  }
+  if (chips) { set(chips.dataset.chips, t.dataset.v); render(); return; }
   if (t.dataset.moredays) { moreDays[t.dataset.moredays] = true; render(); return; }
   if (t.dataset.clear) {
     if (t.dataset.clear === 'pu') { S.schedule.date = ''; S.rush = false; S.schedule.timePref = 'none'; S.schedule.timeNote = ''; }
