@@ -467,6 +467,15 @@ function sendConfirmationEmails(id) {
   update(id, (x) => x.emails.push(sent));
   const pc = payerCopy(o);
   if (pc) { const s2 = email.send('payer_receipt', findOrder(id), pc); update(id, (x) => x.emails.push(s2)); }
+  // Real delivery (Nov 23 2026): plain-text confirmation sent by the CAD Google account through the schedule bridge.
+  const deliver = async (to, forPayer) => {
+    const { subject, body } = email.confirmationText(findOrder(id), forPayer);
+    const r = await sheetSync.mail(to, subject, body);
+    update(id, (x) => { x.emailDelivery = [...(x.emailDelivery || []), { to, ok: !!r.ok, error: r.ok ? undefined : r.error, at: new Date().toISOString() }]; });
+    if (!r.ok) teamAlert(`CONFIRMATION EMAIL FAILED for ${id}`, `The booking confirmation to ${to} did not send: ${r.error}. Please send it by hand.`);
+  };
+  if (/\S+@\S+\.\S+/.test((o.contact && o.contact.email) || '')) deliver(String(o.contact.email).trim(), false).catch(() => {});
+  if (pc) deliver(pc.to, true).catch(() => {});
 }
 // Payment is confirmed server-side (webhook or pay call). The booking is only CONFIRMED to the customer once the schedule row is
 // durably saved: until then the order shows scheduleStatus "pending" (exception queue + alert to Samantha if it keeps failing).

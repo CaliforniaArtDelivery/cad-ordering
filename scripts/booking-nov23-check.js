@@ -6,7 +6,7 @@ const OUT = process.env.SHOTS || '/workspace/cad_qa/nov23_booking';
 const TAG = process.env.TAG || 'local';
 const stop = (street, city, zip, x = {}) => ({ street, city, state: 'CA', zip, country: 'United States', contactName: 'Jordan Lee', contactPhone: '3105550199', sameAsMe: true, accessMode: 'ground', pathPick: 'ground', fits: 'yes', ...x });
 const piece = (x = {}) => ({ id: 'pcA' + Math.random().toString(36).slice(2, 6), type: 'painting', description: 'Oil on canvas', w: '40', h: '30', d: '2', framed: 'yes', glazing: 'no', frameType: '', value: '3000', weight: '', photos: [], hangHeight: 'standard', qty: 1, ...x });
-const state = () => ({ service: 'pickup_delivery', items: [piece()], contact: { name: 'QA Botschild Test', email: 'qa-test@example.com', phone: '3105550199', company: '', clientType: 'Collector' }, heard: { source: 'google' }, payer: 'me',
+const state = () => ({ service: 'pickup_delivery', items: [piece()], contact: { name: 'QA Botschild Test', email: process.env.EMAIL || 'qa-test@example.com', phone: '3105550199', company: '', clientType: 'Collector' }, heard: { source: 'google' }, payer: 'me',
   pickup: stop('8678 Melrose Ave', 'West Hollywood', '90069'), dropoff: stop('100 N Palm Canyon Dr', 'Palm Springs', '92262'), schedule: { date: '', deliveryDate: '', timePref: 'none', deliveryTimePref: 'none' } });
 const BAD = /(?<!TEST MODE · )(?:nothing is charged)|(?<!Other )request|(?<!custom )quote|loading dock|same-day|not guaranteed|ESTIMATE|estimat|penciled|pencilled|confirm(s)? (it )?within|business day|no payment|samantha|remove protection|separate regional|final price|call us|date to be confirmed/i;
 (async () => {
