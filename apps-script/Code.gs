@@ -1,12 +1,15 @@
 /**
  * CAD online-ordering -> SCHEDULE sheet bridge (Google Apps Script, owned by the CAD Google account).
- * v2 "ONE TAB" (Chad, Nov 25 2026): every online order goes onto the ONE schedule tab, SCHEDULE 2026, exactly the way a
+ * v2 "ONE TAB" (Chad, Nov 25 2026): every online order goes onto the ONE schedule tab (TARGET_TAB_NAME), exactly the way a
  * team member adds a job. No ONLINE ORDERS / TEST ORDERS / RAW LOG tabs, no other tabs, no logs.
  *
  * Deploy: open the "CAD online orders bridge" project > replace Code.gs with this file > Save > Run migrateToOneTab once
  * (moves any old ONLINE ORDERS / TEST ORDERS rows onto SCHEDULE 2026 and deletes the three old tabs) >
  * Deploy > Manage deployments > Edit > Version: New version > Deploy (same /exec URL).
- * Script properties (unchanged): SECRET, TARGET_SPREADSHEET_ID, ALERT_EMAIL.
+ * Script properties: SECRET, TARGET_SPREADSHEET_ID, TARGET_TAB_NAME, ALERT_EMAIL.
+ * TARGET_TAB_NAME is "TEST SCHEDULE 2026" on the test sheet. The live switch is: set TARGET_SPREADSHEET_ID
+ * to the live schedule id AND set TARGET_TAB_NAME to "SCHEDULE 2026". Do not switch until Chad says go live.
+ * If TARGET_TAB_NAME is unset, uses "TEST SCHEDULE 2026" when that tab exists, else "SCHEDULE 2026".
  *
  * Where rows go on SCHEDULE 2026 (the team's own conventions):
  *  - Paid / confirmed order: each leg goes on its date. It fills the first EMPTY pre-made slot row of that date (a row with only
@@ -23,7 +26,23 @@
  *
  * Actions: order (write + read-back verify), days (read-only digest per date), reconcile, alert, verifyAll() (time trigger).
  */
-var TAB_MAIN = 'SCHEDULE 2026', TAB_CAL = 'ROUTE CALENDAR';
+var TAB_MAIN_DEFAULT = 'SCHEDULE 2026', TAB_TEST_DEFAULT = 'TEST SCHEDULE 2026', TAB_CAL = 'ROUTE CALENDAR';
+function tabName_() {
+  var n = String(props_().getProperty('TARGET_TAB_NAME') || '').trim();
+  if (n) return n;
+  try {
+    var ss = ss_();
+    if (ss.getSheetByName(TAB_TEST_DEFAULT)) return TAB_TEST_DEFAULT;
+  } catch (e) {}
+  return TAB_MAIN_DEFAULT;
+}
+function main_(ss) {
+  ss = ss || ss_();
+  var name = tabName_();
+  var sh = ss.getSheetByName(name);
+  if (!sh) throw new Error('Target tab "' + name + '" is missing on the target spreadsheet.');
+  return sh;
+}
 var LEGACY_TABS = ['ONLINE ORDERS', 'TEST ORDERS', 'ONLINE ORDERS RAW LOG'];
 var NCOLS = 35; // A..AI (the SCHEDULE 2026 table)
 var NUM_COLS = [31, 33]; // AE Amount Due, AG Amount Paid (1-based)
@@ -222,8 +241,7 @@ function handleOrder_(b) {
   var lock = LockService.getScriptLock();
   lock.waitLock(30000);
   try {
-    var ss = ss_(), sh = ss.getSheetByName(TAB_MAIN);
-    if (!sh) throw new Error('tab "' + TAB_MAIN + '" not found');
+    var ss = ss_(), sh = main_(ss);
     migrateLegacy_(ss);
     var id = String(b.orderId || ''), isConfirmed = b.event === 'confirmed', test = !!b.test;
     if (!/^\S+$/.test(id)) throw new Error('bad order id');
@@ -237,25 +255,25 @@ function handleOrder_(b) {
     var snap = snapshot_(sh), present = findOrderRows_(snap, id);
     if (isConfirmed) {
       var conf = present.filter(function (p) { return !p.pending; });
-      if (st && st.e === 'confirmed') return { ok: true, duplicate: true, rowCount: st.n, tab: TAB_MAIN, firstRow: conf.length ? conf[0].row : 0, test: test };
+      if (st && st.e === 'confirmed') return { ok: true, duplicate: true, rowCount: st.n, tab: tabName_(), firstRow: conf.length ? conf[0].row : 0, test: test };
       if (conf.length === n) { // a retry after a half-finished attempt: rows are there, record and verify
         setState_(id, { e: 'confirmed', n: n, t: test, at: Date.now(), c: (b.summary || {}).client || '', d: (b.summary || {}).pickupDate || '', s: conf.map(function (p) { return rowSig_(rowAt_(snap, p.row), snap.tz); }) });
-        return { ok: true, duplicate: true, rowCount: n, tab: TAB_MAIN, firstRow: conf[0].row, test: test };
+        return { ok: true, duplicate: true, rowCount: n, tab: tabName_(), firstRow: conf[0].row, test: test };
       }
-      if (conf.length) throw new Error('PARTIAL ROWS for ' + id + ' on ' + TAB_MAIN + ' (' + conf.length + ' of ' + n + '). Not writing more; fix by hand.');
+      if (conf.length) throw new Error('PARTIAL ROWS for ' + id + ' on ' + tabName_() + ' (' + conf.length + ' of ' + n + '). Not writing more; fix by hand.');
       var pend = present.filter(function (p) { return p.pending; }).map(function (p) { return p.row; });
       if (pend.length) { deleteRows_(sh, pend); SpreadsheetApp.flush(); snap = snapshot_(sh); }
     } else {
-      if (st || present.length) return { ok: true, duplicate: true, logged: true, rowCount: present.length, tab: TAB_MAIN, firstRow: present.length ? present[0].row : 0, test: test };
+      if (st || present.length) return { ok: true, duplicate: true, logged: true, rowCount: present.length, tab: tabName_(), firstRow: present.length ? present[0].row : 0, test: test };
       if (!n) { setState_(id, { e: 'pending', n: 0, t: test, at: Date.now() }); return { ok: true, logged: true, rowsWritten: 0 }; }
     }
     var placed = placeRows_(sh, snap, rows, id, test, !isConfirmed);
     SpreadsheetApp.flush();
     var diffs = readBack_(sh, placed.rowNums, placed.expected);
     var first = Math.min.apply(null, placed.rowNums);
-    if (diffs.length) { alertMail_('ALERT: read-back mismatch for online order ' + id, diffs.slice(0, 30).join('\n')); return { ok: true, rowsWritten: n, verified: false, verifyDetail: diffs.slice(0, 5).join(' | '), tab: TAB_MAIN, firstRow: first, rows: placed.rowNums, test: test }; }
+    if (diffs.length) { alertMail_('ALERT: read-back mismatch for online order ' + id, diffs.slice(0, 30).join('\n')); return { ok: true, rowsWritten: n, verified: false, verifyDetail: diffs.slice(0, 5).join(' | '), tab: tabName_(), firstRow: first, rows: placed.rowNums, test: test }; }
     setState_(id, { e: isConfirmed ? 'confirmed' : 'pending', n: n, t: test, at: Date.now(), c: (b.summary || {}).client || '', d: (b.summary || {}).pickupDate || '', s: placed.expected.map(function (v) { return rowSig_(v, snap.tz); }) });
-    return { ok: true, rowsWritten: n, verified: true, tab: TAB_MAIN, firstRow: first, rows: placed.rowNums, test: test, pending: !isConfirmed };
+    return { ok: true, rowsWritten: n, verified: true, tab: tabName_(), firstRow: first, rows: placed.rowNums, test: test, pending: !isConfirmed };
   } finally { lock.releaseLock(); }
 }
 
@@ -267,7 +285,7 @@ function migrateToOneTab() {
 function migrateLegacy_(ss) {
   var olds = LEGACY_TABS.map(function (n) { return ss.getSheetByName(n); });
   if (!olds[0] && !olds[1] && !olds[2]) return { ok: true, migrated: 0, deletedTabs: [] };
-  var sh = ss.getSheetByName(TAB_MAIN), snap = snapshot_(sh), moved = [], skipped = [];
+  var sh = main_(ss), snap = snapshot_(sh), moved = [], skipped = [];
   [0, 1].forEach(function (k) {
     var t = olds[k]; if (!t || t.getLastRow() < 3) return;
     var vals = t.getRange(3, 1, t.getLastRow() - 2, NCOLS).getValues(), groups = {}, order = [];
@@ -297,7 +315,7 @@ function migrateLegacy_(ss) {
 function handleDays_() {
   var ss = ss_(), tz = ss.getSpreadsheetTimeZone(), days = {};
   function rec(iso) { return days[iso] || (days[iso] = { routes: [], jobRows: 0, off: false, offWhy: '' }); }
-  var main = ss.getSheetByName(TAB_MAIN), last = main.getLastRow();
+  var main = main_(ss), last = main.getLastRow();
   if (last >= 3) {
     var v = main.getRange(3, 1, last - 2, COL_NOTES).getValues(); // A..J
     for (var i = 0; i < v.length; i++) {
@@ -346,7 +364,7 @@ function handleSeed_(b) {
 // b.orderIds: every order the server has CONFIRMED (non-test). Reports paid orders with no rows, and paid online-order rows
 // (not TEST, not PENDING) whose id the server does not know.
 function handleReconcile_(b) {
-  var ss = ss_(), sh = ss.getSheetByName(TAB_MAIN), known = {}, missing = [], orphans = [], seen = {};
+  var ss = ss_(), sh = main_(ss), known = {}, missing = [], orphans = [], seen = {};
   (b.orderIds || []).forEach(function (id) { known[id] = true; });
   if (sh && sh.getLastRow() >= 3) {
     sh.getRange(3, COL_NOTES, sh.getLastRow() - 2, 1).getValues().forEach(function (r, i) {
@@ -362,7 +380,7 @@ function handleReconcile_(b) {
 
 // ---------- independent verifier (time trigger) ----------
 function verifyAll() {
-  var ss = ss_(), sh = ss.getSheetByName(TAB_MAIN), all = props_().getProperties(), tz = ss.getSpreadsheetTimeZone();
+  var ss = ss_(), sh = main_(ss), all = props_().getProperties(), tz = ss.getSpreadsheetTimeZone();
   var days = handleDays_().days, snap = snapshot_(sh), cutoff = Date.now() - 60 * 864e5, problems = [], checked = 0;
   var state = {}; try { state = JSON.parse(all.VERIFY_STATE2 || '{}'); } catch (x) { state = {}; }
   var NAMES = { 2: 'Date', 6: 'JOB TYPE', 8: 'TOWN REF', 13: 'Items', 14: 'PU Address', 15: 'PU Business', 16: 'PU Contact', 17: 'PU Phone', 18: 'PU Notes', 21: 'DE Address', 22: 'DE Business', 23: 'DE Contact', 24: 'DE Phone', 25: 'DE Notes', 31: 'Amount Due' };
@@ -373,7 +391,7 @@ function verifyAll() {
     if (r.e !== 'confirmed' || r.at < cutoff) return;
     checked++;
     var rows = findOrderRows_(snap, id).filter(function (p) { return !p.pending; }).map(function (p) { return p.row; }), msg = [];
-    if (rows.length === 0) msg.push('MISSING from ' + TAB_MAIN);
+    if (rows.length === 0) msg.push('MISSING from ' + tabName_());
     else if (rows.length !== r.n) msg.push('has ' + rows.length + ' rows, expected ' + r.n + (rows.length > r.n ? ' (DUPLICATE?)' : ' (a row is missing)'));
     else {
       for (var q = 0; q < rows.length; q++) {
