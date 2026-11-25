@@ -52,7 +52,8 @@ var OFF_RE = /(\boff day\b|\bday off\b|\bdays off\b|christmas day off|out of off
 var NOISE_RE = /send second review/i;
 var TEST_TAG = 'TEST ORDER (not a real job) · ';
 var PEND_TAG = 'PENDING REVIEW: not paid or confirmed yet, CAD to review and contact client · ';
-var TAG_RE = /^(TEST ORDER \(not a real job\) · )?ONLINE ORDER (\S+) ·\s?(PENDING REVIEW)?/;
+// Accept · (U+00B7) and 路 (U+8DEF, which the Apps Script editor has sometimes stored in place of ·) plus common bullets.
+var TAG_RE = /^(TEST ORDER \(not a real job\) [·路•∙] )?ONLINE ORDER (\S+) [·路•∙]\s?(PENDING REVIEW)?/;
 var STATE_PREFIX = 'O:';
 
 function props_() { return PropertiesService.getScriptProperties(); }
@@ -99,13 +100,14 @@ function doPost(e) {
 function norm_(h) { return String(h == null ? '' : h).replace(/\s+/g, ' ').trim().toLowerCase(); }
 function blank_(v) { return v === '' || v == null; }
 function isBool_(v) { return v === true || v === false; }
+function normDots_(s) { return String(s == null ? '' : s).replace(/[路•∙]/g, '·'); }
 function tagOf_(notes) {
-  var m = String(notes == null ? '' : notes).match(TAG_RE);
+  var m = normDots_(notes).match(TAG_RE);
   return m ? { id: m[2], test: !!m[1], pending: !!m[3] } : null;
 }
-// Site rows start Update Notes with "ONLINE ORDER <id> · ..."; add the TEST / PENDING marks the team can see.
+// Site rows start Update Notes with "submitted ..."; the bridge prepends "ONLINE ORDER <id> ·" plus TEST / PENDING marks.
 function tagNotes_(notes, id, test, pending) {
-  var s = String(notes == null ? '' : notes), head = 'ONLINE ORDER ' + id + ' ·';
+  var s = normDots_(notes), head = 'ONLINE ORDER ' + id + ' ·';
   var rest = s.indexOf(head) === 0 ? s.substr(head.length).replace(/^\s+/, '') : s;
   return (test ? TEST_TAG : '') + head + ' ' + (pending ? PEND_TAG : '') + rest;
 }
