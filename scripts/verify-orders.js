@@ -12,7 +12,7 @@ const num = (s) => Number(String(s ?? '').replace(/,/g, ''));
 
 function expectedLegs(o) {
   const s = o.service;
-  if (s === 'crating_shipping') return [{ type: 'SHIPPING', date: 'TBD' }];
+  if (s === 'crating_shipping') return [{ type: 'PENDING JOB', date: 'TBD' }];
   if (s === 'install_only') return [{ type: 'INST ONLY', date: dateText(o.schedule.date) }];
   return [{ type: 'PU', date: dateText(o.schedule.date) }, { type: s === 'delivery_install' ? 'DEL + INST' : 'DEL', date: o.schedule.deliveryDate ? dateText(o.schedule.deliveryDate) : null }];
 }

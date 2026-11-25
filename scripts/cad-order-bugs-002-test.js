@@ -201,11 +201,11 @@ ok(schedule.paymentLeg(baseOrder({ service: 'install_only', dropoff: emery })) =
 const delPay = schedule.legsForOrder(baseOrder({ payer: 'other', payerOther: { name: 'Alex Recipient', email: 'alex@example.com' } }));
 const puRow = delPay.find((l) => l.leg === 'PU').row;
 const delRow = delPay.find((l) => l.leg === 'DEL').row;
-ok(delRow['Amount Due'] === 0 && delRow['Payment Status'] === 'Paid', '12: DEL row carries the unpaid balance (0 when settled) and Paid when the recipient has paid', delRow);
+ok(delRow['Amount Due'] === 0 && delRow['Payment Status'] === 'PAID', '12: DEL row carries the unpaid balance (0 when settled) and PAID (sheet dropdown) when the recipient has paid', delRow);
 ok(puRow['Amount Due'] === 'X' && puRow['Payment Status'] === '...', '12: PU row is blanked (X / ...) when payment is on DEL', puRow);
 
 const puPay = schedule.legsForOrder(baseOrder({ payer: 'me' }));
-ok(puPay.find((l) => l.leg === 'PU').row['Amount Due'] === 0 && puPay.find((l) => l.leg === 'PU').row['Payment Status'] === 'Paid', '12: PU row carries the unpaid balance (0 when settled) when the booker at pickup has paid');
+ok(puPay.find((l) => l.leg === 'PU').row['Amount Due'] === 0 && puPay.find((l) => l.leg === 'PU').row['Payment Status'] === 'PAID', '12: PU row carries the unpaid balance (0 when settled) when the booker at pickup has paid');
 ok(puPay.find((l) => l.leg === 'DEL').row['Amount Due'] === 'X', '12: DEL row is blanked when payment is on PU');
 
 if (errors.length) {

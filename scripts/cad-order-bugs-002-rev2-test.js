@@ -52,6 +52,10 @@ ok(PS.paymentStatusLabel({ payment: { status: 'ach_processing' }, quote: { payme
 ok(PS.paymentStatusLabel({ invoice: { issuedAt: '2026-11-25' }, quote: { dueNow: 200 } }) === 'Invoiced', '2: Invoiced only when an invoice record exists');
 ok(PS.paymentStatusLabel({ quote: { dueNow: 200 } }) === 'Booked, payment pending', '2: unpaid with no invoice is Booked, payment pending');
 ok(PS.paymentStatusLabel({ payment: { status: 'failed' }, quote: { dueNow: 200 } }) === 'Booked, payment pending', '2: failed-after-processing is not Paid and stays retryable wording');
+ok(PS.sheetPaymentStatus({ payment: { status: 'paid' }, quote: { paymentPlan: 'full', dueNow: 200, total: 200 } }) === 'PAID', '2: sheet token for settled payment is PAID (dropdown)');
+ok(PS.sheetPaymentStatus({ payment: { status: 'ach_processing' }, quote: { paymentPlan: 'full', dueNow: 200, total: 200 } }) === 'Payment Requested', '2: sheet token for ACH in flight is Payment Requested');
+ok(PS.sheetPaymentStatus({ invoice: { issuedAt: '2026-11-25' }, quote: { dueNow: 200 } }) === 'Payment Requested', '2: sheet token for invoiced is Payment Requested');
+ok(PS.sheetPaymentStatus({ quote: { dueNow: 200 } }) === 'AMT DUE', '2: sheet token for booked/unpaid is AMT DUE');
 const depPaid = { quote: { paymentPlan: 'deposit', total: 3000, dueNow: 1500, balanceDue: 1500 }, payment: { status: 'paid', amount: 1500 } };
 ok(PS.unpaidBalance(depPaid) === 1500 && /balance due/i.test(PS.paymentStatusLabel(depPaid)), '2: settled deposit shows remaining balance, not a second full total', PS.paymentStatusLabel(depPaid));
 ok(PS.unpaidBalance({ payment: { status: 'failed' }, quote: { dueNow: 1500, total: 3000, paymentPlan: 'deposit' } }) === 1500, '2: after a failed deposit attempt, only the unpaid amount is due');
@@ -212,14 +216,27 @@ ok(payRows.length === 1, '12: deposit case writes exactly one financial record',
 ok(payRows[0] && payRows[0].leg === 'DEL' && Number(payRows[0].row['Amount Due']) === 1500, '12: Amount Due is the unpaid balance, not the full total', payRows[0] && payRows[0].row);
 const invOrder = { ...base({ payer: 'pickup' }), id: 'CAD-INV', createdAt: new Date().toISOString(), quote: { paymentPlan: 'full', dueNow: 200, total: 200, lines: [] } };
 const invRows = schedule.legsForOrder(invOrder);
-ok(invRows.filter((r) => r.row['Payment Status'] && r.row['Payment Status'] !== '...').every((r) => r.row['Payment Status'] === 'Booked, payment pending'),
-  '12: invoice-pending (no invoice object) is not Invoiced', invRows.map((r) => r.row['Payment Status']));
+ok(invRows.filter((r) => r.row['Payment Status'] && r.row['Payment Status'] !== '...').every((r) => r.row['Payment Status'] === 'AMT DUE'),
+  '12: invoice-pending (no invoice object) is not Payment Requested / Invoiced on the sheet', invRows.map((r) => r.row['Payment Status']));
 const inv2 = schedule.legsForOrder({ ...invOrder, invoice: { issuedAt: '2026-11-25', number: 'INV-1' } });
-ok(inv2.some((r) => r.row['Payment Status'] === 'Invoiced'), '12: Invoiced only once an invoice record exists');
+ok(inv2.some((r) => r.row['Payment Status'] === 'Payment Requested'), '12: Invoiced maps to sheet dropdown Payment Requested once an invoice record exists');
 const failOrder = { ...invOrder, payment: { status: 'failed', amount: 200, method: 'mock_ach' }, id: 'CAD-FAIL' };
 const failRows = schedule.legsForOrder(failOrder);
 const failPay = failRows.filter((r) => r.row['Amount Due'] !== 'X');
 ok(failPay.length === 1 && Number(failPay[0].row['Amount Due']) === 200, '12: ACH failure-then-retry still shows one unpaid amount, not a duplicate', failPay);
+
+const shipLegs = schedule.legsForOrder({
+  id: 'CAD-SHIPTEST', status: 'pending_approval', service: 'crating_shipping',
+  createdAt: new Date().toISOString(),
+  pickup: { street: '1 Main', city: 'Salinas', zip: '93901', state: 'CA' },
+  dropoff: { street: '2 Oak', city: 'Portland', zip: '97201', state: 'OR' },
+  contact: { name: 'Ship Client', email: 'ship@example.com', phone: '3105550103' },
+  items: [{ type: 'painting', description: 'x', value: 500 }],
+  schedule: {}, quote: { total: 0, dueNow: 0, lines: [] },
+});
+ok(shipLegs.length === 1 && shipLegs[0].row['JOB TYPE'] === 'PENDING JOB' && shipLegs[0].row.Route === 'Shipping',
+  'shipping quote uses dropdown-safe JOB TYPE PENDING JOB (not SHIPPING) and Route Shipping', shipLegs[0] && shipLegs[0].row);
+
 
 if (errors.length) {
   console.error('\n' + errors.length + ' failed');

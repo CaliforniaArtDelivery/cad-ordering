@@ -50,7 +50,32 @@ var LEGACY_TABS = ['ONLINE ORDERS', 'TEST ORDERS', 'ONLINE ORDERS RAW LOG'];
 var NCOLS = 35; // A..AI (the SCHEDULE 2026 table)
 var NUM_COLS = [31, 33]; // AE Amount Due, AG Amount Paid (1-based)
 var COL_DATE = 2, COL_ROUTE = 5, COL_TYPE = 6, COL_ASSIGN = 7, COL_STATUS = 9, COL_NOTES = 10, COL_PAYSTATUS = 32;
-var JOB_RE = /^(PU|DEL|INST|DE-INST|MOVING|On-site Move|SHIPPING)/i;
+var JOB_RE = /^(PU|DEL|INST|DE-INST|MOVING|On-site Move|SHIPPING|PENDING JOB)/i;
+// TEST (and live) schedule cells in F (JOB TYPE) and AF (Payment Status) have STRICT one-of-list
+// dropdowns. A value not on the list is rejected, and Sheets may leave the rest of that setValues
+// range blank — that is what left SHIPPING / "Paid" rows empty from F or AF onward.
+var JOB_TYPE_OK = { '...': 1, 'PU': 1, 'EXCHANGE': 1, 'DEL': 1, 'PENDING JOB': 1, 'PU + DEL': 1, 'DEL + INST': 1, 'PU + DEL + INST': 1, 'INST ONLY': 1, 'MOVING JOB': 1, 'Appt CHAD': 1, 'Appt JESUS': 1, 'SUPPLY RUN': 1, 'DRIVING': 1, 'MOVING QUOTE': 1, 'Scheduling note': 1, 'STORAGE ': 1, 'VAN Maintenance': 1, 'Donation Haul Away': 1, 'DUMP RUN': 1, 'Marketing': 1, 'FOR HIRE/Hour': 1, 'FOR HIRE/Day': 1, 'HOLIDAY': 1, 'HOTEL': 1, 'APPT JAMEE': 1, 'DE-INST / PU': 1, 'INST LVL 1': 1, 'INST LVL 2': 1, 'INST LVL 3': 1, 'Site Visit': 1, 'SALES/NETWORKING': 1, 'PU + INST': 1, 'DEL/SWAP': 1, 'On-site Move': 1, 'Appt Sam': 1, 'DE-INST': 1, 'DE-INST / RE-INST': 1 };
+var PAY_STATUS_OK = { 'AMT DUE': 1, 'Payment Requested': 1, 'PAID': 1, 'CHECK RECEIVED': 1, 'Pending Job': 1, '...': 1, 'CASH RECEIVED': 1, 'Cancelled Job': 1, 'CASH/CHECK HANDOVER': 1 };
+function coerceJobType_(v) {
+  var s = String(v == null ? '' : v).trim();
+  if (!s || JOB_TYPE_OK[s]) return s;
+  if (/^shipping$/i.test(s)) return 'PENDING JOB';
+  var keys = Object.keys(JOB_TYPE_OK);
+  for (var i = 0; i < keys.length; i++) if (keys[i].toLowerCase() === s.toLowerCase()) return keys[i];
+  return s;
+}
+function coercePayStatus_(v) {
+  var s = String(v == null ? '' : v).trim();
+  if (!s || PAY_STATUS_OK[s]) return s;
+  if (/^paid$/i.test(s)) return 'PAID';
+  if (/paid,?\s*balance due/i.test(s)) return 'AMT DUE';
+  if (/payment processing/i.test(s)) return 'Payment Requested';
+  if (/^invoiced$/i.test(s)) return 'Payment Requested';
+  if (/booked,?\s*payment pending/i.test(s)) return 'AMT DUE';
+  var keys = Object.keys(PAY_STATUS_OK);
+  for (var i = 0; i < keys.length; i++) if (keys[i].toLowerCase() === s.toLowerCase()) return keys[i];
+  return s;
+}
 var OFF_RE = /(\boff day\b|\bday off\b|\bdays off\b|christmas day off|out of office|\bvacation\b|\bholiday\b|\bclosed\b|no schedule|don'?t book)/i;
 var NOISE_RE = /send second review/i;
 var TEST_TAG = 'TEST ORDER (not a real job) \u00B7 ';
@@ -82,7 +107,13 @@ function authOk_(s) {
   return d === 0;
 }
 function alertMail_(subject, body, to) {
-  try { MailApp.sendEmail(to || props_().getProperty('ALERT_EMAIL') || 'chadsbotchild@mail.grokbot.com', subject, body); } catch (e) { console.error('alert mail failed: ' + e); }
+  try {
+    var key = 'AL:' + String(subject || '').slice(0, 80);
+    var last = Number(props_().getProperty(key) || 0);
+    if (last && Date.now() - last < 60 * 60 * 1000) { console.error('alert mail rate-limited: ' + subject); return; }
+    props_().setProperty(key, String(Date.now()));
+    MailApp.sendEmail(to || props_().getProperty('ALERT_EMAIL') || 'chadsbotchild@mail.grokbot.com', subject, body);
+  } catch (e) { console.error('alert mail failed: ' + e); }
 }
 
 function doGet(e) {
@@ -123,8 +154,11 @@ function tagOf_(notes) {
 }
 // Site rows start Update Notes with "submitted ..."; the bridge prepends "ONLINE ORDER <id> \u00B7" plus TEST / PENDING marks.
 function tagNotes_(notes, id, test, pending) {
-  var s = normDots_(notes), head = 'ONLINE ORDER ' + id + ' \u00B7';
+  var s = normDots_(notes);
+  if (s.indexOf(TEST_TAG) === 0) s = s.substr(TEST_TAG.length).replace(/^\s+/, '');
+  var head = 'ONLINE ORDER ' + id + ' \u00B7';
   var rest = s.indexOf(head) === 0 ? s.substr(head.length).replace(/^\s+/, '') : s;
+  if (rest.indexOf(PEND_TAG) === 0) rest = rest.substr(PEND_TAG.length).replace(/^\s+/, '');
   return (test ? TEST_TAG : '') + head + ' ' + (pending ? PEND_TAG : '') + rest;
 }
 function hash_(s) { // FNV-1a, 6 hex chars (enough to notice an edit; the sheet itself is the record)
@@ -226,6 +260,8 @@ function placeRows_(sh, snap, rows, id, test, pending) {
   for (var k = 0; k < rows.length; k++) {
     var cells = rows[k].slice(0, NCOLS);
     while (cells.length < NCOLS) cells.push('');
+    cells[COL_TYPE - 1] = coerceJobType_(cells[COL_TYPE - 1]);
+    cells[COL_PAYSTATUS - 1] = coercePayStatus_(cells[COL_PAYSTATUS - 1]);
     cells[COL_NOTES - 1] = tagNotes_(cells[COL_NOTES - 1], id, test, pending);
     if (pending) { cells[COL_ASSIGN - 1] = 'PENDINGJOB'; cells[COL_STATUS - 1] = 'CONTACT THEM!!!'; if (String(cells[COL_PAYSTATUS - 1]) !== '...') cells[COL_PAYSTATUS - 1] = 'Pending Job'; }
     var spot = spotFor_(snap, cells, pending), r, keepDate = false;
@@ -274,14 +310,50 @@ function handleOrder_(b) {
     if (isConfirmed) {
       var conf = present.filter(function (p) { return !p.pending; });
       if (st && st.e === 'confirmed') return { ok: true, duplicate: true, rowCount: st.n, tab: tabName_(), firstRow: conf.length ? conf[0].row : 0, test: test };
-      if (conf.length === n) { // a retry after a half-finished attempt: rows are there, record and verify
-        setState_(id, { e: 'confirmed', n: n, t: test, at: Date.now(), c: (b.summary || {}).client || '', d: (b.summary || {}).pickupDate || '', s: conf.map(function (p) { return rowSig_(rowAt_(snap, p.row), snap.tz); }) });
-        return { ok: true, duplicate: true, rowCount: n, tab: tabName_(), firstRow: conf[0].row, test: test };
+      if (conf.length === n) { // rows are already there: rewrite in place so a previous half-write (e.g. rejected Payment Status) can be repaired, then verify
+        var rowNums = conf.map(function (p) { return p.row; });
+        var expected = [];
+        for (var k = 0; k < n; k++) {
+          var cells = rows[k].slice(0, NCOLS);
+          while (cells.length < NCOLS) cells.push('');
+          cells[COL_TYPE - 1] = coerceJobType_(cells[COL_TYPE - 1]);
+          cells[COL_PAYSTATUS - 1] = coercePayStatus_(cells[COL_PAYSTATUS - 1]);
+          cells[COL_NOTES - 1] = tagNotes_(cells[COL_NOTES - 1], id, test, false);
+          writeRow_(sh, snap, rowNums[k], cells, true);
+          expected.push(snap.vals[rowNums[k] - 3].slice());
+        }
+        SpreadsheetApp.flush();
+        var diffs = readBack_(sh, rowNums, expected);
+        setState_(id, { e: 'confirmed', n: n, t: test, at: Date.now(), c: (b.summary || {}).client || '', d: (b.summary || {}).pickupDate || '', s: expected.map(function (v) { return rowSig_(v, snap.tz); }), rows: rowNums });
+        var first = Math.min.apply(null, rowNums);
+        if (diffs.length) { alertMail_('ALERT: read-back mismatch for online order ' + id, diffs.slice(0, 30).join('\n')); return { ok: true, duplicate: true, rowsWritten: n, verified: false, verifyDetail: diffs.slice(0, 5).join(' | '), tab: tabName_(), firstRow: first, rows: rowNums, test: test }; }
+        return { ok: true, duplicate: true, rowsWritten: n, verified: true, rowCount: n, tab: tabName_(), firstRow: first, rows: rowNums, test: test };
       }
       if (conf.length) throw new Error('PARTIAL ROWS for ' + id + ' on ' + tabName_() + ' (' + conf.length + ' of ' + n + '). Not writing more; fix by hand.');
       var pend = present.filter(function (p) { return p.pending; }).map(function (p) { return p.row; });
       if (pend.length) { deleteRows_(sh, pend); SpreadsheetApp.flush(); snap = snapshot_(sh); }
     } else {
+      var pendRows = present.length === n ? present.map(function (p) { return p.row; }) : (st && st.rows && st.rows.length === n ? st.rows : null);
+      if (pendRows) {
+        var expectedP = [];
+        for (var pk = 0; pk < n; pk++) {
+          var pcells = rows[pk].slice(0, NCOLS);
+          while (pcells.length < NCOLS) pcells.push('');
+          pcells[COL_TYPE - 1] = coerceJobType_(pcells[COL_TYPE - 1]);
+          pcells[COL_PAYSTATUS - 1] = coercePayStatus_(pcells[COL_PAYSTATUS - 1]);
+          pcells[COL_NOTES - 1] = tagNotes_(pcells[COL_NOTES - 1], id, test, true);
+          pcells[COL_ASSIGN - 1] = 'PENDINGJOB'; pcells[COL_STATUS - 1] = 'CONTACT THEM!!!';
+          if (String(pcells[COL_PAYSTATUS - 1]) !== '...') pcells[COL_PAYSTATUS - 1] = 'Pending Job';
+          writeRow_(sh, snap, pendRows[pk], pcells, false);
+          expectedP.push(snap.vals[pendRows[pk] - 3].slice());
+        }
+        SpreadsheetApp.flush();
+        var diffsP = readBack_(sh, pendRows, expectedP);
+        setState_(id, { e: 'pending', n: n, t: test, at: Date.now(), rows: pendRows });
+        var firstP = Math.min.apply(null, pendRows);
+        if (diffsP.length) { alertMail_('ALERT: read-back mismatch for online order ' + id, diffsP.slice(0, 30).join('\n')); return { ok: true, duplicate: true, rowsWritten: n, verified: false, verifyDetail: diffsP.slice(0, 5).join(' | '), tab: tabName_(), firstRow: firstP, rows: pendRows, test: test }; }
+        return { ok: true, duplicate: true, rowsWritten: n, verified: true, logged: true, rowCount: n, tab: tabName_(), firstRow: firstP, rows: pendRows, test: test, pending: true };
+      }
       if (st || present.length) return { ok: true, duplicate: true, logged: true, rowCount: present.length, tab: tabName_(), firstRow: present.length ? present[0].row : 0, test: test };
       if (!n) { setState_(id, { e: 'pending', n: 0, t: test, at: Date.now() }); return { ok: true, logged: true, rowsWritten: 0 }; }
     }
@@ -289,8 +361,12 @@ function handleOrder_(b) {
     SpreadsheetApp.flush();
     var diffs = readBack_(sh, placed.rowNums, placed.expected);
     var first = Math.min.apply(null, placed.rowNums);
-    if (diffs.length) { alertMail_('ALERT: read-back mismatch for online order ' + id, diffs.slice(0, 30).join('\n')); return { ok: true, rowsWritten: n, verified: false, verifyDetail: diffs.slice(0, 5).join(' | '), tab: tabName_(), firstRow: first, rows: placed.rowNums, test: test }; }
-    setState_(id, { e: isConfirmed ? 'confirmed' : 'pending', n: n, t: test, at: Date.now(), c: (b.summary || {}).client || '', d: (b.summary || {}).pickupDate || '', s: placed.expected.map(function (v) { return rowSig_(v, snap.tz); }) });
+    if (diffs.length) {
+      setState_(id, { e: isConfirmed ? 'confirmed' : 'pending', n: n, t: test, at: Date.now(), c: (b.summary || {}).client || '', d: (b.summary || {}).pickupDate || '', s: placed.expected.map(function (v) { return rowSig_(v, snap.tz); }), rows: placed.rowNums, verified: false });
+      alertMail_('ALERT: read-back mismatch for online order ' + id, diffs.slice(0, 30).join('\n'));
+      return { ok: true, rowsWritten: n, verified: false, verifyDetail: diffs.slice(0, 5).join(' | '), tab: tabName_(), firstRow: first, rows: placed.rowNums, test: test };
+    }
+    setState_(id, { e: isConfirmed ? 'confirmed' : 'pending', n: n, t: test, at: Date.now(), c: (b.summary || {}).client || '', d: (b.summary || {}).pickupDate || '', s: placed.expected.map(function (v) { return rowSig_(v, snap.tz); }), rows: placed.rowNums });
     return { ok: true, rowsWritten: n, verified: true, tab: tabName_(), firstRow: first, rows: placed.rowNums, test: test, pending: !isConfirmed };
   } finally { lock.releaseLock(); }
 }
