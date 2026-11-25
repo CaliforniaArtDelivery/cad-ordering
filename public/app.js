@@ -41,7 +41,7 @@ const migrateAddr = (a = {}) => {
 let pcSeq = 0;
 const newPieceId = () => 'pc' + Date.now().toString(36) + (pcSeq++).toString(36) + Math.random().toString(36).slice(2, 6);
 // One entry = one piece, with a permanent internal id (labels like "Piece 3" renumber after a removal; the id never does).
-const emptyItem = () => ({ id: newPieceId(), checkValue: false, type: 'painting', furnitureKind: 'Sofa', sizeClass: 'medium', description: '', materialNotes: '', w: '', h: '', d: '', weight: '', framed: '', glazing: '', frameType: '', framedGlass: false, fragile: false, weightUnsure: false, fitsStairwell: false, hangHeight: 'standard', centerHeight: '', hangWhere: '', hangWhereOther: '', hangBottomFt: '', hangPhotos: [], hardware: '', crateStatus: 'not_sure', value: '', photos: [] });
+const emptyItem = () => ({ id: newPieceId(), checkValue: false, type: 'painting', furnitureKind: 'Sofa', sizeClass: 'medium', description: '', materialNotes: '', w: '', h: '', d: '', weight: '', framed: '', glazing: '', frameType: '', framedGlass: false, fragile: false, weightUnsure: false, fitsStairwell: false, hangHeight: 'standard', centerHeight: '', hangWhere: '', hangWhereOther: '', hangBottomFt: '', hangPhotos: [], hardware: '', crateStatus: 'not_sure', value: '', photos: [], sizeClassOnly: false });
 
 let CFG = null;
 let step = 0;
@@ -53,9 +53,10 @@ const fresh = () => ({
   service: '', crating: false, rush: false, dedicated: false, declaredValueProtection: false, protectionDeclined: false, discountCode: '',
   items: [emptyItem()], pickup: emptyAddr(), dropoff: emptyAddr(),
   contact: { name: '', email: '', phone: '', company: '', clientType: '' },
-  heard: emptyHeard(), referral: false, partner: { type: 'None', name: '', email: '', phone: '' }, payer: 'me', payerOther: { name: '', email: '', phone: '' },
+  heard: emptyHeard(), referral: false, partner: { type: 'None', name: '', email: '', phone: '' }, payer: 'pickup', payerOther: { name: '', email: '', phone: '' },
   schedule: { date: '', window: '', timePref: 'none', timeNote: '', deliveryLater: false, deliveryDate: '', deliveryTimePref: 'none', deliveryTimeNote: '' }, notes: '',
   shipping: { serviceLevel: '', shipBy: '', arriveBy: '', flexible: false, customs: { name: '', phone: '', email: '' } },
+  quoteOnly: false,
 });
 const S = Object.assign(fresh(), JSON.parse(sessionStorage.getItem('cad-order') || 'null') || {});
 // A draft saved before this change may carry a quantity: expand it into separate pieces (and repair missing / repeated ids), so a refresh never shows or books one piece as ten.
@@ -625,12 +626,13 @@ const payPlan = (q) => {
       ${q.tripPremium ? `<div class="sum-row"><span>Regular rate</span><span class="amt">${fmt(q.regularTotal || q.total)}</span></div>
       <div class="sum-row"><span>Price range</span><span class="amt"><b>${fmt(q.quoteRange.low)}–${fmt(q.quoteRange.high)}</b></span></div>` : '<div class="sum-row"><span>Price</span><span>Priced by CAD</span></div>'}
       ${q.extraQuoted ? `<div class="sum-row"><span>${esc(q.extraQuoted)}</span><span>Quoted by CAD</span></div>` : ''}
-      <p class="mini" style="margin:4px 0 10px">${esc(q.quoteNote || 'Our team will email your price within 1 business day. Nothing is charged until you approve it.')}</p></div>`;
+      <p class="mini" style="margin:4px 0 10px">${esc(q.quoteNote || 'Our team will email your price within 1 business day. Nothing is charged until you authorize payment.')}</p></div>`;
   }
   if (q.paymentPlan === 'deposit') {
     return `<div class="plan"><div class="plan-head">Orders of ${fmt(CFG.payment.depositThreshold)}+ are split 50/50</div>
       <div class="sum-row"><span>${accessTbc(q) ? CADAccess.TBC_DUE : 'Due today'}</span><span class="amt"><b>${fmt(q.dueNow)}</b></span></div>
-      <div class="sum-row"><span>Balance due ${esc(q.balanceWhen)}${accessTbc(q) ? ' (before access check)' : ''}</span><span class="amt"><b>${fmt(q.balanceDue)}</b></span></div>${feeNoteHtml(q)}${weightNoteHtml()}</div>`;
+      <div class="sum-row"><span>Balance due ${esc(q.balanceWhen)}${accessTbc(q) ? ' (before access check)' : ''}</span><span class="amt"><b>${fmt(q.balanceDue)}</b></span></div>
+      <p class="mini" style="margin:4px 0 10px">${esc(q.paymentSummary || ('Deposit ' + fmt(q.dueNow) + ' due at booking. Balance ' + fmt(q.balanceDue) + ' is collected ' + (q.balanceWhen || 'at pickup') + '.'))} You see the deposit, the balance, and when the balance is collected before you pay.</p>${feeNoteHtml(q)}${weightNoteHtml()}</div>`;
   }
   return `<div class="plan"><div class="sum-row"><span>${accessTbc(q) ? CADAccess.TBC_DUE : (q.accessFeeNote ? 'Due today' : (weightTbc() ? 'Due today (weight to be confirmed)' : 'Due today · paid in full at booking'))}</span><span class="amt"><b>${fmt(q.dueNow)}</b></span></div>${feeNoteHtml(q)}${weightNoteHtml()}</div>`;
 };
@@ -942,7 +944,7 @@ const LEVELS = [['curbside', 'Curbside', 'Delivered to the curb or loading dock.
 const levelText = (v) => (LEVELS.find((l) => l[0] === v) || [, '—'])[1];
 const timingText = (s) => [s.shipBy && `Ship by ${shortDate(s.shipBy)}`, s.arriveBy && `Arrive by ${shortDate(s.arriveBy)}`, s.flexible ? 'Flexible' : ''].filter(Boolean).join(' · ') || 'Flexible';
 const destText = (a) => [a.street, [a.city, intlDest(a) ? '' : a.state].filter(Boolean).join(', '), a.zip, intlDest(a) ? a.country : ''].filter(Boolean).map(esc).join(', ');
-const OOS_NOTE = 'Pickups and deliveries outside California are custom quoted as Shipping. Within California we always provide white glove delivery. Our shipping team prices your job and emails you a quote; nothing is charged until you approve it.';
+const OOS_NOTE = 'Pickups and deliveries outside California are custom quoted as Shipping. Within California we always provide white glove delivery. Our shipping team prices your job and emails you a quote; nothing is charged until you authorize payment.';
 
 // ---------- small steps ----------
 // Each booking step (What, Where, When, Pay) is shown as a few short screens ("panels"), a handful of questions at a time.
@@ -955,9 +957,17 @@ const panelIds = () => panelEls().map((p) => p.dataset.panel);
 const isLastPanel = () => { const ids = panelIds(); return ids.length < 2 || ids.indexOf(sub) >= ids.length - 1; };
 const isFirstPanel = () => { const ids = panelIds(); return ids.length < 2 || ids.indexOf(sub) <= 0; };
 // Pieces: up to three short screens each (what it is, how big, value and handling).
-const dimsBlock = (i) => { const p = `items.${i}`; return `<label class="f">Size in inches (W × H × D)${req}</label>
+const dimsBlock = (i) => {
+  const it = S.items[i], p = `items.${i}`;
+  const warn = V.belowMinWarning && V.belowMinWarning(it);
+  const sizeOnly = !!it.sizeClassOnly;
+  const sizeOpts = [['small', 'Small'], ['medium', 'Medium'], ['large', 'Large'], ['xlarge', 'Extra large']];
+  return `${toggle(`${p}.sizeClassOnly`, 'I only know the size class (not exact inches)', 'We’ll price from the size class and confirm measurements if needed.', true)}
+        ${sizeOnly ? select(`${p}.sizeClass`, 'Size class', sizeOpts, { req: true }) : `<label class="f">Size in inches (W × H × D)${req}</label>
         <div class="row3">${input(`${p}.w`, '', { type: 'number', ph: 'W', attrs: dimAttrs('w', 'Width') })}${input(`${p}.h`, '', { type: 'number', ph: 'H', attrs: dimAttrs('h', 'Height') })}${input(`${p}.d`, '', { type: 'number', ph: 'D', attrs: dimAttrs('d', 'Depth') })}</div>
-        <p class="mini" style="margin:-4px 0 10px">Approximate inches are fine (at least ${V.MIN_DIM.w} × ${V.MIN_DIM.h} × ${V.MIN_DIM.d}).</p>`; };
+        <p class="mini" style="margin:-4px 0 10px">Enter all three dimensions, or choose size class only. Approximate inches are fine.</p>`}
+        ${warn ? `<p class="mini warn-line" data-sizewarn="${i}">${esc(warn.message)} You can still request a quote so we can review this size.</p>${toggle('sizeCheckQuote', 'Request a quote for this size (manual review)', 'We won’t book a date until the team checks the size.', true)}` : ''}`;
+};
 const pieceHasSize = (it, ship) => ship || needsDims(it);
 const pieceSize = (it, i, ship) => (pieceHasSize(it, ship) ? dimsBlock(i) + (FRAMING_TYPES.includes(it.type || 'painting') ? framingBlock(it, i) : '') : '');
 // A copied piece keeps its value but asks the customer to look at it again.
@@ -974,7 +984,7 @@ const pieceCare = (item, i, ship) => {
   } else {
     const value = input(`${p}.value`, 'Declared value per piece ($)', { ph: 'e.g. 12,000', attrs: 'inputmode="numeric"', req: true })
       + `<p class="mini" style="margin:-4px 0 8px" data-valhint="${i}">${valueHint(item)}</p>` + checkValueNote(item);
-    h = `${needsWeight ? weightField(item, i, { required: true }) : ''}
+    h = `${needsWeight ? weightField(item, i, { required: true }) : weightField(item, i, { required: false, approx: true })}
         ${type === 'custom' ? '' : value}
         ${type === 'other' ? '<p class="mini" style="margin:0 0 6px">Priced by weight from our sculpture rates. The price covers pickup, delivery and placement wherever you want it. CAD may adjust the price after seeing photos.</p>' : ''}
         ${type === 'sculpture' ? '<p class="mini" style="margin:0 0 6px">One weight-based price covers pickup, delivery and placement wherever you want it.</p>' : ''}
@@ -1104,6 +1114,32 @@ const descHint = (type) => (['furniture', 'decor'].includes(type) ? 'For example
   : 'For example: medium (oil, acrylic?), relief or heavy texture?, artist name, etc.');
 // ---------- views ----------
 const roleLabel = (key) => (key === 'pickup' ? 'Pickup contact role' : S.service === 'install_only' ? 'Install contact role' : 'Delivery contact role');
+function payerOptions() {
+  if (S.payer === 'me') S.payer = (S.dropoff && S.dropoff.sameAsMe && !(S.pickup && S.pickup.sameAsMe)) ? 'dropoff' : 'pickup';
+  const puName = (S.pickup && S.pickup.contactName) || 'Pickup contact';
+  const deWord = S.service === 'install_only' ? 'Install' : 'Delivery';
+  const deName = (S.dropoff && S.dropoff.contactName) || (deWord + ' contact');
+  const opts = [];
+  if (svc().needsPickup) opts.push(['pickup', 'Pickup contact (' + puName + ')']);
+  if (S.dropoff) opts.push(['dropoff', deWord + ' contact (' + deName + ')']);
+  if (isBizReferral()) opts.push(['partner', 'Referring partner']);
+  opts.push(['other', 'Someone else']);
+  if (S.payer === 'pickup' && !svc().needsPickup) S.payer = 'dropoff';
+  return opts;
+}
+function payerCardHtml() {
+  return `<div class="card">${seg('payer', payerOptions())}
+        ${S.payer === 'other' ? `<div class="row" style="margin-top:12px">${input('payerOther.name', 'Payer name', { req: true })}${input('payerOther.email', 'Payer email', { type: 'email', req: true, attrs: 'autocapitalize="off" autocomplete="email"' })}</div>
+        ${input('payerOther.phone', 'Payer phone', { type: 'tel', req: true, ph: '(415) 555-0123', attrs: 'autocomplete="tel"' })}` : ''}
+        ${S.payer === 'partner' && !(isBizReferral() && (S.heard.businessName || S.heard.referrerName || S.partner.name)) ? `<p class="mini">Add the referring partner in <button type="button" class="edit" style="padding:0" data-goto="1:heard">Where</button> so we know who to bill.</p>` : ''}</div>`;
+}
+function payerNameLabel() {
+  if (S.payer === 'other') return S.payerOther.name || 'Someone else';
+  if (S.payer === 'partner') return 'Referring partner';
+  if (S.payer === 'dropoff') return (S.service === 'install_only' ? 'Install contact' : 'Delivery contact') + ((S.dropoff && S.dropoff.contactName) ? ' (' + S.dropoff.contactName + ')' : '');
+  return 'Pickup contact' + ((S.pickup && S.pickup.contactName) ? ' (' + S.pickup.contactName + ')' : '');
+}
+
 const views = {
   What() {
     const base = (CFG.pricing && CFG.pricing.displayFrom) || {};
@@ -1124,7 +1160,7 @@ const views = {
         ${type === 'wallart' ? `<p class="mini" style="margin:-4px 0 10px">Mixed media, wall sculpture, etc.${hasInstall() ? ' Hung on a wall, so we can install it.' : ''}</p>` : ''}
         ${kindRow}
         ${input(`${p}.description`, type === 'custom' ? 'Your request' : 'Description of this piece', { ph, req: true })}
-        ${type === 'custom' ? '<p class="mini" style="margin:0 0 6px">Tell us what you need in the description. CAD reviews it and sends a custom quote; nothing is charged until you approve it.</p>'
+        ${type === 'custom' ? '<p class="mini" style="margin:0 0 6px">Tell us what you need in the description. CAD reviews it and sends a custom quote; nothing is charged until you authorize payment.</p>'
           : `<p class="mini desc-hint" data-deschint style="margin:-4px 0 10px">${descHint(type)}</p>`}
       </div>`;
     };
@@ -1246,6 +1282,12 @@ const views = {
   When() {
     if (isShip()) return views.ShipWhen();
     if (!avail) return panel('date', `<h1>Choose your date</h1><p class="sub">Finding route days near you…</p>`);
+    if (avail.requestQuote || avail.quote || avail.unverified || avail.calendarUnavailable || ((!(avail.days || []).length) && avail.prompt === 'Request a quote')) {
+      const by = (avail.quoteBy && avail.quoteBy.text) || 'within 1 business day';
+      return panel('date', `<h1>Request a quote</h1><p class="sub">${esc(avail.error || 'We couldn’t offer dates for this address yet.')}</p>
+        <p class="mini">Send this as a quote request and we’ll reply ${esc(by)}. Nothing is charged until you authorize payment.</p>
+        <div class="card" style="margin-top:14px">${toggle('quoteOnly', 'Request a quote (we’ll confirm details by hand)', 'Your request goes to the team. No dates are booked and nothing is charged until you authorize payment.', true, 'first')}</div>`);
+    }
     const region = avail.region || 'your area';
     const card = (d) => { const [w, m, n] = d.label.replace(',', '').split(' '); return `<button type="button" class="day ${S.schedule.date === d.date && !!S.rush === !!d.rush ? 'on' : ''} ${d.rush ? 'rush' : ''}" data-date="${d.date}" data-rush="${d.rush ? 1 : ''}"><div class="dw">${w}</div><div class="dd">${m} ${n}</div><div class="rg">${d.rush ? 'Rush quote' : esc(d.shortLabel || d.routeLabel || d.region)}</div></button>`; };
     const simpleOc = (avail.days || []).some((d) => d.simpleStop);
@@ -1317,11 +1359,8 @@ const views = {
     const sp = special();
     const date = avail && [...avail.days, ...avail.rush].find((d) => d.date === S.schedule.date);
     const siteRows = (label, a, goto) => (a && a.street ? `<div class="sum-row"><span>${label}</span><span>${addr(a)}<br><span class="muted">${esc(a.contactName)} · ${esc(formatPhone(a.contactPhone))}${a.sameAsMe ? (S.contact.clientType ? ` · ${esc(S.contact.clientType)}` : '') : a.contactRole ? ` · ${esc(a.contactRole === 'Other' ? (a.contactRoleOther || 'Other') : a.contactRole)}` : ''}</span> ${editBtn(goto)}</span></div>` : '');
-    const payerCard = `<div class="card">${seg('payer', isBizReferral() ? [['me', 'Me'], ['partner', 'Referring partner'], ['other', 'Someone else']] : [['me', 'Me'], ['other', 'Someone else']])}
-        ${S.payer === 'other' ? `<div class="row" style="margin-top:12px">${input('payerOther.name', 'Payer name', { req: true })}${input('payerOther.email', 'Payer email', { type: 'email', req: true, attrs: 'autocapitalize="off" autocomplete="email"' })}</div>
-        ${input('payerOther.phone', 'Payer phone', { type: 'tel', req: true, ph: '(415) 555-0123', attrs: 'autocomplete="tel"' })}` : ''}
-        ${S.payer === 'partner' && !(isBizReferral() && (S.heard.businessName || S.heard.referrerName || S.partner.name)) ? `<p class="mini">Add the referring partner in <button type="button" class="edit" style="padding:0" data-goto="1:heard">Where</button> so we know who to bill.</p>` : ''}</div>`;
-    const payerName = S.payer === 'other' ? (S.payerOther.name || 'Someone else') : S.payer === 'partner' ? 'Referring partner' : 'Me';
+    const payerCard = payerCardHtml();
+    const payerName = payerNameLabel();
     return panel('payer', `<h1>Who’s paying?</h1>${payerCard}`)
       + panel('review', `<h1>${sp ? 'Review your order' : 'Review & pay'}</h1><p class="sub">${sp ? 'Check the details, then send it to our team for pricing.' : 'Your job is booked as soon as payment goes through.'}</p>${valueConfirmCard('review')}
       ${promiseCard(tripLine() || (date && date.routeLabel) || (avail && avail.region ? avail.region + ' route' : 'Route day'), 'margin-top:0', '2:date')}
@@ -1340,19 +1379,16 @@ const views = {
       ${q && q.notes && q.notes.filter((n) => n !== CADAccess.PRICE_NOTE && n !== CADAccess.WEIGHT_NOTE).length ? `<p class="mini">${q.notes.filter((n) => n !== CADAccess.PRICE_NOTE && n !== CADAccess.WEIGHT_NOTE).map((n) => esc(n)).join(' ')}</p>` : ''}
       ${discountBlock()}
       ${sp ? '<div class="err" id="err"></div>' : `<h2>Payment</h2>${paymentBlock(q)}`}
-      <p class="mini">${sp ? 'We’ll email your price with a payment link within 1 business day. Nothing is charged until you approve it.' : 'Need to change or cancel? Reply to your confirmation email.'}</p>`);
+      <p class="mini">${sp ? esc(q && q.quoteNote || 'We’ll email your price with a payment link within 1 business day. Nothing is charged until you authorize payment.') : 'Need to change or cancel? Reply to your confirmation email.'}</p>`);
   },
 
   ShipPay() {
     const sh = S.shipping, d = S.dropoff;
     const declared = S.items.reduce((s, it) => s + num(it.value), 0);
-    const payerName = S.payer === 'other' ? (S.payerOther.name || 'Someone else') : S.payer === 'partner' ? 'Referring partner' : 'Me';
-    const payerCard = `<div class="card">${seg('payer', isBizReferral() ? [['me', 'Me'], ['partner', 'Referring partner'], ['other', 'Someone else']] : [['me', 'Me'], ['other', 'Someone else']])}
-        ${S.payer === 'other' ? `<div class="row" style="margin-top:12px">${input('payerOther.name', 'Payer name', { req: true })}${input('payerOther.email', 'Payer email', { type: 'email', req: true, attrs: 'autocapitalize="off" autocomplete="email"' })}</div>
-        ${input('payerOther.phone', 'Payer phone', { type: 'tel', req: true, ph: '(415) 555-0123', attrs: 'autocomplete="tel"' })}` : ''}
-        ${S.payer === 'partner' && !(isBizReferral() && (S.heard.businessName || S.heard.referrerName || S.partner.name)) ? `<p class="mini">Add the referring partner in <button type="button" class="edit" style="padding:0" data-goto="1:heard">Where</button> so we know who to bill.</p>` : ''}</div>`;
+    const payerName = payerNameLabel();
+    const payerCard = payerCardHtml();
     return panel('payer', `<h1>Who’s paying?</h1>${payerCard}`)
-      + panel('review', `<h1>Review your shipping request</h1><p class="sub">Our shipping team prices your shipment and emails you a quote. Nothing is charged until you approve it.</p>${valueConfirmCard('review')}
+      + panel('review', `<h1>Review your shipping request</h1><p class="sub">Our shipping team prices your shipment and emails you a quote. Nothing is charged until you authorize payment.</p>${valueConfirmCard('review')}
       ${outOfState() ? `<p class="note" data-oos>${OOS_NOTE}</p>` : ''}
       <div class="promise quote" style="margin-top:0"><span class="pi">✈</span><span><b>${esc(timingText(sh))}</b><span>${esc(levelText(sh.serviceLevel))}</span></span>${editBtn('2:ship-timing')}</div>
       <div class="card">
@@ -1404,7 +1440,7 @@ const views = {
     if (o.status === 'pending_approval') {
       const q = o.quote || quoteData;
       return `<div class="done"><div class="check">✓</div><h1>Order received</h1>
-        <p class="sub">Order <b>${esc(o.id)}</b>. We’ll email ${esc(o.contact.email)} your price with a payment link within 1 business day. Nothing is charged until you approve it.</p></div>
+        <p class="sub">Order <b>${esc(o.id)}</b>. We’ll email ${esc(o.contact.email)} ${esc((o.quote && o.quote.quoteNote) || 'your price with a payment link within 1 business day. Nothing is charged until you authorize payment.')}</p></div>
         <div class="card">
           <div class="sum-row"><span>Service</span><span>${esc(o.serviceLabel)}${o.rush ? ' · rush' : ''}${o.dedicated ? ' · dedicated trip' : ''}</span></div>
           <div class="sum-row"><span>Date</span><span>${esc(longDate(o.schedule.date))}${o.schedule.deliveryDate ? '<br>Delivery ' + esc(longDate(o.schedule.deliveryDate)) : ''}${timePrefSummary(o.schedule.timePref, o.schedule.timeNote) ? '<br><span class="muted">' + esc(timePrefSummary(o.schedule.timePref, o.schedule.timeNote)) + '</span>' : ''}</span></div>
@@ -1468,7 +1504,10 @@ function itemGapList(it, i, name) {
       if (!weightOk(it)) add(`[data-weight="${i}"]`, `Weight — ${p}`, 'Please enter the weight, or tap Not sure.');
     }
     if (!shipService() && wallTooHeavy(it)) add(`[data-heavywall="${i}"]`, `Weight — ${p}`, `Pieces this heavy need a custom quote. Wall pieces over ${wallWeightCfg().maxLb} lb can’t be booked online.`);
-    if (needsDims(it)) { const dp = V.dimProblem(it); if (dp) add(`#f-items.${i}.${dp.key}`, `Size — ${p}`, dp.message); }
+    if (it.sizeClassOnly) { /* size class only — dimensions are optional */ }
+    else if (needsDims(it)) { const dp = V.dimProblem(it); if (dp) add(`#f-items.${i}.${dp.key}`, `Size — ${p}`, dp.message); }
+    else { const op = V.optionalDimProblem && V.optionalDimProblem(it); if (op) add(`#f-items.${i}.${op.key}`, `Size — ${p}`, op.message); }
+
     if (FRAMING_TYPES.includes(it.type || 'painting')) {
       if (it.framed !== 'yes' && it.framed !== 'no') add(`[data-framing="${i}"]`, `Framed? — ${p}`, 'Please tell us if this piece is framed.');
       if (needsGlass(it) && !['yes', 'no'].includes(it.glazing)) add(`[data-glass="${i}"]`, `Glass — ${p}`, 'Please tell us if this piece has glass.');
@@ -1554,8 +1593,12 @@ function missingFields(name = STEPS[step]) {
       if (!S.shipping.shipBy && !S.shipping.flexible) add('#f-shipping.shipBy', 'Ship by', 'Please pick a ship-by date, or tap that your dates are flexible.');
       return out;
     }
-    if (!S.schedule.date) add('[data-reqblock="date"]', needsTwoDates() ? 'Pickup date' : 'Date', needsTwoDates() ? 'Please pick a pickup date.' : 'Please pick a date.');
-    if (needsTwoDates() && S.schedule.date && !(S.schedule.deliveryDate && S.schedule.deliveryDate >= S.schedule.date)) add('[data-reqblock="deldate"]', 'Delivery date', 'Please pick a delivery date.');
+    if (S.quoteOnly || (avail && (avail.requestQuote || avail.unverified || avail.calendarUnavailable))) {
+      if (!S.quoteOnly) add('[data-reqblock="date"]', 'Request a quote', 'Turn on Request a quote so we can confirm the details by hand.');
+    } else {
+      if (!S.schedule.date) add('[data-reqblock="date"]', needsTwoDates() ? 'Pickup date' : 'Date', needsTwoDates() ? 'Please pick a pickup date.' : 'Please pick a date.');
+      if (needsTwoDates() && S.schedule.date && !(S.schedule.deliveryDate && S.schedule.deliveryDate >= S.schedule.date)) add('[data-reqblock="deldate"]', 'Delivery date', 'Please pick a delivery date.');
+    }
     return out;
   }
   if (name === 'Pay') {
@@ -1980,6 +2023,8 @@ app.addEventListener('input', (e) => {
   const hint = p.match(/^items\.(\d+)\.(weight|value)$/);
   if (hint && hint[2] === 'value' && S.items[+hint[1]] && S.items[+hint[1]].checkValue) { S.items[+hint[1]].checkValue = false; persist(); { const pid = S.items[+hint[1]].id; app.querySelectorAll(`[data-checkvalnote="${pid}"], [data-piece-id="${pid}"] [data-checkvalue]`).forEach((el) => el.remove()); } }
   if (hint) updateItemHints(+hint[1]);
+  const sco = p.match(/^items\.(\d+)\.sizeClassOnly$/);
+  if (sco && e.target.checked) { const it = S.items[+sco[1]]; it.w = it.h = it.d = ''; }
   // Editing a piece in Quick edit: keep the list above it (titles, facts, "Needs details") in step. The quick-edit fields themselves are not re-rendered, so typing keeps its focus.
   if (/^items\.\d+\./.test(p) && e.target.closest('[data-quick]')) { const L = app.querySelector('[data-pclist]'); if (L) L.innerHTML = S.items.map((it, i) => pieceListRow(it, i)).join(''); const sm = app.querySelector('[data-pcsummary]'); if (sm) sm.outerHTML = listSummary(); }
   updateNext(); refreshQuote();
@@ -2015,7 +2060,8 @@ app.addEventListener('change', (e) => {
   // Country changes the address form (international = free-form), so re-render. State / ZIP / city only toggle the
   // out-of-state note in place, so nothing the customer is typing gets interrupted.
   if (e.target.dataset.path === 'dropoff.country') { const k = shipKey(); if (k !== lastShipKey) { lastShipKey = k; render(); } }
-  else if (/^(pickup|dropoff)\.(state|zip|city)$/.test(e.target.dataset.path || '')) { syncOosNote(); checkZipCity(e.target.dataset.path.split('.')[0]); }
+  else if (/^(pickup|dropoff)\.(state|zip|city|street)$/.test(e.target.dataset.path || '')) { syncOosNote(); checkZipCity(e.target.dataset.path.split('.')[0]); }
+  else if ((e.target.dataset.path || '') === 'contact.email') { suggestEmailTypo(e.target); }
   else if (/^(pickup|dropoff)\.street$/.test(e.target.dataset.path || '')) splitStreet(e.target.dataset.path.split('.')[0]);
 });
 // A full address pasted into Street ("1 Ferry Building, San Francisco, CA 94111") is split into Street / City / State / ZIP,
@@ -2045,6 +2091,15 @@ function normShipState() {
 }
 const geoGet = async (url) => { try { const r = await fetch(url); return r.ok ? await r.json() : null; } catch (_) { return null; } };
 const milesApart = (a, b) => { const R = 3959, rad = (d) => (d * Math.PI) / 180; const dLa = rad(b[0] - a[0]), dLo = rad(b[1] - a[1]); const h = Math.sin(dLa / 2) ** 2 + Math.cos(rad(a[0])) * Math.cos(rad(b[0])) * Math.sin(dLo / 2) ** 2; return 2 * R * Math.asin(Math.sqrt(h)); };
+function suggestEmailTypo(el) {
+  const tip = V.typoEmail && V.typoEmail((S.contact && S.contact.email) || '');
+  let box = app.querySelector('[data-emailtypo]');
+  if (!tip) { if (box) box.remove(); return; }
+  const html = `<p class="mini" data-emailtypo style="margin:6px 0 0">Did you mean <button type="button" class="link" data-emailfix="${esc(tip)}">${esc(tip)}</button>? We won’t change it unless you tap that.</p>`;
+  if (box) { box.outerHTML = html; return; }
+  const field = (el && el.closest && el.closest('.field')) || (app.querySelector('#f-contact\\.email') && app.querySelector('#f-contact\\.email').closest('.field'));
+  if (field) field.insertAdjacentHTML('beforeend', html);
+}
 async function checkZipCity(key) {
   const a = S[key]; if (!a || intlDest(a)) return;
   const zip = (String(a.zip || '').match(/^\d{5}/) || [])[0], city = String(a.city || '').trim();
@@ -2055,8 +2110,10 @@ async function checkZipCity(key) {
   };
   if (!zip || city.length < 2) return show('');
   if (window.CADZones) {
-    const conflict = CADZones.routeConflict({ city, state: a.state || 'CA', zip });
+    const addr = { street: a.street, city, state: a.state || 'CA', zip };
+    const conflict = CADZones.routeConflict(addr);
     if (conflict) return show(`<b>City and ZIP don’t match the same delivery area.</b> ${esc(conflict.message)}`, { zip, city, place: conflict.zipArea || conflict.zipZone, conflict: true, message: conflict.message });
+    if (CADZones.cityFitsZip && CADZones.cityFitsZip(addr)) return show('');
   }
   if (!(zip in zipCache)) { const j = await geoGet(`https://api.zippopotam.us/us/${zip}`); zipCache[zip] = j && j.places ? j.places.map((pl) => ({ name: pl['place name'], st: String(pl['state abbreviation'] || '').toLowerCase(), at: [+pl.latitude, +pl.longitude] })) : []; }
   const zp = zipCache[zip];
@@ -2118,6 +2175,7 @@ app.addEventListener('click', async (e) => {
   if (t.hasAttribute('data-discount-apply')) { applyDiscount(); return; }
   if (t.hasAttribute('data-discount-remove')) { S.discountCode = ''; discountMsg = null; persist(); refreshQuote(); paintDiscount(); return; }
   if (t.dataset.zipedit) { const z = document.getElementById(`f-${t.dataset.zipedit}.zip`); if (z) { z.focus(); z.select && z.select(); } return; }
+  if (t.dataset.emailfix) { S.contact.email = t.dataset.emailfix; persist(); render(); return; }
   if (t.dataset.zipfix) { const k = t.dataset.zipfix; S[k].city = t.dataset.city; persist(); render(); return; }
   if (t.dataset.switchpd != null) {
     // CA-to-CA job started as Shipping: keep every answer, switch the service, and land on the delivery address to continue.
@@ -2139,6 +2197,7 @@ app.addEventListener('click', async (e) => {
     normShipState();
     if (S.service === 'crating_shipping') { S.crating = false; S.rush = false; S.dedicated = false; }
     if (S.service === 'install_only') { S.crating = false; S.schedule.deliveryLater = false; }
+    if (!(svc().install)) S.items.forEach((it) => { delete it.hardware; });
     persist(); avail = null; render();
     return;
   }
@@ -2178,7 +2237,7 @@ app.addEventListener('click', async (e) => {
     persist(); render(); return;
   }
   if (t.dataset.goto != null) {
-    // "1:pickup-addr" = Where, Pickup address. From the final review, the next Next brings them straight back to it.
+    // "1:pickup-addr" = Where, Pickup address. From the review screen, the next Next brings them straight back to it.
     const [gs, gp] = String(t.dataset.goto).split(':');
     if (STEPS[step] === 'Pay' && !existing) returnToReview = true;
     returnToList = +gs === 0 && STEPS[step] === 'What' && sub === 'pieces-more' && /^p\d+a$/.test(gp || '');
@@ -2325,7 +2384,7 @@ if (needLine) needLine.addEventListener('click', () => revealFirstMissing());
 let returnToReview = false;
 // Edit or "fix" on one piece from the list: after that piece's last screen, Next goes back to the list, not on to the next piece.
 let returnToList = false;
-// After Edit on the final review: check the booking is still complete and go straight back to the review.
+// After Edit on the review screen: check the booking is still complete and go straight back to the review.
 async function backToReview() {
   busy = true; updateNext();
   try {

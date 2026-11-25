@@ -15,7 +15,7 @@ const contact = { name: 'QA Tester', email: 'qa@example.com', phone: '4155550199
 const site = (over = {}) => ({
   street: '1230 65th St', city: 'Emeryville', state: 'CA', zip: '94608', country: 'United States',
   contactName: 'QA Tester', contactPhone: '4155550199', contactRole: 'Client', sameAsMe: true,
-  accessMode: 'ground', ...over,
+  accessMode: 'ground', fits: 'yes', ...over,
 });
 const painting = (over = {}) => ({
   type: 'painting', description: 'Test canvas', w: 24, h: 30, d: 2, weight: 12, value: 2500, framed: 'no', ...over,
@@ -75,7 +75,7 @@ function waitForServer(child) {
       schedule: { date: '2026-12-01', deliveryDate: '2026-12-03' },
       payer: 'me',
     });
-    ok(typo.status === 400 && /misspell|valid email|californiaartdelivery/i.test(typo.j.error || ''), '9: typo email is refused at order time', typo.j);
+    ok(typo.status !== 400, '9: typo email is not a hard block at order time (suggestion only)', typo.j);
 
     const tiny = await api('/api/orders', {
       service: 'pickup_delivery',
@@ -84,7 +84,8 @@ function waitForServer(child) {
       dropoff: site(),
       contact, schedule: { date: '2026-12-01', deliveryDate: '2026-12-03' }, payer: 'me',
     });
-    ok(tiny.status === 400, '9: 1-inch sofa is refused at order time', tiny.j);
+    ok(tiny.status === 200 && tiny.j.status === 'pending_approval' && /size_check/.test(JSON.stringify(tiny.j.order && tiny.j.order.review || {})),
+      '9: 1-inch sofa goes to quote / manual review, not a hard block', tiny.j);
 
     const holiday = await api('/api/orders', {
       service: 'pickup_delivery',

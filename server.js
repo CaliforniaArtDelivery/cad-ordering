@@ -163,7 +163,12 @@ app.post('/api/discount-code', (req, res) => {
     message: d && d.amount > 0 ? `Code ${hit.code} applied: −$${d.amount.toFixed(2)}.` : `Code ${hit.code} accepted. ${d && d.note && d.note !== 'invalid' ? d.note : DISCOUNTS.describe(hit.row) + '.'}`,
   });
 });
-app.post('/api/availability', (req, res) => {
+app.post('/api/verify-address', async (req, res) => {
+  const b = req.body || {};
+  const out = await require('./lib/address-verify').verifyAddress(b.address || b, { skipGeocode: process.env.SKIP_GEOCODE === '1' });
+  res.json(out);
+});
+app.post('/api/availability', async (req, res) => {
   const o = req.body;
   const svc = SERVICES[o.service] || SERVICES.pickup_delivery;
   const badAddr = badAddresses(o, svc);
@@ -171,7 +176,15 @@ app.post('/api/availability', (req, res) => {
   const conflicts = [];
   if (svc.needsPickup && sched.routeConflict(o.pickup)) conflicts.push({ where: 'pickup', ...sched.routeConflict(o.pickup) });
   if (svc.needsDropoff && sched.routeConflict(o.dropoff)) conflicts.push({ where: 'dropoff', ...sched.routeConflict(o.dropoff) });
-  if (conflicts.length) return res.status(400).json({ error: conflicts[0].message, invalid: conflicts.map((c) => c.where), conflict: true, days: [], rush: [] });
+  if (conflicts.length) return res.status(400).json({ error: conflicts[0].message, invalid: conflicts.map((c) => c.where), conflict: true, days: [], rush: [], requestQuote: true, prompt: 'Request a quote' });
+  const verify = await require('./lib/address-verify').verifyLegs(o.pickup, o.dropoff, !!svc.needsPickup, { skipGeocode: process.env.SKIP_GEOCODE === '1' });
+  const quoteBy = require('./lib/business-days').quoteReplyBy();
+  if (!verify.offerDates) {
+    return res.json({ days: [], rush: [], quote: true, requestQuote: true, prompt: 'Request a quote', unverified: true, legs: verify.legs, quoteBy, error: verify.message || 'We couldn’t verify this address. Request a quote and we’ll confirm it by hand.' });
+  }
+  if (sched.calendarUnavailable()) {
+    return res.json({ days: [], rush: [], quote: true, requestQuote: true, prompt: 'Request a quote', calendarUnavailable: true, quoteBy, error: 'Live schedule data isn’t available right now. Request a quote and we’ll confirm dates by hand.' });
+  }
   // leg=dropoff: delivery dates for the delivery address, on or after the pickup date (same-day only when both zones are served that day).
   if (o.leg === 'dropoff' && o.dropoff && o.schedule && o.schedule.date) {
     const pu = o.pickup || {};
@@ -325,23 +338,26 @@ function validate(o) {
   if (ship) {
     // Samantha prices shipping without follow-up, so collect what she needs.
     if (!String(o.dropoff?.country || 'United States').trim()) errs.push('destination country');
-    forPieces('dimensions and weight (sizes of at least 4 × 4 × 1 inches)', (it) => (!(it.weightUnsure || numVal(it.weight) > 0) || !(['custom', 'furniture'].includes(it.type) || !VALID.dimProblem(it))));
+    forPieces('dimensions and weight (all three dimensions, or size class only, plus a weight or Not sure)', (it) => (!(it.weightUnsure || numVal(it.weight) > 0) || !(['custom', 'furniture'].includes(it.type) || VALID.hasSizeClassOnly(it) || !VALID.dimProblem(it))));
     forPieces('a declared value (for the shipping insurance)', (it) => !(numVal(it.value) > 0));
     if (!o.shipping?.serviceLevel) errs.push('destination service level');
     if (!o.shipping?.shipBy && !o.shipping?.flexible) errs.push('ship date or flexibility');
   } else {
-    if (!o.schedule?.date) errs.push('schedule');
+    const skipDates = !!(o.quoteOnly || o.unverifiedAddress || (o.sizeCheckQuote && !(o.schedule && o.schedule.date)));
+    if (!skipDates && !o.schedule?.date) errs.push('schedule');
     // In-California white glove jobs: every piece needs a declared value (protection / high-value handling depend on it).
     // $0 (or blank) is never accepted as a declared value; only a custom request, which CAD always quotes itself, has none.
     forPieces('a declared value above $0', (it) => it.type !== 'custom' && !(numVal(it.value) > 0));
-    const twoDates = SERVICES[o.service]?.needsPickup && SERVICES[o.service]?.needsDropoff;
-    if (twoDates && (!o.schedule?.deliveryDate || o.schedule.deliveryDate < o.schedule.date)) errs.push('delivery date');
-    else errs.push(...scheduleErrors(o));
+    if (!skipDates) {
+      const twoDates = SERVICES[o.service]?.needsPickup && SERVICES[o.service]?.needsDropoff;
+      if (twoDates && (!o.schedule?.deliveryDate || o.schedule.deliveryDate < o.schedule.date)) errs.push('delivery date');
+      else errs.push(...scheduleErrors(o));
+    }
     // Same item rules as the order form (public/app.js missingFields).
     const items = o.items || [];
-    const needsDims = (it) => !['custom', 'furniture'].includes(it.type || 'painting');
-    forPieces('size in inches (W × H × D, at least 4 × 4 × 1)', (it) => needsDims(it) && !!VALID.dimProblem(it));
-    forPieces('a plain-number size (digits only)', (it) => !needsDims(it) && !!VALID.optionalDimProblem(it));
+    const needsDims = (it) => !['custom', 'furniture'].includes(it.type || 'painting') && !VALID.hasSizeClassOnly(it);
+    forPieces('all three dimensions, or an explicit size-class-only choice', (it) => needsDims(it) && !!VALID.dimProblem(it));
+    forPieces('a complete size (all three dimensions, or size class only)', (it) => !needsDims(it) && !!VALID.optionalDimProblem(it));
     forPieces('a weight (or “Not sure”)', (it) => ['sculpture', 'other'].includes(it.type) && !(it.weightUnsure || numVal(it.weight) > 0));
     forPieces('a stairwell fit confirmation (pieces over 80 inches)', (it) => needsStairwellFit(it, o) && !it.fitsStairwell);
   }
@@ -420,7 +436,8 @@ app.post('/api/orders', (req, res) => {
   const fp = fingerprint(b);
   const dup = load().find((x) => x.fingerprint === fp && Date.now() - Date.parse(x.createdAt) < DEDUPE_MS);
   if (dup) return res.json({ id: dup.id, quote: dup.quote, status: dup.status, order: dup, duplicate: true });
-  const special = quote(b).paymentPlan === 'quote'; // rush, dedicated, shipping, or anything the rate cards don't cover
+  const sizeWarn = (b.items || []).map((it) => VALID.belowMinWarning(it)).filter(Boolean);
+  const special = quote(b).paymentPlan === 'quote' || !!b.quoteOnly || !!b.unverifiedAddress || !!b.sizeCheckQuote || sizeWarn.length; // rush, dedicated, shipping, quote-only, or below-minimum size review
   const outOfState = !SERVICES[b.service].shipping && isOutOfState(b);
   const shipping = !!SERVICES[b.service].shipping || outOfState;
   const svcKey = shipping ? 'crating_shipping' : b.service;
@@ -451,9 +468,11 @@ app.post('/api/orders', (req, res) => {
     contact: b.contact, partner: b.partner || {}, payer: b.payer || 'me', payerOther: b.payerOther || {},
     schedule: shipping
       ? { date: '', region: 'Shipping', deliveryLater: false, deliveryDate: '', timePref: 'none', timeNote: '', deliveryTimePref: 'none', deliveryTimeNote: '' }
-      : { ...b.schedule, timePref: ACCESS.timePrefList(b.schedule.timePref).join(',') || 'none', deliveryTimePref: ACCESS.timePrefList(b.schedule.deliveryTimePref).join(',') || 'none', region: sched.regionForDate(new Date(b.schedule.date + 'T12:00:00Z')) },
+      : (b.schedule && b.schedule.date)
+      ? { ...b.schedule, timePref: ACCESS.timePrefList(b.schedule.timePref).join(',') || 'none', deliveryTimePref: ACCESS.timePrefList(b.schedule.deliveryTimePref).join(',') || 'none', region: sched.regionForDate(new Date(b.schedule.date + 'T12:00:00Z')) }
+      : { date: '', region: 'Quote', deliveryLater: false, deliveryDate: '', timePref: 'none', timeNote: '', deliveryTimePref: 'none', deliveryTimeNote: '' },
     notes: b.notes || '',
-    ...(rv.kinds.length ? { review: rv } : {}),
+    ...((rv.kinds.length || sizeWarn.length) ? { review: sizeWarn.length ? { needed: true, kinds: [...(rv.kinds || []), 'size_check'], reasons: [...(rv.reasons || []), { kind: 'size_check', text: sizeWarn[0].message }] } : rv } : {}),
     emails: [],
   };
   order.quote = quote(order);  // server-side price is authoritative
@@ -549,8 +568,14 @@ app.post('/api/orders/:id/pay', async (req, res) => {
   const o = findOrder(req.params.id);
   if (!o) return res.status(404).json({ error: 'not found' });
   if (o.status === 'pending_approval') return res.status(400).json({ error: 'This order is awaiting a CAD quote. Payment opens after approval.' });
-  if (o.status === 'confirmed') return res.json({ order: o });
+  const PS = require('./lib/payment-status');
+  const st = PS.payStatus(o);
+  if (o.status === 'confirmed' && st === 'paid' && PS.unpaidBalance(o) <= 0) return res.json({ order: o });
+  if (o.status === 'confirmed' && st === 'ach_processing') return res.json({ order: o, paymentStatus: 'Payment processing' });
   if (o.quote.paymentPlan === 'quote' || !o.quote.dueNow) return res.status(400).json({ error: 'No amount is due until CAD approves a price.' });
+  const pairErrs = scheduleErrors(o);
+  if (pairErrs.length) return res.status(400).json({ error: 'Please go back and pick dates that work together on the route: ' + pairErrs[0] });
+  { const held = holdSlots(o, false); if (!held.ok) return res.status(409).json({ error: 'That date just filled up. Please go back and pick another date.', full: held.full }); }
 
   const method = req.body.method;
   if (method === 'invoice') return res.status(400).json({ error: 'There are no trade accounts. Payment is due up front by card or bank transfer.' });
@@ -637,6 +662,32 @@ app.get('/api/orders/:id/verify', async (req, res) => {
     }
   }
   res.json({ order: o });
+});
+
+
+// TEST_MODE only: mock a later ACH settlement or a failed-after-processing path, then the customer can retry without a second amount due.
+app.post('/api/orders/:id/mock-payment-update', (req, res) => {
+  if (process.env.TEST_MODE !== '1') return res.status(404).json({ error: 'not found' });
+  const o = findOrder(req.params.id);
+  if (!o) return res.status(404).json({ error: 'not found' });
+  const result = String((req.body && req.body.result) || '');
+  if (result === 'fail' || result === 'failed') {
+    const updated = update(o.id, (ord) => {
+      ord.payment = { ...(ord.payment || {}), status: 'failed', failedAt: new Date().toISOString(), failReason: (req.body && req.body.reason) || 'mock_fail_after_processing' };
+      ord.status = 'awaiting_payment';
+      ord.statusNote = 'Payment failed after processing. The customer can retry. One amount is due; nothing was duplicated.';
+    });
+    return res.json({ order: findOrder(o.id), paymentStatus: require('./lib/payment-status').paymentStatusLabel(findOrder(o.id)) });
+  }
+  if (result === 'paid' || result === 'settle') {
+    const pay = { ...(o.payment || {}), status: 'paid', settledAt: new Date().toISOString() };
+    const cur = findOrder(o.id);
+    if (cur.status !== 'confirmed') return res.json({ order: finalize(o.id, pay) });
+    update(o.id, (ord) => { ord.payment = pay; delete ord.statusNote; });
+    sheetSync.enqueue(o.id, 'confirmed');
+    return res.json({ order: findOrder(o.id), paymentStatus: 'Paid' });
+  }
+  return res.status(400).json({ error: 'result must be fail or paid' });
 });
 
 // ---------- Paloma's Home Furnishings partner flow (/palomas) ----------

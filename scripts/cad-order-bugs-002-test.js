@@ -59,14 +59,16 @@ ok(sameDayOk.some((d) => d.date === '2026-12-04') || sched.canPairPickupDelivery
 
 // ---------- 9. Email + dimensions ----------
 ok(!!VALID.emailProblem('not-an-email'), '9: invalid email is rejected');
-ok(/californiaartdelivery\.com/.test(VALID.emailProblem('team@calforniaartdelivery.co') || ''), '9: calfornia typo is flagged');
-ok(/gmail\.com/.test(VALID.emailProblem('a@gmial.com') || ''), '9: gmial typo is flagged');
+ok(VALID.typoEmail('team@calforniaartdelivery.co') === 'team@californiaartdelivery.com', '9: calfornia typo is suggested, not silently changed');
+ok(VALID.typoEmail('a@gmial.com') === 'a@gmail.com', '9: gmial typo is suggested');
+ok(!VALID.emailProblem('team@calforniaartdelivery.co'), '9: a typo email is not a hard block');
 ok(!VALID.emailProblem('qa@example.com'), '9: a real email is accepted');
-const sofa = VALID.optionalDimProblem({ type: 'furniture', furnitureKind: 'Sofa', w: 1, h: 1, d: 1 });
-ok(sofa && sofa.state === 'small', '9: a 1-inch sofa is rejected', sofa);
+const sofa = VALID.belowMinWarning({ type: 'furniture', furnitureKind: 'Sofa', w: 1, h: 1, d: 1 });
+ok(sofa && sofa.state === 'small' && sofa.quote, '9: a 1-inch sofa is a soft double-check + quote option', sofa);
+ok(!VALID.optionalDimProblem({ type: 'furniture', furnitureKind: 'Sofa', w: 1, h: 1, d: 1 }), '9: a 1-inch sofa is not a hard block');
 ok(!VALID.optionalDimProblem({ type: 'furniture', furnitureKind: 'Sofa' }), '9: a sofa with blank size (size class) is still allowed');
 ok(!VALID.optionalDimProblem({ type: 'furniture', furnitureKind: 'Sofa', w: 84, h: 36, d: 36 }), '9: a realistic sofa is accepted');
-ok(VALID.dimProblem({ type: 'painting', w: 2, h: 2, d: 1 }) && VALID.dimProblem({ type: 'painting', w: 2, h: 2, d: 1 }).state === 'small', '9: a 2-inch painting is rejected');
+ok(!VALID.dimProblem({ type: 'painting', w: 2, h: 2, d: 1 }) && VALID.belowMinWarning({ type: 'painting', w: 2, h: 2, d: 1 }).state === 'small', '9: a 2-inch painting is a soft warning, not a hard reject');
 ok(!VALID.dimProblem({ type: 'painting', w: 4, h: 4, d: 1 }), '9: a 4×4×1 painting is accepted');
 ok(VALID.minDimsFor({ type: 'mirror' }).w === 6, '9: mirrors have a 6 in minimum width');
 ok(VALID.minDimsFor({ type: 'sculpture' }).w === 2, '9: sculptures have a 2 in minimum');
@@ -129,7 +131,7 @@ ok(!/final/i.test(rec.html), '10: quote_received email never says final');
   ok(ACCESS.weightFeeType({ type }), '11: ' + type + ' is a weight-fee type');
   ok(ACCESS.weightUnconfirmed([{ type, weightUnsure: true }]), '11: Not sure on a ' + type + ' triggers the disclaimer');
 });
-ok(!ACCESS.weightUnconfirmed([{ type: 'furniture', furnitureKind: 'Sofa', weightUnsure: true }]), '11: a sofa (size-class priced) does not use the weight-fee disclaimer');
+ok(ACCESS.weightUnconfirmed([{ type: 'furniture', furnitureKind: 'Sofa', weightUnsure: true }]), '11: a sofa marked Not sure is also flagged (weight to confirm before dispatch)');
 ok(ACCESS.needsWeightHint({ type: 'mirror' }), '11: mirrors get the heavier-than-they-look hint');
 ok(ACCESS.needsWeightHint({ type: 'painting', materialNotes: 'oil on panel' }), '11: a work on panel gets the hint');
 ok(!ACCESS.needsWeightHint({ type: 'photograph', description: 'print' }), '11: a photograph without panel does not force the hint');
@@ -199,11 +201,11 @@ ok(schedule.paymentLeg(baseOrder({ service: 'install_only', dropoff: emery })) =
 const delPay = schedule.legsForOrder(baseOrder({ payer: 'other', payerOther: { name: 'Alex Recipient', email: 'alex@example.com' } }));
 const puRow = delPay.find((l) => l.leg === 'PU').row;
 const delRow = delPay.find((l) => l.leg === 'DEL').row;
-ok(delRow['Amount Due'] === 400 && delRow['Payment Status'] === 'PAID', '12: DEL row carries Amount Due and Payment Status when the recipient pays', delRow);
+ok(delRow['Amount Due'] === 0 && delRow['Payment Status'] === 'Paid', '12: DEL row carries the unpaid balance (0 when settled) and Paid when the recipient has paid', delRow);
 ok(puRow['Amount Due'] === 'X' && puRow['Payment Status'] === '...', '12: PU row is blanked (X / ...) when payment is on DEL', puRow);
 
 const puPay = schedule.legsForOrder(baseOrder({ payer: 'me' }));
-ok(puPay.find((l) => l.leg === 'PU').row['Amount Due'] === 400, '12: PU row carries payment when the booker (at pickup) pays');
+ok(puPay.find((l) => l.leg === 'PU').row['Amount Due'] === 0 && puPay.find((l) => l.leg === 'PU').row['Payment Status'] === 'Paid', '12: PU row carries the unpaid balance (0 when settled) when the booker at pickup has paid');
 ok(puPay.find((l) => l.leg === 'DEL').row['Amount Due'] === 'X', '12: DEL row is blanked when payment is on PU');
 
 if (errors.length) {

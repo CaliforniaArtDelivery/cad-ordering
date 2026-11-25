@@ -225,8 +225,8 @@ function renderSummary() {
   let html = '';
   if (q.special) {
     html = isHeavyReview()
-      ? `<div class="special"><b>A piece over 500 lb needs a quick team review.</b><br>${esc(q.quoteNote || 'Our team will email your quote. No charge until you approve it.')}</div>`
-      : `<div class="special"><b>Delivery outside California is quoted as Shipping.</b><br>${esc('Our team will email your shipping quote. No charge until you approve it.')}</div>`;
+      ? `<div class="special"><b>A piece over 500 lb needs a quick team review.</b><br>${esc(q.quoteNote || 'Our team will email your quote. Nothing is charged until you authorize payment.')}</div>`
+      : `<div class="special"><b>Delivery outside California is quoted as Shipping.</b><br>${esc('Our team will email your shipping quote. Nothing is charged until you authorize payment.')}</div>`;
     barTotal.textContent = 'Quote'; 
   } else {
     const extras = q.volumeOff > 0 || q.courtesyOff > 0;
@@ -340,18 +340,21 @@ function showDone(j, how) {
   const shipping = o.status === 'pending_approval' && !reviewHold;
   const heavy = o.reviewReason === 'heavy';
   const paySt = (o.payment || {}).status;
-  const reallyPaid = how === 'paid' && (paySt === 'paid' || paySt === 'ach_processing');
-  const palomasPending = (S.payer === 'palomas' || (o.partnerInfo && o.partnerInfo.payer === 'palomas')) && !reallyPaid && how !== 'link' && !shipping && !reviewHold;
+  const reallyPaid = how === 'paid' && paySt === 'paid';
+  const processing = how === 'paid' && paySt === 'ach_processing';
+  const hasInvoice = !!(o.invoice && (o.invoice.issuedAt || o.invoice.number || o.invoice.id));
+  const palomasPending = (S.payer === 'palomas' || (o.partnerInfo && o.partnerInfo.payer === 'palomas')) && !reallyPaid && !processing && how !== 'link' && !shipping && !reviewHold;
   const day = (s) => (s ? new Date(s + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' }) : '');
   const sub = reviewHold
     ? ` · ${esc((o.quote || {}).quoteNote || 'Our team confirms the date within 1 business day.')} We’ll email ${esc(d.email)} a payment link once confirmed. No charge until then.`
-    : shipping ? (heavy ? ' · Our team reviews the heavy piece and will email your quote within 1 business day. No charge until you approve it.' : ' · Our team will email your shipping quote within 1 business day. No charge until you approve it.')
+    : shipping ? (heavy ? ' · Our team reviews the heavy piece and will email your quote within 1 business day. Nothing is charged until you authorize payment.' : ' · Our team will email your shipping quote within 1 business day. Nothing is charged until you authorize payment.')
     : how === 'link' ? ` · we emailed ${esc(d.email)} a payment link. <b>Awaiting payment — not scheduled until paid.</b> We'll send a reminder each day until it's paid.`
     : reallyPaid ? ' · paid, and we have it from here.'
-    : palomasPending ? " · booked, invoiced to Paloma’s / payment pending."
-    : ' · booked. Payment is still pending.';
+    : processing ? ' · payment processing. Your booking is confirmed.'
+    : hasInvoice ? ' · invoiced. Payment is still pending.'
+    : ' · booked, payment pending.';
   $('#main').innerHTML = `<div class="done"><div class="ck">✓</div>
-    <h2>${reviewHold ? 'Date held, team confirming' : shipping ? (heavy ? 'Sent for team review' : 'Shipping quote requested') : how === 'link' ? 'Payment link sent' : reallyPaid ? 'Delivery locked in' : palomasPending ? 'Booked, invoiced to Paloma’s' : 'Delivery booked'}</h2>
+    <h2>${reviewHold ? 'Date held, team confirming' : shipping ? (heavy ? 'Sent for team review' : 'Shipping quote requested') : how === 'link' ? 'Payment link sent' : reallyPaid ? 'Delivery locked in' : processing ? 'Payment processing' : hasInvoice ? 'Invoiced' : 'Booked, payment pending'}</h2>
     <p class="sub">Order <b>${esc(o.id || j.id)}</b>${sub}</p>
     <div class="box">
       <p><b>Placed by</b> ${esc(S.placedBy === 'Other' ? S.placedOther : S.placedBy)}</p>
@@ -361,7 +364,7 @@ function showDone(j, how) {
       ${shipping ? '' : (((j.order || {}).quote || {}).lines || []).filter((l) => l.label === "Manager's courtesy").map((l) => `<p><b>Manager's courtesy</b> −${usd(Math.abs(l.amount))}</p>`).join('')}
       ${shipping ? '' : `<p><b>${reviewHold ? 'Estimated total' : 'Total'}</b> ${usd(q.total)}${S.courtesy ? " (Manager's courtesy)" : ''}</p>`}
       ${shipping ? '' : `<p class="mini">${esc(q.accessFeeNote || (j.order && j.order.quote && j.order.quote.accessFeeNote) || '')}</p>`}
-      ${shipping || reviewHold || how === 'link' ? '' : (reallyPaid ? `<p><b>Paid today</b> ${usd((o.payment && o.payment.amount) || q.dueNow || q.total)}${o.quote && o.quote.balanceDue ? ' · balance ' + usd(o.quote.balanceDue) + ' due ' + esc(o.quote.balanceWhen || '') : ''} · by ${S.payer === 'palomas' ? "Paloma's Home Furnishings" : esc(d.name)}</p>` : `<p><b>${palomasPending ? "Booked, invoiced to Paloma’s / payment pending" : 'Payment pending'}</b> ${usd(q.dueNow || q.total)}</p>`)}
+      ${shipping || reviewHold || how === 'link' ? '' : (reallyPaid ? `<p><b>Paid</b> ${usd((o.payment && o.payment.amount) || q.dueNow || q.total)}${o.quote && o.quote.balanceDue ? ' · balance ' + usd(o.quote.balanceDue) + ' due ' + esc(o.quote.balanceWhen || '') : ''} · by ${S.payer === 'palomas' ? "Paloma's Home Furnishings" : esc(d.name)}</p>` : processing ? `<p><b>Payment processing</b> ${usd((o.payment && o.payment.amount) || q.dueNow || q.total)}</p>` : `<p><b>${hasInvoice ? 'Invoiced' : 'Booked, payment pending'}</b> ${usd(q.dueNow || q.total)}</p>`)}
     </div>
     <button class="btn primary" id="again" type="button">Place another order</button></div>`;
   $('#bar').hidden = true; window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -405,15 +408,15 @@ function showStep(i, { push = true } = {}) {
   i = Math.max(0, Math.min(STEP_IDS.length - 1, i));
   const first = !stepReady, changed = first || i !== stepI;
   stepI = i; stepReady = true;
-  const id = STEP_IDS[i], final = id === 'review';
+  const id = STEP_IDS[i], isLast = id === 'review';
   document.querySelectorAll('[data-step]').forEach((el) => { el.hidden = el.dataset.step !== id; });
-  $('#main').classList.toggle('single', !final);
+  $('#main').classList.toggle('single', !isLast);
   document.body.classList.toggle('compact', i > 0);
-  $('#backBtn').hidden = i === 0; $('#nextBtn').hidden = final;
+  $('#backBtn').hidden = i === 0; $('#nextBtn').hidden = isLast;
   const pct = Math.round(((i + 1) / STEP_IDS.length) * 100);
   $('#pbar i').style.width = pct + '%'; $('#pbar').setAttribute('aria-valuenow', String(pct));
   clearStepErrors();
-  if (final) { returnToReview = false; renderReview(); renderSummary(); }
+  if (isLast) { returnToReview = false; renderReview(); renderSummary(); }
   if (changed) {
     try { if (push) history.pushState({ palStep: i }, ''); else history.replaceState({ palStep: i }, ''); } catch (_) { /* ignore */ }
     if (!first) window.scrollTo({ top: Math.max(0, $('#main').offsetTop - 12), behavior: 'auto' });
@@ -433,7 +436,7 @@ async function goNext() {
   const errs = problemsFor(id);
   if (errs.length) { showStepErrors(errs); return; }
   if (returnToReview || stepI + 1 === STEP_IDS.length - 1) {
-    // Going to the final review: make sure every screen is complete first.
+    // Going to the review screen: make sure every screen is complete first.
     const all = problems();
     if (all.length) { const sid = stepOfSel(all[0].sel); showStep(STEP_IDS.indexOf(sid)); showStepErrors(problemsFor(sid)); return; }
     showStep(STEP_IDS.length - 1); return;

@@ -76,19 +76,43 @@
   const DIM_MESSAGES = {
     missing: () => 'Please enter the width, height and depth in inches.',
     invalid: (k) => `Enter the ${DIM_NAME[k]} as a plain number of inches (like 24 or 24.5).`,
-    small: (k, it) => `Too small: ${DIM_NAME[k]} must be at least ${minDimsFor(it)[k]} in.`,
+    small: (k, it) => `Please double-check: ${DIM_NAME[k]} is below the usual minimum of ${minDimsFor(it)[k]} in. You can still request a quote so we can review the size.`,
     huge: (k) => `Please check the ${DIM_NAME[k]}: that is over ${MAX_DIM} in.`,
   };
   // First problem with a piece's W x H x D, or null. { key, state, message }
+  function hasSizeClassOnly(it) {
+    return !!(it && (it.sizeClassOnly || it.sizeOnly) && String((it && it.sizeClass) || '').trim());
+  }
+  function dimFilledCount(it) {
+    return ['w', 'h', 'd'].reduce((n, k) => {
+      const raw = (it || {})[k];
+      return n + (raw !== undefined && raw !== null && String(raw).trim() !== '' ? 1 : 0);
+    }, 0);
+  }
+  // Hard problem that must be fixed (partial set, invalid, huge). Below-minimum is a soft warning, not a hard block.
   function dimProblem(it) {
+    if (hasSizeClassOnly(it) && dimFilledCount(it) === 0) return null;
+    const filled = dimFilledCount(it);
+    if (filled > 0 && filled < 3) {
+      return { key: ['w', 'h', 'd'].find((k) => dimState(it, k) === 'missing') || 'w', state: 'partial', message: 'Please enter all three dimensions (width, height and depth), or choose size class only.' };
+    }
     for (const k of ['w', 'h', 'd']) {
       const s = dimState(it, k);
-      if (s !== 'ok') return { key: k, state: s, message: DIM_MESSAGES[s](k, it) };
+      if (s === 'invalid' || s === 'huge' || s === 'missing') return { key: k, state: s, message: DIM_MESSAGES[s](k, it) };
     }
     return null;
   }
-  // Furniture and custom: blank size is allowed (size class may be used), but any size that is typed must be realistic.
+  function belowMinWarning(it) {
+    if (hasSizeClassOnly(it) && dimFilledCount(it) === 0) return null;
+    if (dimProblem(it)) return null;
+    for (const k of ['w', 'h', 'd']) {
+      if (dimState(it, k) === 'small') return { key: k, state: 'small', message: DIM_MESSAGES.small(k, it), quote: true };
+    }
+    return null;
+  }
+  // Furniture and custom: blank size is allowed when a size class is chosen, but any size that is typed must be a complete set.
   function optionalDimProblem(it) {
+    if (hasSizeClassOnly(it) && dimFilledCount(it) === 0) return null;
     const filled = ['w', 'h', 'd'].some((k) => {
       const raw = (it || {})[k];
       return raw !== undefined && raw !== null && String(raw).trim() !== '';
@@ -96,8 +120,7 @@
     for (const k of ['w', 'h', 'd']) {
       const s = dimState(it, k);
       if (s === 'invalid' || s === 'huge') return { key: k, state: s, message: DIM_MESSAGES[s](k, it) };
-      if (filled && s === 'small') return { key: k, state: s, message: DIM_MESSAGES.small(k, it) };
-      if (filled && s === 'missing') return { key: k, state: s, message: 'Please enter the width, height and depth in inches, or clear all three.' };
+      if (filled && s === 'missing') return { key: k, state: s, message: 'Please enter the width, height and depth in inches, or clear all three, or choose size class only.' };
     }
     return null;
   }
@@ -199,12 +222,11 @@
     const e = String(email || '').trim();
     if (!e) return 'Please enter an email address.';
     if (!EMAIL_RX.test(e)) return 'Please enter a real email address (like name@example.com).';
-    const tip = typoEmail(e);
-    if (tip) return `That email looks misspelled. Did you mean ${tip}? Please check it.`;
+    typoEmail(e); // suggestion only — never a hard block, and never silently changed
     return null;
   }
 
   const addressOk = (a) => addressProblems(a).length === 0;
 
-  return { MIN_DIM, TYPE_MIN, FURNITURE_MIN, minDimsFor, REVIEW_DIM, MAX_DIM, num, parseDim, dimState, dimProblem, optionalDimProblem, largestSide, isOversized, zipOk, cityOk, streetHasNumber, noStreetNumberOk, needsAddressReview, isUS, addressProblems, addressOk, emailProblem, typoEmail, EMAIL_RX };
+  return { MIN_DIM, TYPE_MIN, FURNITURE_MIN, minDimsFor, REVIEW_DIM, MAX_DIM, num, parseDim, dimState, dimProblem, optionalDimProblem, belowMinWarning, hasSizeClassOnly, dimFilledCount, largestSide, isOversized, zipOk, cityOk, streetHasNumber, noStreetNumberOk, needsAddressReview, isUS, addressProblems, addressOk, emailProblem, typoEmail, EMAIL_RX };
 });

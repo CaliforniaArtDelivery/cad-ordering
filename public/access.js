@@ -45,7 +45,9 @@
     return it.type || '';
   }
   function weightFeeType(it) { return WEIGHT_FEE_TYPES.includes(pieceType(it)); }
-  function weightUnconfirmed(items) { return (items || []).some((it) => it && it.weightUnsure && weightFeeType(it)); }
+  // Any piece marked Not sure (furniture included) is unconfirmed — never treated as 0 lb or auto-accepted.
+  function weightUnconfirmed(items) { return (items || []).some((it) => it && it.weightUnsure); }
+  const WEIGHT_DISPATCH_FLAG = 'WEIGHT TO CONFIRM BEFORE DISPATCH';
   function needsWeightHint(it) {
     if (pieceType(it) === 'mirror') return true;
     const blob = [it && it.materialNotes, it && it.description, it && it.furnitureKind, it && it.name].filter(Boolean).join(' ');
@@ -218,5 +220,5 @@
   const TIME_PREFS = [['none', 'No preference'], ['morning', 'Morning'], ['late_morning', 'Late morning'], ['midday', 'Midday'], ['early_afternoon', 'Early afternoon'], ['afternoon', 'Afternoon'], ['late_afternoon', 'Late afternoon'], ['early_evening', 'Early evening'], ['evening', 'Evening'], ['late_evening', 'Late evening']];
   const timePrefList = (v) => String(v == null ? '' : v).split(',').map((x) => x.trim()).filter((x) => x && x !== 'none' && TIME_PREFS.some(([k]) => k === x));
   const timePrefText = (v) => timePrefList(v).map((k) => TIME_PREFS.find(([x]) => x === k)[1]).join(', ');
-  return { TIME_PREFS, timePrefList, timePrefText, FLIGHT_COUNTS, ELEV_TYPES, ELEV_FIT, PATH_TYPES, roughPath, ACK_TEXT, sitePhotosNeeded, MODES, FLIGHTS, DIRS, YNS, DOORWAYS, FITS, ELEV_STAIRS, ELEV_STEPS, MODE_KEYS, REVIEW_NOTE, PRICE_NOTE, WEIGHT_NOTE, WEIGHT_HINT, WEIGHT_FEE_TYPES, pieceType, weightFeeType, weightUnconfirmed, needsWeightHint, TBC_TOTAL, TBC_DUE, wholeFlights, HEAVY_LB, LONG_IN, isBigPiece, firm, normalize, gaps, summary, stairPhotosNeeded, doorPhotosNeeded, usesStairs, fitUnsure, needsReview, plural };
+  return { TIME_PREFS, timePrefList, timePrefText, FLIGHT_COUNTS, ELEV_TYPES, ELEV_FIT, PATH_TYPES, roughPath, ACK_TEXT, sitePhotosNeeded, MODES, FLIGHTS, DIRS, YNS, DOORWAYS, FITS, ELEV_STAIRS, ELEV_STEPS, MODE_KEYS, REVIEW_NOTE, PRICE_NOTE, WEIGHT_NOTE, WEIGHT_HINT, WEIGHT_DISPATCH_FLAG, WEIGHT_FEE_TYPES, pieceType, weightFeeType, weightUnconfirmed, needsWeightHint, TBC_TOTAL, TBC_DUE, wholeFlights, HEAVY_LB, LONG_IN, isBigPiece, firm, normalize, gaps, summary, stairPhotosNeeded, doorPhotosNeeded, usesStairs, fitUnsure, needsReview, plural };
 });

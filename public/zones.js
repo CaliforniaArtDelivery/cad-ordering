@@ -84,9 +84,78 @@ const ZONE_ZIPS = {
     return macroOfZone(zipZone(addr));
   }
 
-  // If both the city and the ZIP resolve to a zone and they disagree, the address cannot be routed.
-  // Never offer dates from the ZIP alone in that case.
+  // Accepted postal / neighborhood names for a ZIP (in addition to the ZIP's own zone cities).
+  // A name listed here is a real alias for that ZIP and may be booked; it is never inferred from the ZIP alone.
+  const ZIP_ALIASES = {
+    90028: ['hollywood', 'los angeles'],
+    90038: ['hollywood', 'los angeles'],
+    90046: ['hollywood', 'los angeles', 'west hollywood'],
+    90048: ['los angeles', 'west hollywood', 'mid-wilshire', 'mid wilshire'],
+    90069: ['west hollywood', 'los angeles', 'hollywood'],
+    90024: ['westwood', 'los angeles', 'west los angeles'],
+    90025: ['west los angeles', 'los angeles', 'sawtelle'],
+    90049: ['brentwood', 'los angeles'],
+    90064: ['rancho park', 'los angeles', 'west los angeles'],
+    90066: ['mar vista', 'los angeles'],
+    90067: ['century city', 'los angeles'],
+    90210: ['beverly hills', 'los angeles'],
+    90211: ['beverly hills', 'los angeles'],
+    90212: ['beverly hills', 'los angeles'],
+    90272: ['pacific palisades', 'los angeles'],
+    90291: ['venice', 'los angeles'],
+    90401: ['santa monica', 'los angeles'],
+    94102: ['san francisco', 'tenderloin', 'civic center'],
+    94103: ['san francisco', 'soma', 'south of market', 'mission bay'],
+    94107: ['san francisco', 'soma', 'south beach', 'mission bay', 'potrero hill'],
+    94110: ['san francisco', 'mission', 'mission district', 'bernal heights'],
+    94114: ['san francisco', 'castro', 'noe valley'],
+    94115: ['san francisco', 'pacific heights', 'western addition'],
+    94117: ['san francisco', 'haight', 'cole valley'],
+    94118: ['san francisco', 'richmond', 'inner richmond'],
+    94123: ['san francisco', 'marina', 'cow hollow'],
+    94133: ['san francisco', 'north beach', 'telegraph hill', 'chinatown'],
+    94608: ['emeryville', 'oakland'],
+    94607: ['oakland', 'jack london', 'west oakland'],
+    94611: ['oakland', 'piedmont', 'montclair'],
+    94612: ['oakland', 'downtown oakland'],
+    93921: ['carmel', 'carmel-by-the-sea', 'carmel by the sea'],
+    93923: ['carmel', 'carmel-by-the-sea', 'carmel by the sea', 'carmel highlands', 'carmel valley'],
+    93940: ['monterey', 'pacific grove'],
+    95060: ['santa cruz', 'westside'],
+  };
+  function normName(s) { return String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim(); }
+  function aliasesForZip(zip) {
+    const z = String(zip || '');
+    return ZIP_ALIASES[z] || ZIP_ALIASES[Number(z)] || [];
+  }
+  // True when the typed city is a known name or a real postal alias for this ZIP (same CAD zone, or listed alias).
+  function cityFitsZip(addr) {
+    if (!addr) return false;
+    const city = String(addr.city || '').trim();
+    const zip = zip5(addr);
+    if (!city || !zip) return false;
+    const n = normName(city);
+    if (aliasesForZip(zip).some((a) => n === normName(a) || n.includes(normName(a)) || normName(a).includes(n))) return true;
+    const cz = cityZone(city), zz = zipZone(addr);
+    if (cz && zz && cz === zz) return true;
+    return false;
+  }
+  function addressComplete(addr) {
+    if (!addr) return false;
+    const street = String(addr.street || '').trim();
+    const city = String(addr.city || '').trim();
+    const zip = zip5(addr);
+    const hasNum = /\d/.test(street) || !!(addr.noStreetNumber);
+    return !!(street && hasNum && city && zip);
+  }
+
+  // If both the city and the ZIP resolve to a zone and they disagree, the address cannot be routed
+  // (unless the city is a listed postal alias for that ZIP).
   function routeConflict(addr) {
+    if (addr && cityFitsZip(addr) && aliasesForZip(zip5(addr)).length && cityZone(String(addr.city || '').trim()) && zipZone(addr) && cityZone(addr.city) !== zipZone(addr)) {
+      // Alias for this ZIP wins over a generic city-name zone (rare).
+      return null;
+    }
     if (!addr) return null;
     const city = String(addr.city || '').trim();
     const zip = zip5(addr);
@@ -100,7 +169,8 @@ const ZONE_ZIPS = {
   }
 
   return {
-    SOCAL_ZIP_MAX, SOCAL_ZONES, ZONE_CITIES, ZONE_ZIPS, MIXED_PREFIXES, NAPA_945, ZIP5_ZONES, AREA_NAMES,
+    SOCAL_ZIP_MAX, SOCAL_ZONES, ZONE_CITIES, ZONE_ZIPS, MIXED_PREFIXES, NAPA_945, ZIP5_ZONES, AREA_NAMES, ZIP_ALIASES,
     macroOfZone, customerAreaName, zip5, cityZone, zipZone, regionOfZone, regionForZip, routeConflict,
+    cityFitsZip, aliasesForZip, addressComplete, normName,
   };
 });
