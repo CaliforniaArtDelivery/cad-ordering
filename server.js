@@ -445,7 +445,7 @@ app.post('/api/orders', (req, res) => {
   const all = load(); all.unshift(order); save(all);
   if (special) {
     reviewAlert(order);
-    sheetSync.enqueue(order.id, 'quote_request'); // raw log only: not scheduled until approved and paid
+    sheetSync.enqueue(order.id, 'quote_request'); // PENDING rows on SCHEDULE 2026 (PENDINGJOB / Pending Job) until approved and paid
     const sent = email.send('quote_received', order);
     update(order.id, (x) => x.emails.push(sent));
     const pc = payerCopy(order);
@@ -869,7 +869,7 @@ app.get('/api/sync-status', (_, res) => res.json({ ...sheetSync.status(), dayChe
 sheetSync.start({
   orders: () => load(), find: (id) => findOrder(id),
   saved: (id, result) => { try { require('./lib/sheet-days').bump(findOrder(id)); } catch {} update(id, (x) => { x.scheduleStatus = 'saved'; x.scheduleSavedAt = new Date().toISOString(); x.scheduleRef = result; }); if (sheetSync.configured()) sendConfirmationEmails(id);
-    try { const o = findOrder(id); if (o && !(result && /TEST/i.test(String(result.tab || '')))) teamAlert(`NEW ONLINE ORDER on the schedule: ${id}`, `Order ${id} was paid and its rows are saved in the ${(result && result.tab) || 'ONLINE ORDERS'} tab (first row ${(result && result.firstRow) || '?'}).\nClient: ${(o.contact || {}).name || ''} ${(o.contact || {}).phone || ''}\nDate(s): ${(o.schedule || {}).date || ''}${(o.schedule || {}).deliveryDate ? ' / delivery ' + o.schedule.deliveryDate : ''}\nService: ${o.serviceLabel || o.service}\nThe independent checker re-reads the rows every 30 minutes and alerts on any mismatch.`); } catch {}
+    try { const o = findOrder(id); if (o && !schedule.isTestOrder(o) && !(result && result.test)) teamAlert(`NEW ONLINE ORDER on the schedule: ${id}`, `Order ${id} was paid and its rows are saved on the ${(result && result.tab) || 'SCHEDULE 2026'} tab (first row ${(result && result.firstRow) || '?'}).\nClient: ${(o.contact || {}).name || ''} ${(o.contact || {}).phone || ''}\nDate(s): ${(o.schedule || {}).date || ''}${(o.schedule || {}).deliveryDate ? ' / delivery ' + o.schedule.deliveryDate : ''}\nService: ${o.serviceLabel || o.service}\nThe independent checker re-reads the rows every 30 minutes and alerts on any mismatch.`); } catch {}
   },
   exception: (id) => update(id, (x) => { x.scheduleStatus = 'exception'; }),
 });

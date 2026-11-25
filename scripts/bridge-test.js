@@ -1,4 +1,5 @@
 /**
+ * LEGACY (pre Nov 25 2026 multi-tab bridge). The one-tab bridge is covered by scripts/onetab-bridge-test.js.
  * End-to-end test of the schedule bridge: real server (child process) + Code.gs running in a mock Spreadsheet seeded with a copy of
  * SCHEDULE 2026. Covers: Date Guard, last-slot concurrency, hold expiry, duplicate / out-of-order events, crash between payment and
  * write, retries, pending payments, edits/cancels (verifier), permission failure, alert delivery, reconciliation, odd characters,

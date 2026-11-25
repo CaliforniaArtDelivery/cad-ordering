@@ -1,30 +1,40 @@
 /**
  * CAD online-ordering -> SCHEDULE sheet bridge (Google Apps Script, owned by the CAD Google account).
+ * v2 "ONE TAB" (Chad, Nov 25 2026): every online order goes onto the ONE schedule tab, SCHEDULE 2026, exactly the way a
+ * team member adds a job. No ONLINE ORDERS / TEST ORDERS / RAW LOG tabs, no other tabs, no logs.
  *
- * Deploy: Extensions > Apps Script (opened from the sheet the orders should land in) > paste this file > Project Settings >
- * Script properties: SECRET (long random string, same value as the Render env SHEETS_WEBHOOK_SECRET),
- * TARGET_SPREADSHEET_ID (the sheet id; point it at the TEST COPY first, then at the live SCHEDULE sheet),
- * ALERT_EMAIL (chadsbotchild@mail.grokbot.com). Run installTriggers() once. Deploy > New deployment > Web app,
- * Execute as: Me, Who has access: Anyone (the SECRET is the key). Copy the /exec URL into Render as SHEETS_WEBHOOK_URL.
+ * Deploy: open the "CAD online orders bridge" project > replace Code.gs with this file > Save > Run migrateToOneTab once
+ * (moves any old ONLINE ORDERS / TEST ORDERS rows onto SCHEDULE 2026 and deletes the three old tabs) >
+ * Deploy > Manage deployments > Edit > Version: New version > Deploy (same /exec URL).
+ * Script properties (unchanged): SECRET, TARGET_SPREADSHEET_ID, ALERT_EMAIL.
  *
- * What it does (and never does):
- *  - order      : writes the order's schedule rows to the "ONLINE ORDERS" tab (mock-payment orders: "TEST ORDERS"), logs the
- *                 raw order in "ONLINE ORDERS RAW LOG", reads back every cell it wrote and reports verified true/false.
- *                 Idempotent by order id (never writes the same order twice, even if a retry arrives mid-way).
- *  - days       : read-only digest of SCHEDULE 2026 per date (route text, job rows, off-day flags) for the booking site.
- *  - alert      : sends an alert email.
- *  - verifyAll(): independent checker (time trigger every 30 min) that re-reads every logged order and the sheet, and emails
- *                 on any missing/duplicate/changed row or a date the sheet now marks off.
- *  It NEVER edits or moves rows on SCHEDULE 2026 or any other existing tab. It only creates and appends to its own tabs.
+ * Where rows go on SCHEDULE 2026 (the team's own conventions):
+ *  - Paid / confirmed order: each leg goes on its date. It fills the first EMPTY pre-made slot row of that date (a row with only
+ *    the date and the day's route), keeping the team's date and route text. If the date has no empty slot, a new row is inserted
+ *    right under that date's last row (if the date has no rows yet, right after the closest earlier date). TBD dates go to the
+ *    PENDING block at the top.
+ *  - Quote / review request (not paid): goes in the PENDING block at the top of the tab (rows above the first divider row), marked
+ *    the way the team marks tentative jobs: Job Assignments "PENDINGJOB", Update Status "CONTACT THEM!!!", Payment Status
+ *    "Pending Job", and Update Notes "ONLINE ORDER <id> · PENDING REVIEW ...". When it is approved and paid, those pending rows are
+ *    removed and the confirmed rows go on their dates.
+ *  - Test (mock-payment) orders: same places, with Update Notes starting "TEST ORDER (not a real job) · ".
+ *  - The order id lives at the start of Update Notes (column J): "ONLINE ORDER <id> · ...". That is how retries, the checker and
+ *    the reconcile find an order's rows. Nothing is written anywhere else (small per-order check data sits in Script Properties).
+ *
+ * Actions: order (write + read-back verify), days (read-only digest per date), reconcile, alert, verifyAll() (time trigger).
  */
-var TAB_CAL = 'ROUTE CALENDAR';
-var TAB_MAIN = 'SCHEDULE 2026', TAB_ORDERS = 'ONLINE ORDERS', TAB_TEST = 'TEST ORDERS', TAB_RAW = 'ONLINE ORDERS RAW LOG';
-var NCOLS = 35; // A..AI (the SCHEDULE 2026 table; the grid has one more empty column)
+var TAB_MAIN = 'SCHEDULE 2026', TAB_CAL = 'ROUTE CALENDAR';
+var LEGACY_TABS = ['ONLINE ORDERS', 'TEST ORDERS', 'ONLINE ORDERS RAW LOG'];
+var NCOLS = 35; // A..AI (the SCHEDULE 2026 table)
 var NUM_COLS = [31, 33]; // AE Amount Due, AG Amount Paid (1-based)
-var CHUNK = 40000;
+var COL_DATE = 2, COL_ROUTE = 5, COL_TYPE = 6, COL_ASSIGN = 7, COL_STATUS = 9, COL_NOTES = 10, COL_PAYSTATUS = 32;
 var JOB_RE = /^(PU|DEL|INST|DE-INST|MOVING|On-site Move|SHIPPING)/i;
 var OFF_RE = /(\boff day\b|\bday off\b|\bdays off\b|christmas day off|out of office|\bvacation\b|\bholiday\b|\bclosed\b|no schedule|don'?t book)/i;
 var NOISE_RE = /send second review/i;
+var TEST_TAG = 'TEST ORDER (not a real job) · ';
+var PEND_TAG = 'PENDING REVIEW: not paid or confirmed yet, CAD to review and contact client · ';
+var TAG_RE = /^(TEST ORDER \(not a real job\) · )?ONLINE ORDER (\S+) ·\s?(PENDING REVIEW)?/;
+var STATE_PREFIX = 'O:';
 
 function props_() { return PropertiesService.getScriptProperties(); }
 function ss_() { return SpreadsheetApp.openById(props_().getProperty('TARGET_SPREADSHEET_ID')); }
@@ -44,7 +54,7 @@ function doGet(e) {
     var p = (e && e.parameter) || {};
     if (!authOk_(p.secret)) return json_({ ok: false, error: 'unauthorized' });
     if (p.action === 'days') return json_(handleDays_());
-    return json_({ ok: true, hello: 'CAD schedule bridge', time: new Date().toISOString() });
+    return json_({ ok: true, hello: 'CAD schedule bridge (one tab)', time: new Date().toISOString() });
   } catch (err) { return json_({ ok: false, error: String(err) }); }
 }
 
@@ -57,6 +67,7 @@ function doPost(e) {
     if (b.action === 'days') return json_(handleDays_());
     if (b.action === 'seedCalendar') return json_(handleSeed_(b));
     if (b.action === 'reconcile') return json_(handleReconcile_(b));
+    if (b.action === 'migrate') return json_(migrateToOneTab());
     if (b.action === 'alert') { alertMail_(String(b.subject || 'CAD sheet alert'), String(b.body || ''), b.to); return json_({ ok: true }); }
     return json_({ ok: false, error: 'unknown action' });
   } catch (err) {
@@ -66,130 +77,30 @@ function doPost(e) {
 }
 
 // ---------- helpers ----------
-function chunks_(s) { var out = []; s = String(s || ''); for (var i = 0; i < s.length; i += CHUNK) out.push(s.substr(i, CHUNK)); return out.length ? out : ['']; }
 function norm_(h) { return String(h == null ? '' : h).replace(/\s+/g, ' ').trim().toLowerCase(); }
-
-function ensureTab_(ss, name) {
-  var sh = ss.getSheetByName(name);
-  if (sh) return sh;
-  var main = ss.getSheetByName(TAB_MAIN);
-  sh = ss.insertSheet(name);
-  if (sh.getMaxColumns() < NCOLS) sh.insertColumnsAfter(sh.getMaxColumns(), NCOLS - sh.getMaxColumns());
-  main.getRange(1, 1, 2, NCOLS).copyTo(sh.getRange(1, 1), SpreadsheetApp.CopyPasteType.PASTE_NORMAL, false);
-  for (var c = 1; c <= NCOLS; c++) sh.setColumnWidth(c, main.getColumnWidth(c));
-  sh.getRange(1, 2).setValue(name === TAB_TEST ? 'TEST ORDERS (mock payments only; never real jobs)' : 'ONLINE ORDERS: written by the ordering site. Existing SCHEDULE 2026 rows are never touched.');
-  sh.setFrozenRows(2);
-  sh.setTabColor(name === TAB_TEST ? '#999999' : '#0b8043');
-  return sh;
+function blank_(v) { return v === '' || v == null; }
+function isBool_(v) { return v === true || v === false; }
+function tagOf_(notes) {
+  var m = String(notes == null ? '' : notes).match(TAG_RE);
+  return m ? { id: m[2], test: !!m[1], pending: !!m[3] } : null;
 }
-function ensureRaw_(ss) {
-  var sh = ss.getSheetByName(TAB_RAW);
-  if (sh) return sh;
-  sh = ss.insertSheet(TAB_RAW);
-  sh.getRange(1, 1, 1, 12).setValues([['Key (order|event)', 'Logged at', 'Event', 'Order status', 'Test?', 'Schedule rows', 'Tab', 'First row', 'Pickup date', 'Delivery date', 'Client', 'Total']]);
-  sh.getRange(1, 13, 1, 2).setValues([['RAW ORDER JSON (chunk 1..n, 40k chars each, continues to the right)', '']]);
-  sh.setFrozenRows(1);
-  sh.setTabColor('#674ea7');
-  return sh;
+// Site rows start Update Notes with "ONLINE ORDER <id> · ..."; add the TEST / PENDING marks the team can see.
+function tagNotes_(notes, id, test, pending) {
+  var s = String(notes == null ? '' : notes), head = 'ONLINE ORDER ' + id + ' ·';
+  var rest = s.indexOf(head) === 0 ? s.substr(head.length).replace(/^\s+/, '') : s;
+  return (test ? TEST_TAG : '') + head + ' ' + (pending ? PEND_TAG : '') + rest;
 }
-// Layout of a raw-log row: A..L as above, M = number of raw chunks, N = number of expected-row chunks, then raw chunks, then expected chunks.
-function readRawRow_(vals) {
-  var nr = Number(vals[12]) || 0, ne = Number(vals[13]) || 0;
-  var raw = vals.slice(14, 14 + nr).join(''), exp = vals.slice(14 + nr, 14 + nr + ne).join('');
-  return { key: vals[0], loggedAt: vals[1], event: vals[2], status: vals[3], test: vals[4] === true || vals[4] === 'TRUE', nrows: Number(vals[5]) || 0, tab: vals[6], firstRow: Number(vals[7]) || 0, puDate: vals[8], delDate: vals[9], client: vals[10], total: vals[11], raw: raw, expected: exp ? JSON.parse(exp) : [] };
-}
-function findKey_(raw, key) {
-  var last = raw.getLastRow(); if (last < 2) return 0;
-  var col = raw.getRange(2, 1, last - 1, 1).getValues();
-  for (var i = 0; i < col.length; i++) if (col[i][0] === key) return i + 2;
-  return 0;
-}
-// Rows of an order inside a tab: column J starts with "ONLINE ORDER <id> ·".
-function findOrderRows_(sh, id) {
-  var last = sh.getLastRow(); if (last < 3) return [];
-  var col = sh.getRange(3, 10, last - 2, 1).getValues(), out = [], tag = 'ONLINE ORDER ' + id + ' ';
-  for (var i = 0; i < col.length; i++) if (String(col[i][0]).indexOf(tag) === 0) out.push(i + 3);
-  return out;
+function hash_(s) { // FNV-1a, 6 hex chars (enough to notice an edit; the sheet itself is the record)
+  s = String(s); var h = 0x811c9dc5;
+  for (var i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = (h + ((h << 1) + (h << 4) + (h << 7) + (h << 8) + (h << 24))) >>> 0; }
+  return ('00000' + (h >>> 0).toString(16)).slice(-6);
 }
 function sameCell_(exp, act, colIdx) {
-  if (colIdx === 0) return act === false || act === 'FALSE' || act === false;
+  if (colIdx === 0) return act === false || act === 'FALSE';
   if (typeof exp === 'number') return Number(act) === exp;
+  if (exp instanceof Date || act instanceof Date) return String(exp) === String(act);
   return String(act == null ? '' : act) === String(exp == null ? '' : exp);
 }
-function diffRows_(sh, rowNums, expected) {
-  var diffs = [];
-  for (var r = 0; r < expected.length; r++) {
-    var act = sh.getRange(rowNums[r], 1, 1, NCOLS).getValues()[0];
-    for (var c = 0; c < NCOLS; c++) if (!sameCell_(expected[r][c], act[c], c)) diffs.push('row ' + rowNums[r] + ' col ' + (c + 1) + ': expected [' + String(expected[r][c]).slice(0, 80) + '] got [' + String(act[c]).slice(0, 80) + ']');
-  }
-  return diffs;
-}
-
-// ---------- order ----------
-function handleOrder_(b) {
-  var lock = LockService.getScriptLock();
-  lock.waitLock(30000);
-  try {
-    var ss = ss_(), raw = ensureRaw_(ss);
-    var key = b.orderId + '|' + b.event, isConfirmed = b.event === 'confirmed';
-    var existingKey = findKey_(raw, key);
-    if (existingKey) {
-      var rr = readRawRow_(raw.getRange(existingKey, 1, 1, raw.getLastColumn()).getValues()[0]);
-      return { ok: true, duplicate: true, rowCount: rr.nrows, tab: rr.tab, firstRow: rr.firstRow };
-    }
-    var n = isConfirmed ? (b.rows || []).length : 0;
-    if (isConfirmed) {
-      if (!n) throw new Error('confirmed order without rows');
-      for (var i = 0; i < n; i++) if (b.rows[i].length !== NCOLS) throw new Error('row ' + i + ' has ' + b.rows[i].length + ' cells, expected ' + NCOLS);
-      var main = ss.getSheetByName(TAB_MAIN), hdr = main.getRange(2, 1, 1, NCOLS).getValues()[0];
-      for (var h = 0; h < NCOLS; h++) if (norm_(hdr[h]) !== norm_(b.columns[h])) throw new Error('SCHEDULE 2026 header changed at column ' + (h + 1) + ': sheet "' + hdr[h] + '" vs site "' + b.columns[h] + '". Nothing written.');
-    }
-    if (!isConfirmed) {
-      appendRaw_(raw, b, key, 0, '', 0);
-      return { ok: true, logged: true, rowsWritten: 0 };
-    }
-    var sh = ensureTab_(ss, b.test ? TAB_TEST : TAB_ORDERS);
-    var present = findOrderRows_(sh, b.orderId), start, written = 0;
-    if (present.length === n) {
-      start = present[0]; // already there (a retry after a half-finished attempt): verify, don't write again
-    } else if (present.length > 0) {
-      throw new Error('PARTIAL ROWS for ' + b.orderId + ' in ' + sh.getName() + ' (' + present.length + ' of ' + n + '). Not writing more; fix by hand.');
-    } else {
-      start = Math.max(sh.getLastRow() + 1, 3);
-      if (start + n > sh.getMaxRows()) sh.insertRowsAfter(sh.getMaxRows(), n + 200);
-      var area = sh.getRange(start, 1, n, NCOLS);
-      area.setNumberFormat('@');
-      var vals = b.rows.map(function (row) { return row.map(function (v, c) { return (typeof v === 'number' || typeof v === 'boolean') ? '' : (v == null ? '' : String(v)); }); });
-      area.setValues(vals);
-      for (var r = 0; r < n; r++) {
-        sh.getRange(start + r, 1).setNumberFormat('General');
-        for (var q = 0; q < NUM_COLS.length; q++) {
-          var cc = NUM_COLS[q], v = b.rows[r][cc - 1];
-          if (typeof v === 'number') sh.getRange(start + r, cc).setNumberFormat('$#,##0.00').setValue(v);
-        }
-      }
-      try { var ck = sh.getRange(start, 1, n, 1); if (ck.insertCheckboxes) ck.insertCheckboxes(); } catch (ckErr) { /* cosmetic only */ }
-      sh.getRange(start, 1, n, 1).insertCheckboxes();
-      sh.getRange(start, 1, n, 1).setValue(false);
-      written = n;
-      SpreadsheetApp.flush();
-    }
-    var rowNums = []; for (var k = 0; k < n; k++) rowNums.push(start + k);
-    var diffs = diffRows_(sh, rowNums, b.rows);
-    if (diffs.length) { alertMail_('ALERT: read-back mismatch for online order ' + b.orderId, diffs.slice(0, 30).join('\n')); return { ok: true, rowsWritten: written, verified: false, verifyDetail: diffs.slice(0, 5).join(' | '), tab: sh.getName(), firstRow: start }; }
-    appendRaw_(raw, b, key, n, sh.getName(), start);
-    return { ok: true, rowsWritten: written || n, verified: true, tab: sh.getName(), firstRow: start };
-  } finally { lock.releaseLock(); }
-}
-function appendRaw_(raw, b, key, n, tab, first) {
-  var s = b.summary || {};
-  var rc = chunks_(b.raw), ec = chunks_(JSON.stringify(b.rows || []));
-  var row = [key, new Date().toISOString(), b.event, b.status, !!b.test, n, tab, first, s.pickupDate || '', s.deliveryDate || '', s.client || '', s.total || '', rc.length, ec.length].concat(rc, ec);
-  if (raw.getMaxColumns() < row.length) raw.insertColumnsAfter(raw.getMaxColumns(), row.length - raw.getMaxColumns());
-  raw.getRange(raw.getLastRow() + 1, 1, 1, row.length).setNumberFormat('@').setValues([row.map(function (v) { return typeof v === 'boolean' ? String(v).toUpperCase() : v; })]);
-}
-
-// ---------- days ----------
 function parseDate_(v, tz) {
   if (v instanceof Date) return Utilities.formatDate(v, tz, 'yyyy-MM-dd');
   var iso = String(v == null ? '' : v).match(/^\s*(\d{4})-(\d{2})-(\d{2})\s*$/);
@@ -206,15 +117,193 @@ function parseDate_(v, tz) {
   }
   return null;
 }
+// Per-row check data for the verifier: date (as yyyy-mm-dd), job type, town, items, PU/DE details, amount due.
+var VERIFY_COLS = [2, 6, 8, 13, 14, 15, 16, 17, 18, 21, 22, 23, 24, 25, 31];
+function rowSig_(vals, tz) {
+  return VERIFY_COLS.map(function (c) { var v = vals[c - 1]; return hash_(c === COL_DATE ? (parseDate_(v, tz) || String(v)) : (typeof v === 'number' ? String(v) : String(v == null ? '' : v))); }).join('');
+}
+function getState_(id) { try { return JSON.parse(props_().getProperty(STATE_PREFIX + id) || 'null'); } catch (x) { return null; } }
+function setState_(id, st) { props_().setProperty(STATE_PREFIX + id, JSON.stringify(st)); }
+
+// ---------- the tab model ----------
+// pendEnd = the first divider row under the PENDING block at the top (column A is no longer a checkbox).
+function snapshot_(sh) {
+  var last = Math.max(sh.getLastRow(), 2);
+  var vals = last >= 3 ? sh.getRange(3, 1, last - 2, NCOLS).getValues() : [];
+  var pendEnd = 3;
+  while (pendEnd - 3 < vals.length && isBool_(vals[pendEnd - 3][0])) pendEnd++;
+  return { vals: vals, pendEnd: pendEnd, tz: sh.getParent ? sh.getParent().getSpreadsheetTimeZone() : 'America/Los_Angeles' };
+}
+function rowAt_(snap, r) { return snap.vals[r - 3] || []; }
+function lastRowOf_(snap) { return snap.vals.length + 2; }
+// An empty pre-made slot: only the checkbox (unticked), the date and the route; route is not a divider/noise/off-day line.
+function isFreeSlot_(v) {
+  if (v[0] !== false) return false;
+  if (!blank_(v[2]) || !blank_(v[3])) return false;
+  for (var c = 5; c < NCOLS; c++) if (!blank_(v[c])) return false;
+  var e = String(v[4] || '');
+  return !NOISE_RE.test(e) && !OFF_RE.test(e);
+}
+function findOrderRows_(snap, id) {
+  var out = [];
+  for (var i = 0; i < snap.vals.length; i++) { var t = tagOf_(snap.vals[i][COL_NOTES - 1]); if (t && t.id === id) out.push({ row: i + 3, test: t.test, pending: t.pending }); }
+  return out;
+}
+// Where one row goes. Returns { row, insertAfter (0 = fill row in place), route, date }.
+function spotFor_(snap, row, pending) {
+  var iso = pending ? null : parseDate_(row[COL_DATE - 1], snap.tz);
+  if (!iso) return { insertAfter: Math.max(snap.pendEnd - 1, 2) }; // PENDING block (end of it)
+  var free = 0, lastSame = 0, lastBefore = 0, sameRoute = '';
+  for (var r = snap.pendEnd + 1; r <= lastRowOf_(snap); r++) {
+    var v = rowAt_(snap, r), d = parseDate_(v[COL_DATE - 1], snap.tz);
+    if (!d) continue;
+    if (d === iso) {
+      lastSame = r;
+      var e = String(v[COL_ROUTE - 1] || '');
+      if (e && !NOISE_RE.test(e) && !OFF_RE.test(e) && !tagOf_(v[COL_NOTES - 1])) sameRoute = sameRoute || e;
+      if (!free && isFreeSlot_(v)) free = r;
+    } else if (d < iso && !lastSame) lastBefore = r;
+  }
+  if (free) return { row: free, insertAfter: 0, route: String(rowAt_(snap, free)[COL_ROUTE - 1] || ''), date: rowAt_(snap, free)[COL_DATE - 1] };
+  return { insertAfter: lastSame || lastBefore || Math.max(snap.pendEnd, 2), route: sameRoute };
+}
+function writeRow_(sh, snap, r, cells, keepDate) {
+  // cells: 35 values. Text as plain text (no formulas), AE/AG numbers as currency, A = unticked checkbox.
+  var from = keepDate ? 3 : 2, out = [];
+  for (var c = from; c <= NCOLS; c++) { var v = cells[c - 1]; out.push((typeof v === 'number' || typeof v === 'boolean') ? '' : (v == null ? '' : String(v))); }
+  var area = sh.getRange(r, from, 1, NCOLS - from + 1);
+  area.setNumberFormat('@');
+  area.setValues([out]);
+  for (var q = 0; q < NUM_COLS.length; q++) { var cc = NUM_COLS[q], nv = cells[cc - 1]; if (typeof nv === 'number') sh.getRange(r, cc).setNumberFormat('$#,##0.00').setValue(nv); }
+  var a = sh.getRange(r, 1); a.setNumberFormat('General');
+  try { if (rowAt_(snap, r)[0] !== false) a.insertCheckboxes(); } catch (ck) { /* cosmetic */ }
+  a.setValue(false);
+  var mirror = cells.slice(0, NCOLS); mirror[0] = false;
+  if (keepDate) mirror[1] = rowAt_(snap, r)[1];
+  for (var k = 0; k < out.length; k++) { var col = from + k; if (NUM_COLS.indexOf(col) < 0 || typeof cells[col - 1] !== 'number') mirror[col - 1] = out[k]; }
+  snap.vals[r - 3] = mirror;
+}
+// Place rows (one order) on SCHEDULE 2026. Returns { rowNums, expected }.
+function placeRows_(sh, snap, rows, id, test, pending) {
+  var expected = [], rowNums = [];
+  for (var k = 0; k < rows.length; k++) {
+    var cells = rows[k].slice(0, NCOLS);
+    while (cells.length < NCOLS) cells.push('');
+    cells[COL_NOTES - 1] = tagNotes_(cells[COL_NOTES - 1], id, test, pending);
+    if (pending) { cells[COL_ASSIGN - 1] = 'PENDINGJOB'; cells[COL_STATUS - 1] = 'CONTACT THEM!!!'; if (String(cells[COL_PAYSTATUS - 1]) !== '...') cells[COL_PAYSTATUS - 1] = 'Pending Job'; }
+    var spot = spotFor_(snap, cells, pending), r, keepDate = false;
+    if (spot.route) cells[COL_ROUTE - 1] = spot.route;
+    if (spot.insertAfter) {
+      sh.insertRowAfter(spot.insertAfter);
+      r = spot.insertAfter + 1;
+      snap.vals.splice(r - 3, 0, new Array(NCOLS).fill(''));
+      if (r <= snap.pendEnd) snap.pendEnd++; // inserted inside / at the end of the PENDING block: the divider moved down
+      // rows below r moved down by one
+      for (var j = 0; j < rowNums.length; j++) if (rowNums[j] >= r) rowNums[j]++;
+    } else { r = spot.row; keepDate = true; }
+    writeRow_(sh, snap, r, cells, keepDate);
+    rowNums.push(r);
+    expected.push(snap.vals[r - 3].slice());
+  }
+  return { rowNums: rowNums, expected: expected };
+}
+function readBack_(sh, rowNums, expected) {
+  var diffs = [];
+  for (var r = 0; r < rowNums.length; r++) {
+    var act = sh.getRange(rowNums[r], 1, 1, NCOLS).getValues()[0];
+    for (var c = 0; c < NCOLS; c++) if (!sameCell_(expected[r][c], act[c], c)) diffs.push('row ' + rowNums[r] + ' col ' + (c + 1) + ': expected [' + String(expected[r][c]).slice(0, 80) + '] got [' + String(act[c]).slice(0, 80) + ']');
+  }
+  return diffs;
+}
+function deleteRows_(sh, nums) { nums.slice().sort(function (a, b) { return b - a; }).forEach(function (r) { sh.deleteRow(r); }); }
+
+// ---------- order ----------
+function handleOrder_(b) {
+  var lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    var ss = ss_(), sh = ss.getSheetByName(TAB_MAIN);
+    if (!sh) throw new Error('tab "' + TAB_MAIN + '" not found');
+    migrateLegacy_(ss);
+    var id = String(b.orderId || ''), isConfirmed = b.event === 'confirmed', test = !!b.test;
+    if (!/^\S+$/.test(id)) throw new Error('bad order id');
+    var rows = b.rows || [], n = rows.length, st = getState_(id);
+    for (var i = 0; i < n; i++) if (rows[i].length !== NCOLS) throw new Error('row ' + i + ' has ' + rows[i].length + ' cells, expected ' + NCOLS);
+    if (n) {
+      var hdr = sh.getRange(2, 1, 1, NCOLS).getValues()[0];
+      for (var h = 0; h < NCOLS; h++) if (norm_(hdr[h]) !== norm_(b.columns[h])) throw new Error('SCHEDULE 2026 header changed at column ' + (h + 1) + ': sheet "' + hdr[h] + '" vs site "' + b.columns[h] + '". Nothing written.');
+    }
+    if (isConfirmed && !n) throw new Error('confirmed order without rows');
+    var snap = snapshot_(sh), present = findOrderRows_(snap, id);
+    if (isConfirmed) {
+      var conf = present.filter(function (p) { return !p.pending; });
+      if (st && st.e === 'confirmed') return { ok: true, duplicate: true, rowCount: st.n, tab: TAB_MAIN, firstRow: conf.length ? conf[0].row : 0, test: test };
+      if (conf.length === n) { // a retry after a half-finished attempt: rows are there, record and verify
+        setState_(id, { e: 'confirmed', n: n, t: test, at: Date.now(), c: (b.summary || {}).client || '', d: (b.summary || {}).pickupDate || '', s: conf.map(function (p) { return rowSig_(rowAt_(snap, p.row), snap.tz); }) });
+        return { ok: true, duplicate: true, rowCount: n, tab: TAB_MAIN, firstRow: conf[0].row, test: test };
+      }
+      if (conf.length) throw new Error('PARTIAL ROWS for ' + id + ' on ' + TAB_MAIN + ' (' + conf.length + ' of ' + n + '). Not writing more; fix by hand.');
+      var pend = present.filter(function (p) { return p.pending; }).map(function (p) { return p.row; });
+      if (pend.length) { deleteRows_(sh, pend); SpreadsheetApp.flush(); snap = snapshot_(sh); }
+    } else {
+      if (st || present.length) return { ok: true, duplicate: true, logged: true, rowCount: present.length, tab: TAB_MAIN, firstRow: present.length ? present[0].row : 0, test: test };
+      if (!n) { setState_(id, { e: 'pending', n: 0, t: test, at: Date.now() }); return { ok: true, logged: true, rowsWritten: 0 }; }
+    }
+    var placed = placeRows_(sh, snap, rows, id, test, !isConfirmed);
+    SpreadsheetApp.flush();
+    var diffs = readBack_(sh, placed.rowNums, placed.expected);
+    var first = Math.min.apply(null, placed.rowNums);
+    if (diffs.length) { alertMail_('ALERT: read-back mismatch for online order ' + id, diffs.slice(0, 30).join('\n')); return { ok: true, rowsWritten: n, verified: false, verifyDetail: diffs.slice(0, 5).join(' | '), tab: TAB_MAIN, firstRow: first, rows: placed.rowNums, test: test }; }
+    setState_(id, { e: isConfirmed ? 'confirmed' : 'pending', n: n, t: test, at: Date.now(), c: (b.summary || {}).client || '', d: (b.summary || {}).pickupDate || '', s: placed.expected.map(function (v) { return rowSig_(v, snap.tz); }) });
+    return { ok: true, rowsWritten: n, verified: true, tab: TAB_MAIN, firstRow: first, rows: placed.rowNums, test: test, pending: !isConfirmed };
+  } finally { lock.releaseLock(); }
+}
+
+// ---------- one-time move off the old tabs ----------
+function migrateToOneTab() {
+  var lock = LockService.getScriptLock(); lock.waitLock(30000);
+  try { return migrateLegacy_(ss_()); } finally { lock.releaseLock(); }
+}
+function migrateLegacy_(ss) {
+  var olds = LEGACY_TABS.map(function (n) { return ss.getSheetByName(n); });
+  if (!olds[0] && !olds[1] && !olds[2]) return { ok: true, migrated: 0, deletedTabs: [] };
+  var sh = ss.getSheetByName(TAB_MAIN), snap = snapshot_(sh), moved = [], skipped = [];
+  [0, 1].forEach(function (k) {
+    var t = olds[k]; if (!t || t.getLastRow() < 3) return;
+    var vals = t.getRange(3, 1, t.getLastRow() - 2, NCOLS).getValues(), groups = {}, order = [];
+    vals.forEach(function (v) {
+      if (v.every(function (x, i) { return i === 0 || blank_(x); })) return;
+      var tg = tagOf_(v[COL_NOTES - 1]), id = tg ? tg.id : 'ROW-' + Math.random().toString(36).slice(2, 8);
+      if (!groups[id]) { groups[id] = []; order.push(id); }
+      groups[id].push(v);
+    });
+    order.forEach(function (id) {
+      if (findOrderRows_(snap, id).length) { skipped.push(id); return; }
+      var test = k === 1, placed = placeRows_(sh, snap, groups[id], id, test, false);
+      setState_(id, { e: 'confirmed', n: placed.rowNums.length, t: test, at: Date.now(), c: String(groups[id][0][15] || ''), d: '', s: placed.expected.map(function (v) { return rowSig_(v, snap.tz); }) });
+      moved.push(id + ' -> rows ' + placed.rowNums.join(','));
+    });
+  });
+  SpreadsheetApp.flush();
+  var deleted = [];
+  olds.forEach(function (t) { if (t) { deleted.push(t.getName()); ss.deleteSheet(t); } });
+  props_().deleteProperty('VERIFY_STATE');
+  return { ok: true, migrated: moved.length, moved: moved, skipped: skipped, deletedTabs: deleted };
+}
+
+// ---------- days ----------
+// Read-only digest of SCHEDULE 2026 per date. Online-order rows count as job rows ONCE (they are on this tab now), except
+// TEST rows and PENDING REVIEW rows (the site holds those dates itself), and never add route text or off-day marks.
 function handleDays_() {
   var ss = ss_(), tz = ss.getSpreadsheetTimeZone(), days = {};
   function rec(iso) { return days[iso] || (days[iso] = { routes: [], jobRows: 0, off: false, offWhy: '' }); }
   var main = ss.getSheetByName(TAB_MAIN), last = main.getLastRow();
   if (last >= 3) {
-    var v = main.getRange(3, 1, last - 2, 9).getValues(); // A..I
+    var v = main.getRange(3, 1, last - 2, COL_NOTES).getValues(); // A..J
     for (var i = 0; i < v.length; i++) {
       var iso = parseDate_(v[i][1], tz); if (!iso) continue;
-      var d = rec(iso), e = String(v[i][4] || '').trim(), f = String(v[i][5] || '').trim(), st = String(v[i][8] || '');
+      var d = rec(iso), e = String(v[i][4] || '').trim(), f = String(v[i][5] || '').trim(), st = String(v[i][8] || ''), tg = tagOf_(v[i][9]);
+      if (tg) { if (!tg.test && !tg.pending && JOB_RE.test(f)) { d.jobRows++; d.onlineRows = (d.onlineRows || 0) + 1; } continue; }
       if (e && !NOISE_RE.test(e) && d.routes.indexOf(e) < 0) d.routes.push(e);
       if (JOB_RE.test(f)) d.jobRows++;
       if ((e && !NOISE_RE.test(e) && OFF_RE.test(e)) || /don'?t book/i.test(st)) { d.off = true; d.offWhy = e || st; }
@@ -233,25 +322,15 @@ function handleDays_() {
       cd.crew = String(cv[q][5] || ''); cd.vehicle = String(cv[q][6] || ''); cd.calNote = String(cv[q][7] || '');
     }
   }
-  var on = ss.getSheetByName(TAB_ORDERS);
-  if (on && on.getLastRow() >= 3) {
-    var o = on.getRange(3, 2, on.getLastRow() - 2, 5).getValues(); // B..F
-    for (var j = 0; j < o.length; j++) { var iso2 = parseDate_(o[j][0], tz); if (iso2 && JOB_RE.test(String(o[j][4] || ''))) rec(iso2).jobRows++; }
-  }
   return { ok: true, days: days, sheetVersion: main.getLastRow(), generatedAt: new Date().toISOString() };
 }
 
-// ---------- ROUTE CALENDAR (the one authoritative calendar; Samantha owns it) ----------
-// Seeds missing dates only; never overwrites or reorders a row she has touched.
+// ---------- ROUTE CALENDAR: one-tab rule, the bridge never creates it. If the team ever adds that tab, missing dates are seeded. ----------
 function handleSeed_(b) {
   var lock = LockService.getScriptLock(); lock.waitLock(30000);
   try {
     var ss = ss_(), tz = ss.getSpreadsheetTimeZone(), sh = ss.getSheetByName(TAB_CAL);
-    if (!sh) {
-      sh = ss.insertSheet(TAB_CAL);
-      sh.getRange(1, 1, 1, 8).setValues([['Date (yyyy-mm-dd)', 'Day', 'Status (OPEN/CLOSED)', 'Areas served (ids)', 'Capacity (job rows)', 'Crew', 'Vehicle', 'Notes']]);
-      sh.setFrozenRows(1); sh.setTabColor('#e69138');
-    }
+    if (!sh) return { ok: true, seeded: 0, existing: 0, note: 'no ROUTE CALENDAR tab (one-tab rule: the bridge does not create tabs)' };
     var have = {}, last = sh.getLastRow();
     if (last >= 2) sh.getRange(2, 1, last - 1, 1).getValues().forEach(function (r) { var d = parseDate_(r[0], tz); if (d) have[d] = true; });
     var add = (b.days || []).filter(function (d) { return !have[d[0]]; });
@@ -263,59 +342,54 @@ function handleSeed_(b) {
   } finally { lock.releaseLock(); }
 }
 
-// ---------- two-way reconciliation ----------
-// b.orderIds: every order the server has CONFIRMED (non-test). Reports (1) paid orders missing from ONLINE ORDERS and
-// (2) rows in ONLINE ORDERS whose order id the server does not know (a schedule row without an order).
+// ---------- two-way reconciliation (against SCHEDULE 2026, by the order id in Update Notes) ----------
+// b.orderIds: every order the server has CONFIRMED (non-test). Reports paid orders with no rows, and paid online-order rows
+// (not TEST, not PENDING) whose id the server does not know.
 function handleReconcile_(b) {
-  var ss = ss_(), sh = ss.getSheetByName(TAB_ORDERS), known = {}, missing = [], orphans = [], seen = {};
+  var ss = ss_(), sh = ss.getSheetByName(TAB_MAIN), known = {}, missing = [], orphans = [], seen = {};
   (b.orderIds || []).forEach(function (id) { known[id] = true; });
   if (sh && sh.getLastRow() >= 3) {
-    sh.getRange(3, 10, sh.getLastRow() - 2, 1).getValues().forEach(function (r, i) {
-      var m = String(r[0]).match(/^ONLINE ORDER (\S+) /);
-      if (m) { seen[m[1]] = (seen[m[1]] || 0) + 1; if (!known[m[1]]) orphans.push({ orderId: m[1], row: i + 3 }); }
+    sh.getRange(3, COL_NOTES, sh.getLastRow() - 2, 1).getValues().forEach(function (r, i) {
+      var t = tagOf_(r[0]);
+      if (t && !t.test && !t.pending) { seen[t.id] = (seen[t.id] || 0) + 1; if (!known[t.id]) orphans.push({ orderId: t.id, row: i + 3 }); }
     });
   }
   Object.keys(known).forEach(function (id) { if (!seen[id]) missing.push(id); });
   var out = { ok: true, missing: missing, orphans: orphans, checked: Object.keys(known).length };
-  if (missing.length || orphans.length) alertMail_('ALERT: schedule and orders do not match (' + missing.length + ' paid order(s) missing, ' + orphans.length + ' row(s) without an order)', 'Paid orders missing from ONLINE ORDERS: ' + missing.join(', ') + '\nRows in ONLINE ORDERS with no matching order: ' + orphans.map(function (o) { return o.orderId + ' (row ' + o.row + ')'; }).join(', '));
+  if (missing.length || orphans.length) alertMail_('ALERT: schedule and orders do not match (' + missing.length + ' paid order(s) missing, ' + orphans.length + ' row(s) without an order)', 'Paid orders missing from SCHEDULE 2026: ' + missing.join(', ') + '\nSCHEDULE 2026 rows with no matching order: ' + orphans.map(function (o) { return o.orderId + ' (row ' + o.row + ')'; }).join(', '));
   return out;
 }
 
 // ---------- independent verifier (time trigger) ----------
-var VERIFY_COLS = [2, 6, 8, 13, 14, 15, 16, 17, 18, 21, 22, 23, 24, 25, 31]; // Date, JOB TYPE, TOWN REF, Items, PU a-d + notes, DE a-d + notes, Amount Due
 function verifyAll() {
-  var ss = ss_(), raw = ss.getSheetByName(TAB_RAW); if (!raw || raw.getLastRow() < 2) return { checked: 0 };
-  var days = handleDays_().days, tz = ss.getSpreadsheetTimeZone();
-  var cutoff = Date.now() - 60 * 864e5, last = raw.getLastRow(), problems = [], checked = 0;
-  var state = {}; try { state = JSON.parse(props_().getProperty('VERIFY_STATE') || '{}'); } catch (x) { state = {}; }
-  var all = raw.getRange(2, 1, last - 1, raw.getLastColumn()).getValues();
-  for (var i = 0; i < all.length; i++) {
-    var r = readRawRow_(all[i]);
-    if (r.event !== 'confirmed' || Date.parse(r.loggedAt) < cutoff) continue;
+  var ss = ss_(), sh = ss.getSheetByName(TAB_MAIN), all = props_().getProperties(), tz = ss.getSpreadsheetTimeZone();
+  var days = handleDays_().days, snap = snapshot_(sh), cutoff = Date.now() - 60 * 864e5, problems = [], checked = 0;
+  var state = {}; try { state = JSON.parse(all.VERIFY_STATE2 || '{}'); } catch (x) { state = {}; }
+  var NAMES = { 2: 'Date', 6: 'JOB TYPE', 8: 'TOWN REF', 13: 'Items', 14: 'PU Address', 15: 'PU Business', 16: 'PU Contact', 17: 'PU Phone', 18: 'PU Notes', 21: 'DE Address', 22: 'DE Business', 23: 'DE Contact', 24: 'DE Phone', 25: 'DE Notes', 31: 'Amount Due' };
+  Object.keys(all).forEach(function (k) {
+    if (k.indexOf(STATE_PREFIX) !== 0) return;
+    var id = k.substr(STATE_PREFIX.length), r; try { r = JSON.parse(all[k]); } catch (x) { return; }
+    if (!r || r.at < Date.now() - 120 * 864e5) { props_().deleteProperty(k); return; }
+    if (r.e !== 'confirmed' || r.at < cutoff) return;
     checked++;
-    var id = String(r.key).split('|')[0], sh = ss.getSheetByName(r.tab), msg = [];
-    if (!sh) { msg.push('tab "' + r.tab + '" is missing'); }
+    var rows = findOrderRows_(snap, id).filter(function (p) { return !p.pending; }).map(function (p) { return p.row; }), msg = [];
+    if (rows.length === 0) msg.push('MISSING from ' + TAB_MAIN);
+    else if (rows.length !== r.n) msg.push('has ' + rows.length + ' rows, expected ' + r.n + (rows.length > r.n ? ' (DUPLICATE?)' : ' (a row is missing)'));
     else {
-      var rows = findOrderRows_(sh, id);
-      if (rows.length === 0) msg.push('MISSING from ' + r.tab + ' (was logged as written at row ' + r.firstRow + ')');
-      else if (rows.length !== r.expected.length) msg.push('has ' + rows.length + ' rows, expected ' + r.expected.length + (rows.length > r.expected.length ? ' (DUPLICATE?)' : ' (a row is missing)'));
-      else {
-        for (var k = 0; k < rows.length; k++) {
-          var act = sh.getRange(rows[k], 1, 1, NCOLS).getValues()[0];
-          VERIFY_COLS.forEach(function (c) { var e = r.expected[k][c - 1]; if (!sameCell_(e, act[c - 1], c - 1)) msg.push('row ' + rows[k] + ' col ' + c + ' CHANGED: ordered [' + String(e).slice(0, 60) + '] now [' + String(act[c - 1]).slice(0, 60) + ']'); });
-          var iso = parseDate_(act[1], tz), day = iso && days[iso];
-          if (day && day.off) msg.push('row ' + rows[k] + ' is on ' + act[1] + ', which the sheet marks off ("' + day.offWhy + '")');
-        }
+      for (var q = 0; q < rows.length; q++) {
+        var act = rowAt_(snap, rows[q]), sig = rowSig_(act, tz), want = (r.s || [])[q] || '';
+        for (var c = 0; c < VERIFY_COLS.length; c++) if (want && sig.substr(c * 6, 6) !== want.substr(c * 6, 6)) msg.push('row ' + rows[q] + ' ' + NAMES[VERIFY_COLS[c]] + ' CHANGED after booking (now [' + String(act[VERIFY_COLS[c] - 1]).slice(0, 60) + '])');
+        var iso = parseDate_(act[1], tz), day = iso && days[iso];
+        if (day && day.off) msg.push('row ' + rows[q] + ' is on ' + act[1] + ', which the sheet marks off ("' + day.offWhy + '")');
       }
     }
     if (msg.length) {
-      var crit = msg.some(function (m) { return /MISSING|DUPLICATE|missing|marks off|tab /.test(m) || /col (2|8|14|21|31) CHANGED/.test(m); });
-      var h = msg.join('|'), st = state[id] || {};
-      // CRITICAL: alert at once and again every 12 h until fixed. WARNING: alert once per change.
-      if (st.h !== h || (crit && Date.now() - (st.at || 0) > 12 * 3600e3)) { state[id] = { h: h, at: Date.now() }; problems.push((crit ? 'CRITICAL ' : 'WARNING ') + id + ' (' + r.client + ', ' + r.puDate + '): ' + msg.join('; ')); }
+      var crit = msg.some(function (m) { return /MISSING|DUPLICATE|missing|marks off/.test(m) || /(Date|JOB TYPE|TOWN REF|PU Address|DE Address|Amount Due) CHANGED/.test(m); });
+      var h = msg.join('|'), s = state[id] || {};
+      if (s.h !== h || (crit && Date.now() - (s.at || 0) > 12 * 3600e3)) { state[id] = { h: h, at: Date.now() }; problems.push((crit ? 'CRITICAL ' : 'WARNING ') + (r.t ? '[TEST] ' : '') + id + ' (' + (r.c || '') + '): ' + msg.join('; ')); }
     } else if (state[id]) { delete state[id]; }
-  }
-  props_().setProperty('VERIFY_STATE', JSON.stringify(state));
+  });
+  props_().setProperty('VERIFY_STATE2', JSON.stringify(state));
   if (problems.length) alertMail_('ALERT: online-order check found ' + problems.length + ' problem(s) on the schedule', problems.join('\n\n') + '\n\nCHANGED means a team member edited the row after booking. If a client date or address changed on purpose, make sure the client was told.');
   return { checked: checked, problems: problems.length };
 }

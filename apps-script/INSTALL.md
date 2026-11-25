@@ -2,8 +2,16 @@
 
 Nothing in this repo can create Apps Script projects or Render env vars for you, so these steps are done once by a person
 signed in as the CAD account (contact@californiaartdelivery.com) and by whoever owns the Render dashboard.
-The script never edits or moves any existing row or tab. It only creates and appends to its own tabs:
-ROUTE CALENDAR, ONLINE ORDERS, TEST ORDERS, ONLINE ORDERS RAW LOG.
+The script writes orders onto SCHEDULE 2026 only (one tab). It never edits team-written rows; it fills empty slot rows or inserts new rows.
+
+> **ONE TAB (Chad, Nov 25 2026).** The bridge now writes every online order straight onto **SCHEDULE 2026** and nothing else:
+> paid orders on their dates (empty slot row of that date, else a new row under it), quote/review requests in the PENDING block at
+> the top (PENDINGJOB / CONTACT THEM!!! / Pending Job), mock-payment orders marked "TEST ORDER (not a real job)" in Update Notes.
+> The order id is at the start of Update Notes ("ONLINE ORDER <id> · ..."). It creates no tabs and keeps no log tab.
+> **Updating an existing install:** open the "CAD online orders bridge" project > replace all of Code.gs with `apps-script/Code.gs` >
+> Save > select `migrateToOneTab` > Run (moves old ONLINE ORDERS / TEST ORDERS rows onto SCHEDULE 2026, deletes those two tabs and
+> ONLINE ORDERS RAW LOG) > Deploy > Manage deployments > pencil (Edit) > Version: **New version** > Deploy (the /exec URL stays the same).
+> The steps below are the original first-time install; where they mention the old tabs, SCHEDULE 2026 now replaces them.
 
 ## A. Test against the TEST COPY first
 1. script.google.com > New project, name it "CAD online orders bridge". Paste all of `apps-script/Code.gs`.

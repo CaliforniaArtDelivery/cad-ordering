@@ -32,13 +32,15 @@ function makeBook(seedRows, tz = 'America/Los_Angeles') {
       getMaxRows: () => sh.maxRows, getMaxColumns: () => sh.maxCols,
       insertRowsAfter: (_, n) => { sh.maxRows += n; }, insertColumnsAfter: (_, n) => { sh.maxCols += n; },
       setFrozenRows: (n) => { sh.frozen = n; }, setTabColor: () => {}, setColumnWidth: (c, w) => { sh.widths[c] = w; }, getColumnWidth: (c) => sh.widths[c] || 100,
-      insertRows: () => { throw new Error('mock: the bridge must never insert rows in an existing tab'); },
+      insertRowAfter: (r) => { sh.cells.splice(r, 0, []); sh.maxRows += 1; }, deleteRow: (r) => { sh.cells.splice(r - 1, 1); },
+      getParent: () => book,
     });
     sheets.push(sh); return sh;
   };
   const book = {
     getSheetByName: (n) => sheets.find((s) => s.name === n) || null,
     insertSheet: (n) => mk(n), getSpreadsheetTimeZone: () => tz, _sheets: sheets, _mk: mk,
+    deleteSheet: (s) => { sheets.splice(sheets.indexOf(s), 1); },
   };
   mk('SCHEDULE 2026', seedRows, 1437, 36);
   return book;
@@ -53,7 +55,7 @@ function startBridge({ seed, secret = 'test-secret-0123456789abcdef', port = 0 }
     console, JSON, Date, Math, Number, String, Object, Array, RegExp, Error, parseInt, parseFloat, isNaN,
     SpreadsheetApp: { openById: () => book, CopyPasteType: { PASTE_NORMAL: 0 }, flush() {} },
     LockService: { getScriptLock: () => ({ waitLock() {}, releaseLock() {} }) },
-    PropertiesService: { getScriptProperties: () => ({ getProperty: (k) => (k in props ? props[k] : null), setProperty: (k, v) => { props[k] = v; } }) },
+    PropertiesService: { getScriptProperties: () => ({ getProperty: (k) => (k in props ? props[k] : null), setProperty: (k, v) => { props[k] = v; }, deleteProperty: (k) => { delete props[k]; }, getProperties: () => ({ ...props }) }) },
     ContentService: { MimeType: { JSON: 'json' }, createTextOutput: (t) => ({ _t: t, setMimeType() { return this; }, getContent() { return this._t; } }) },
     MailApp: { sendEmail: (to, subject, body) => { mails.push({ to, subject, body }); } },
     Utilities: { formatDate: (d, tz, f) => { const p = new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' }).format(d); return p; } },
