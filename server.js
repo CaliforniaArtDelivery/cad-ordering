@@ -168,10 +168,15 @@ app.post('/api/availability', (req, res) => {
   const svc = SERVICES[o.service] || SERVICES.pickup_delivery;
   const badAddr = badAddresses(o, svc);
   if (badAddr.length) return res.status(400).json({ error: 'Please check the ' + badAddr.join(' and ') + ' address: a street number, a city and a 5-digit ZIP code are required. No route was assigned.', invalid: badAddr, days: [], rush: [] });
-  // leg=dropoff: delivery dates for the delivery address, on or after the pickup date (same day allowed).
+  const conflicts = [];
+  if (svc.needsPickup && sched.routeConflict(o.pickup)) conflicts.push({ where: 'pickup', ...sched.routeConflict(o.pickup) });
+  if (svc.needsDropoff && sched.routeConflict(o.dropoff)) conflicts.push({ where: 'dropoff', ...sched.routeConflict(o.dropoff) });
+  if (conflicts.length) return res.status(400).json({ error: conflicts[0].message, invalid: conflicts.map((c) => c.where), conflict: true, days: [], rush: [] });
+  // leg=dropoff: delivery dates for the delivery address, on or after the pickup date (same-day only when both zones are served that day).
   if (o.leg === 'dropoff' && o.dropoff && o.schedule && o.schedule.date) {
-    const from = new Date(o.schedule.date + 'T12:00:00Z');
-    return res.json({ region: sched.regionFor(o.dropoff), zone: sched.zoneFor(o.dropoff), area: sched.customerAreaName(sched.zoneFor(o.dropoff), sched.regionFor(o.dropoff)), days: sched.availableDays(o.dropoff, { from, count: config.scheduling.showDays, order: o, leadTime: 0 }), rush: [] });
+    const pu = o.pickup || {};
+    const days = sched.availableDeliveryDays(o.dropoff, pu, o.schedule.date, o, config.scheduling.showDays);
+    return res.json({ region: sched.regionFor(o.dropoff), zone: sched.zoneFor(o.dropoff), area: sched.customerAreaName(sched.zoneFor(o.dropoff), sched.regionFor(o.dropoff)), days, rush: [] });
   }
   const first = svc.needsPickup ? o.pickup : o.dropoff;
   const addr = first && (first.zip || first.city) ? first : o.dropoff;
@@ -181,13 +186,13 @@ app.post('/api/availability', (req, res) => {
   // list above, and the delivery days valid for a pickup P are exactly what leg=dropoff returns for P (and what scheduleErrors
   // accepts): route days for the delivery address on or after P. `pairs` lists them per pickup, so either date can be picked first.
   if (o.leg === 'pairs' && svc.needsPickup && svc.needsDropoff && o.dropoff) {
-    const puDays = sched.availableDays(addr, { order: o });
-    const rush = config.scheduling.rushEnabled ? sched.rushDays(addr, new Date(), 7, o) : [];
+    const puDays = sched.availablePickupDays(addr, o.dropoff, { order: o });
+    const rush = (config.scheduling.rushEnabled ? sched.rushDays(addr, new Date(), 7, o) : []).filter((d) => sched.canPairPickupDelivery(d.date, addr, o.dropoff, o));
     const all = [...puDays, ...rush].map((d) => d.date).sort();
     const dRegion = sched.regionFor(o.dropoff), dZone = sched.zoneFor(o.dropoff);
     const out = { region, zone, area: sched.customerAreaName(zone, region), days: puDays, rush, delivery: { region: dRegion, zone: dZone, area: sched.customerAreaName(dZone, dRegion), days: [] }, pairs: {} };
     if (!all.length) return res.json(out);
-    const delFrom = (iso) => sched.availableDays(o.dropoff, { from: new Date(iso + 'T12:00:00Z'), count: 400, order: o, leadTime: 0 });
+    const delFrom = (iso) => sched.availableDeliveryDays(o.dropoff, addr, iso, o, 400);
     const fromFirst = delFrom(all[0]);
     // The column runs from the first pickup to showDays delivery days after the last pickup (each pickup keeps the same
     // choices leg=dropoff would show it).
@@ -199,10 +204,11 @@ app.post('/api/availability', (req, res) => {
     all.forEach((p) => { out.pairs[p] = delFrom(p).map((d) => d.date).filter((d) => col.has(d)); });
     return res.json(out);
   }
+  const pairWith = svc.needsPickup && svc.needsDropoff ? o.dropoff : null;
   res.json({
     region, zone, area: sched.customerAreaName(zone, region),
-    days: sched.availableDays(addr, { order: o }),
-    rush: config.scheduling.rushEnabled ? sched.rushDays(addr, new Date(), 7, o) : [],
+    days: pairWith ? sched.availablePickupDays(addr, pairWith, { order: o }) : sched.availableDays(addr, { order: o }),
+    rush: (config.scheduling.rushEnabled ? sched.rushDays(addr, new Date(), 7, o) : []).filter((d) => !pairWith || sched.canPairPickupDelivery(d.date, addr, pairWith, o)),
   });
 });
 
@@ -236,13 +242,22 @@ const reviewAlert = (o) => teamAlert(`REVIEW NEEDED: online request ${o.id} (${(
 function addressErrors(a, where) {
   const word = { street: 'a street number in the street address', city: 'a valid city', zip: 'a valid 5-digit ZIP code', state: 'a state that matches the ZIP code' };
   const say = (p) => (p.field === 'zip' && /California/.test(p.message) ? 'a ZIP code that matches the state' : word[p.field]);
-  return VALID.addressProblems(a).filter((p) => !(p.field === 'street' && !String((a || {}).street || '').trim())).map((p) => `${where} ${say(p)}`);
+  const out = VALID.addressProblems(a).filter((p) => !(p.field === 'street' && !String((a || {}).street || '').trim())).map((p) => `${where} ${say(p)}`);
+  const conflict = sched.routeConflict(a);
+  if (conflict) out.push(`${where}: ${conflict.message}`);
+  return out;
 }
 // An address that fails the checks never gets a route or dates (Samantha, Nov 19: 123456 as a ZIP still returned a route).
 const badAddresses = (o, svc) => {
   const bad = [];
   if (svc.needsPickup && VALID.addressProblems(o.pickup).length) bad.push('pickup');
   if (svc.needsDropoff && VALID.addressProblems(o.dropoff).length) bad.push('dropoff');
+  return bad;
+};
+const addressConflicts = (o, svc) => {
+  const bad = [];
+  if (svc.needsPickup && sched.routeConflict(o.pickup)) bad.push('pickup');
+  if (svc.needsDropoff && sched.routeConflict(o.dropoff)) bad.push('dropoff');
   return bad;
 };
 
@@ -340,7 +355,10 @@ function validate(o) {
     else if (!String(a.contactRole || '').trim()) errs.push(`${name} contact role`);
     else if (!a.sameAsMe && a.contactRole === 'Other' && !String(a.contactRoleOther || '').trim()) errs.push(`${name} contact role (describe it)`);
   });
-  if (o.contact && o.contact.email && !/\S+@\S+\.\S+/.test(o.contact.email)) errs.push('a valid email address');
+  if (o.contact) {
+    const em = VALID.emailProblem(o.contact.email);
+    if (em) errs.push(em);
+  }
   if (o.contact && String(o.contact.phone || '').replace(/\D/g, '').length < 7) errs.push('your mobile number');
   return errs;
 }
@@ -372,7 +390,8 @@ function scheduleErrors(o) {
   const dd = String((o.schedule && o.schedule.deliveryDate) || '');
   if (ok && svc.needsPickup && svc.needsDropoff && dd) {
     if (blackout.includes(dd)) errs.push('another delivery date (we don’t run routes on that holiday)');
-    else if (!sched.availableDays(o.dropoff, { from: sched.utcDate(d), count: 400, order: o, leadTime: 0 }).some((x) => x.date === dd)) errs.push('an available delivery day for the delivery address');
+    else if (!sched.canPairPickupDelivery(d, o.pickup, o.dropoff, o) || !sched.availableDeliveryDays(o.dropoff, o.pickup, d, o, 400).some((x) => x.date === dd))
+      errs.push('a delivery day that matches the pickup route (the van can’t pick up after it has already served the delivery area that week)');
   }
   return errs;
 }
@@ -672,15 +691,17 @@ app.post('/api/palomas/availability', (req, res) => {
   const o = PAL.engineOrder(b, { member: true });
   const zip = String(o.dropoff.zip || '');
   if (!/^\d{5}/.test(zip)) return res.json({ days: [] });
+  const conflict = sched.routeConflict(o.dropoff) || sched.routeConflict(o.pickup);
+  if (conflict) return res.status(400).json({ error: conflict.message, conflict: true, days: [] });
   const dateOk = /^\d{4}-\d{2}-\d{2}$/.test(String(b.pickupDate || ''));
   const COUNT = 14; // next 14 available days; "Later date" asks for days from a chosen date (same scheduling rules)
   const laterOk = /^\d{4}-\d{2}-\d{2}$/.test(String(b.from || '')) && b.from >= sched.ptYmd();
   if (b.leg === 'dropoff' && dateOk) {
     const start = laterOk && b.from > b.pickupDate ? b.from : b.pickupDate;
-    return res.json({ days: sched.availableDays(o.dropoff, { from: new Date(start + 'T12:00:00Z'), count: COUNT, order: o, leadTime: 0 }) });
+    return res.json({ days: sched.availableDeliveryDays(o.dropoff, o.pickup, start, o, COUNT) });
   }
-  const earliest = sched.availableDays(o.pickup, { order: o, count: COUNT });
-  if (laterOk && earliest.length && b.from > earliest[0].date) return res.json({ days: sched.availableDays(o.pickup, { from: new Date(b.from + 'T12:00:00Z'), count: COUNT, order: o, leadTime: 0 }), earliest: earliest[0].date });
+  const earliest = sched.availablePickupDays(o.pickup, o.dropoff, { order: o, count: COUNT });
+  if (laterOk && earliest.length && b.from > earliest[0].date) return res.json({ days: sched.availablePickupDays(o.pickup, o.dropoff, { from: new Date(b.from + 'T12:00:00Z'), count: COUNT, order: o, leadTime: 0 }), earliest: earliest[0].date });
   res.json({ days: earliest, earliest: (earliest[0] || {}).date });
 });
 app.post('/api/palomas/orders', (req, res) => {
@@ -718,7 +739,7 @@ app.post('/api/palomas/orders', (req, res) => {
     // "Not sure": CAD confirms access with the client before the job. Stairs are priced up front (per flight, large pieces).
     accessReview: dropoff.accessMode === 'not_sure' || ACCESS_PAL.needsReview(dropoff) || PAL.accessUnsure(b.access),
     member: true, memberCode: PAL.PARTNER_CODE, memberCompany: PAL.PARTNER_NAME, heard: { repeatClient: true }, referral: false,
-    declaredValueProtection: false, // Paloma's pays no declared value protection
+    declaredValueProtection: (items || []).some((it) => { const v = Number(it.value) || 0; return v > 0 && v <= 50000; }),
     items, pickup, dropoff,
     // The client is the booker (confirmation and payment link go to them). The payer is the client, or Paloma's when they choose to pay.
     contact: { name: b.delivery.name.trim(), email: b.delivery.email.trim(), phone: b.delivery.phone.trim(), company: '', clientType: `Partner: ${PAL.PARTNER_NAME}` },
@@ -753,7 +774,7 @@ app.post('/api/palomas/orders', (req, res) => {
     ...(q.courtesyOff ? [{ label: "Manager's courtesy", amount: -q.courtesyOff }] : []),
   ];
   order.quote = {
-    ...q.engine, notes: (q.engine.notes || []).filter((n) => n !== ACCESS_PAL.PRICE_NOTE), accessFeeNote: q.accessFeeNote, accessReview: !!q.accessReview, totalLabel: q.totalLabel, lines, total: q.total, regularTotal: q.total, protection: null, member: true, memberCompany: PAL.PARTNER_NAME,
+    ...q.engine, notes: (q.engine.notes || []).filter((n) => n !== ACCESS_PAL.PRICE_NOTE), accessFeeNote: q.accessFeeNote, accessReview: !!q.accessReview, totalLabel: q.totalLabel, lines, total: q.total, regularTotal: q.total, protection: q.protection, protectionAmount: q.protectionAmount || 0, member: true, memberCompany: PAL.PARTNER_NAME,
     ...q.payment, // same payment plan as the main site (paid in full; 50% at booking from $3,000)
     partnerPricing: { standard: q.standard, partnerPrice: q.partner, partnerSavings: q.partnerSavings, volumeOff: q.volumeOff, courtesyOff: q.courtesyOff, delivery: q.delivery, items: q.lines.map(({ label, standard, amount, after, qty }) => ({ label, standard, partner: amount, allIn: after, qty })) },
   };
@@ -829,7 +850,7 @@ app.post('/api/admin/orders/:id/approve', admin, (req, res) => {
   // A date-review request (pencil-in, helper, Monday OC) is regular-rate priced: approving without a price confirms the shown total.
   const reviewOnly = !!(o.quote && o.quote.reviewOnly);
   const price = Number(req.body.price != null && req.body.price !== '' ? req.body.price : (reviewOnly ? o.quote.total : NaN));
-  if (!Number.isFinite(price) || price <= 0) return res.status(400).json({ error: 'Enter a final price greater than 0.' });
+  if (!Number.isFinite(price) || price <= 0) return res.status(400).json({ error: 'Enter an approved price greater than 0.' });
   // Re-check the held date(s) before the client gets a payment link: the hold may have expired while the team decided.
   if (o.review && o.review.needed && o.schedule && o.schedule.date && !o.rush && !o.dedicated) {
     const held = holdSlots(o, true);

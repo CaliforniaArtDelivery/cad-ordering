@@ -6,8 +6,40 @@
 })(typeof self !== 'undefined' ? self : this, function () {
   // Smallest realistic piece CAD picks up: 4 in. wide and 4 in. tall (a small framed print). Depth is lower on purpose:
   // a framed canvas or print is often only 1 to 2 in. deep, so a flat 4 in. depth minimum would reject real art.
-  const MIN_DIM = { w: 4, h: 4, d: 1 };
+  const MIN_DIM = { w: 4, h: 4, d: 1 }; // default for paintings, photographs, wall art, other
   const DIM_NAME = { w: 'width', h: 'height', d: 'depth' };
+  // Per-type minimums in inches (logistics, Nov 25 2026). A 1-inch sofa must be rejected.
+  // Depth for framed art stays at 1 in because a canvas or print is often only 1–2 in deep.
+  const TYPE_MIN = {
+    painting: { w: 4, h: 4, d: 1 },
+    photograph: { w: 4, h: 4, d: 1 },
+    wallart: { w: 4, h: 4, d: 1 },
+    mirror: { w: 6, h: 6, d: 0.25 },
+    sculpture: { w: 2, h: 2, d: 2 },
+    other: { w: 4, h: 4, d: 1 },
+    custom: { w: 2, h: 2, d: 1 },
+    furniture: { w: 12, h: 12, d: 6 },
+    decor: { w: 4, h: 4, d: 1 },
+  };
+  const FURNITURE_MIN = {
+    'Sofa': { w: 24, h: 20, d: 12 },
+    'Loveseat': { w: 24, h: 20, d: 12 },
+    '2-Piece Sectional': { w: 36, h: 20, d: 12 },
+    '3-Piece Sectional': { w: 48, h: 20, d: 12 },
+    '4-Piece Sectional': { w: 60, h: 20, d: 12 },
+    'Armchair / Accent Chair': { w: 18, h: 18, d: 12 },
+    'Recliner / Lounge Chair': { w: 18, h: 18, d: 12 },
+    'Dining Table': { w: 24, h: 12, d: 12 },
+    'Desk': { w: 20, h: 12, d: 10 },
+    'Dresser': { w: 18, h: 18, d: 10 },
+    'Headboard / Bed Frame': { w: 24, h: 12, d: 2 },
+    'Armoire': { w: 18, h: 36, d: 10 },
+  };
+  function minDimsFor(it) {
+    const type = (it && it.type) || 'painting';
+    if (type === 'furniture') return FURNITURE_MIN[(it && it.furnitureKind) || ''] || TYPE_MIN.furniture;
+    return TYPE_MIN[type] || MIN_DIM;
+  }
   // Above this on ANY side the order is not refused (a genuinely big piece is real); it goes to manual review instead.
   // The server reads its own value from config.intake.reviewDimIn (REVIEW_DIM_IN env). PENDING CHAD'S APPROVAL: 120 in is a default, not an approved number.
   const REVIEW_DIM = 120;
@@ -36,29 +68,36 @@
     if (raw === undefined || raw === null || (typeof raw === 'string' && !raw.trim())) return 'missing';
     const n = parseDim(raw);
     if (n === null) return 'invalid';
-    if (n < MIN_DIM[k]) return 'small';
+    const min = minDimsFor(it)[k];
+    if (n < min) return 'small';
     if (n > MAX_DIM) return 'huge';
     return 'ok';
   }
   const DIM_MESSAGES = {
     missing: () => 'Please enter the width, height and depth in inches.',
     invalid: (k) => `Enter the ${DIM_NAME[k]} as a plain number of inches (like 24 or 24.5).`,
-    small: (k) => `Too small: ${DIM_NAME[k]} must be at least ${MIN_DIM[k]} in.`,
+    small: (k, it) => `Too small: ${DIM_NAME[k]} must be at least ${minDimsFor(it)[k]} in.`,
     huge: (k) => `Please check the ${DIM_NAME[k]}: that is over ${MAX_DIM} in.`,
   };
   // First problem with a piece's W x H x D, or null. { key, state, message }
   function dimProblem(it) {
     for (const k of ['w', 'h', 'd']) {
       const s = dimState(it, k);
-      if (s !== 'ok') return { key: k, state: s, message: DIM_MESSAGES[s](k) };
+      if (s !== 'ok') return { key: k, state: s, message: DIM_MESSAGES[s](k, it) };
     }
     return null;
   }
-  // For pieces that don't ask for a size (custom, furniture): blank is fine, but anything sent must still be a plain decimal.
+  // Furniture and custom: blank size is allowed (size class may be used), but any size that is typed must be realistic.
   function optionalDimProblem(it) {
+    const filled = ['w', 'h', 'd'].some((k) => {
+      const raw = (it || {})[k];
+      return raw !== undefined && raw !== null && String(raw).trim() !== '';
+    });
     for (const k of ['w', 'h', 'd']) {
       const s = dimState(it, k);
-      if (s === 'invalid' || s === 'huge') return { key: k, state: s, message: DIM_MESSAGES[s](k) };
+      if (s === 'invalid' || s === 'huge') return { key: k, state: s, message: DIM_MESSAGES[s](k, it) };
+      if (filled && s === 'small') return { key: k, state: s, message: DIM_MESSAGES.small(k, it) };
+      if (filled && s === 'missing') return { key: k, state: s, message: 'Please enter the width, height and depth in inches, or clear all three.' };
     }
     return null;
   }
@@ -120,7 +159,52 @@
     }
     return out;
   }
+
+  const EMAIL_RX = /^[^\s@]+@[^\s@]+\.[A-Za-z]{2,}$/;
+  const EMAIL_TYPOS = [
+    ['calforniaartdelivery', 'californiaartdelivery'],
+    ['californiartdelivery', 'californiaartdelivery'],
+    ['californiaartdelievery', 'californiaartdelivery'],
+    ['californiaartdelivrey', 'californiaartdelivery'],
+    ['californiaartdeliivery', 'californiaartdelivery'],
+    ['gmial.com', 'gmail.com'],
+    ['gmai.com', 'gmail.com'],
+    ['gmail.con', 'gmail.com'],
+    ['gmail.coom', 'gmail.com'],
+    ['gmail.cm', 'gmail.com'],
+    ['hotmial.com', 'hotmail.com'],
+    ['hotmai.com', 'hotmail.com'],
+    ['hotmail.con', 'hotmail.com'],
+    ['yaho.com', 'yahoo.com'],
+    ['yahooo.com', 'yahoo.com'],
+    ['yahoo.con', 'yahoo.com'],
+    ['icloud.con', 'icloud.com'],
+    ['icoud.com', 'icloud.com'],
+    ['outlok.com', 'outlook.com'],
+    ['outlook.con', 'outlook.com'],
+  ];
+  function typoEmail(email) {
+    const e = String(email || '').trim().toLowerCase();
+    const at = e.lastIndexOf('@');
+    if (at < 1) return null;
+    const local = e.slice(0, at), domain = e.slice(at + 1);
+    for (const [bad, good] of EMAIL_TYPOS) {
+      if (domain === bad) return local + '@' + good;
+      if (domain.startsWith(bad + '.')) return local + '@' + (good.includes('.') ? good : good + '.com');
+      if (local.includes(bad) && !bad.includes('.')) return local.replace(bad, good.includes('.') ? good.split('@')[0] : good) + '@' + domain;
+    }
+    return null;
+  }
+  function emailProblem(email) {
+    const e = String(email || '').trim();
+    if (!e) return 'Please enter an email address.';
+    if (!EMAIL_RX.test(e)) return 'Please enter a real email address (like name@example.com).';
+    const tip = typoEmail(e);
+    if (tip) return `That email looks misspelled. Did you mean ${tip}? Please check it.`;
+    return null;
+  }
+
   const addressOk = (a) => addressProblems(a).length === 0;
 
-  return { MIN_DIM, REVIEW_DIM, MAX_DIM, num, parseDim, dimState, dimProblem, optionalDimProblem, largestSide, isOversized, zipOk, cityOk, streetHasNumber, noStreetNumberOk, needsAddressReview, isUS, addressProblems, addressOk };
+  return { MIN_DIM, TYPE_MIN, FURNITURE_MIN, minDimsFor, REVIEW_DIM, MAX_DIM, num, parseDim, dimState, dimProblem, optionalDimProblem, largestSide, isOversized, zipOk, cityOk, streetHasNumber, noStreetNumberOk, needsAddressReview, isUS, addressProblems, addressOk, emailProblem, typoEmail, EMAIL_RX };
 });

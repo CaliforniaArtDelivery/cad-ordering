@@ -283,7 +283,7 @@ hdr('3g. Discount codes: percent and delivery credit');
   // rush
   const rj = quote(order([art(12344)], { rush: true, discountCode: 'JT' }));
   ok(near(rj.quoteRange.low, (300 + 185.16) * 0.75) && near(rj.quoteRange.high, (400 + 185.16) * 0.75), 'rush + JT: the percent comes off both ends of the range ($363.87 to $438.87)', rj.quoteRange);
-  ok(/applied to this estimate/.test(rj.discount.note) && /final price/.test(rj.discount.note), 'rush + code: the quote says CAD confirms the final price with the code', rj.discount.note);
+  ok(/applied to this estimate/.test(rj.discount.note) && /confirms the price/.test(rj.discount.note) && !/final/.test(rj.discount.note), 'rush + code: the quote says CAD confirms the price with the code (and never says final)', rj.discount.note);
   const rc = credit([art(12344)], { rush: true });
   ok(near(rc.quoteRange.low, 485.16 - 200) && near(rc.quoteRange.high, 585.16 - 200), 'rush + $500 credit: capped at the regular $200 transport, so $285.16 to $385.16', rc.quoteRange);
   const rn = quote(order([art(12344)], { rush: true, discountCode: 'NOPE' }));

@@ -6,9 +6,12 @@
  * Deploy: open the "CAD online orders bridge" project > replace Code.gs with this file > Save > Run migrateToOneTab once
  * (moves any old ONLINE ORDERS / TEST ORDERS rows onto SCHEDULE 2026 and deletes the three old tabs) >
  * Deploy > Manage deployments > Edit > Version: New version > Deploy (same /exec URL).
- * Script properties: SECRET, TARGET_SPREADSHEET_ID, TARGET_TAB_NAME, ALERT_EMAIL.
+ * Script properties: SECRET, TARGET_SPREADSHEET_ID, TARGET_TAB_NAME, ALERT_EMAIL, DAYS_SPREADSHEET_ID (optional), DAYS_TAB_NAME (optional).
+ * TARGET_* is where orders are WRITTEN. DAYS_* is the read-only source for route days (defaults to the LIVE schedule
+ * 1E4PDjudgBIXnuOtvHO-Ywc4Fp-Gxiy5qr6yGI_4fXhg / SCHEDULE 2026) so the site always mirrors live routes, even in test.
  * TARGET_TAB_NAME is "TEST SCHEDULE 2026" on the test sheet. The live switch is: set TARGET_SPREADSHEET_ID
  * to the live schedule id AND set TARGET_TAB_NAME to "SCHEDULE 2026". Do not switch until Chad says go live.
+ * Do not run migrateToOneTab again. Do not change TARGET_* until Chad says go live.
  * If TARGET_TAB_NAME is unset, uses "TEST SCHEDULE 2026" when that tab exists, else "SCHEDULE 2026".
  *
  * Where rows go on SCHEDULE 2026 (the team's own conventions):
@@ -58,6 +61,19 @@ var STATE_PREFIX = 'O:';
 
 function props_() { return PropertiesService.getScriptProperties(); }
 function ss_() { return SpreadsheetApp.openById(props_().getProperty('TARGET_SPREADSHEET_ID')); }
+// Read-only source for the `days` digest (route text, off days, job counts for capacity). Writes never use this.
+var LIVE_SCHEDULE_ID = '1E4PDjudgBIXnuOtvHO-Ywc4Fp-Gxiy5qr6yGI_4fXhg';
+function daysSs_() {
+  var id = String(props_().getProperty('DAYS_SPREADSHEET_ID') || LIVE_SCHEDULE_ID).trim() || LIVE_SCHEDULE_ID;
+  return SpreadsheetApp.openById(id);
+}
+function daysSh_() {
+  var ss = daysSs_();
+  var name = String(props_().getProperty('DAYS_TAB_NAME') || TAB_MAIN_DEFAULT).trim() || TAB_MAIN_DEFAULT;
+  var sh = ss.getSheetByName(name);
+  if (!sh) throw new Error('Days tab "' + name + '" is missing on the days spreadsheet.');
+  return sh;
+}
 function json_(o) { return ContentService.createTextOutput(JSON.stringify(o)).setMimeType(ContentService.MimeType.JSON); }
 function authOk_(s) {
   var want = String(props_().getProperty('SECRET') || ''), got = String(s || '');
@@ -315,9 +331,9 @@ function migrateLegacy_(ss) {
 // Read-only digest of SCHEDULE 2026 per date. Online-order rows count as job rows ONCE (they are on this tab now), except
 // TEST rows and PENDING REVIEW rows (the site holds those dates itself), and never add route text or off-day marks.
 function handleDays_() {
-  var ss = ss_(), tz = ss.getSpreadsheetTimeZone(), days = {};
+  var ss = daysSs_(), tz = ss.getSpreadsheetTimeZone(), days = {};
   function rec(iso) { return days[iso] || (days[iso] = { routes: [], jobRows: 0, off: false, offWhy: '' }); }
-  var main = main_(ss), last = main.getLastRow();
+  var main = daysSh_(), last = main.getLastRow();
   if (last >= 3) {
     var v = main.getRange(3, 1, last - 2, COL_NOTES).getValues(); // A..J
     for (var i = 0; i < v.length; i++) {

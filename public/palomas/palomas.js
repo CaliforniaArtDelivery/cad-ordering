@@ -29,7 +29,7 @@ const outOfState = () => { const d = delivery(); const z = parseInt(d.zip.slice(
 const payload = (payMode = 'now') => ({
   payer: S.payer, payMode,
   placedBy: { name: S.placedBy, other: S.placedOther }, pickupLocation: S.pickup, courtesy: S.courtesy, ...(S.unlocked ? { pin: S.pin } : {}),
-  items: S.items.map((i) => ({ name: i.name, kind: i.kind, qty: i.qty, catalogId: i.catalogId, custom: !!i.custom, w: i.w, h: i.h, ...(i.custom ? { d: i.d, weight: i.weight, weightUnsure: !!i.weightUnsure, photos: i.photos || [], photoLater: !!i.photoLater } : {}) })),
+  items: S.items.map((i) => ({ name: i.name, kind: i.kind, qty: i.qty, catalogId: i.catalogId, custom: !!i.custom, w: i.w, h: i.h, value: i.value, ...(i.custom ? { d: i.d, weight: i.weight, weightUnsure: !!i.weightUnsure, photos: i.photos || [], photoLater: !!i.photoLater } : {}) })),
   delivery: delivery(), access: access(), schedule: { date: S.pickupDate, deliveryDate: S.deliveryDate },
 });
 async function api(url, body) {
@@ -77,6 +77,9 @@ function renderItems() {
         </div>
         ${i.custom ? `<div class="cspec">${[i.w && i.d && i.h ? `<b>${esc(i.w)} × ${esc(i.d)} × ${esc(i.h)} in</b>` : '', i.weightUnsure ? 'weight not sure' : i.weight ? `<b>~${esc(i.weight)} lb</b>` : '', (i.photos || []).length ? `${i.photos.length} photo${i.photos.length > 1 ? 's' : ''}` : i.photoLater ? 'photo to follow' : ''].filter(Boolean).join(' · ')}</div>` : ''}
         ${isMirror(i.kind) && !i.custom ? `<div class="dims">Face size, optional: <input data-f="w" value="${esc(i.w)}" inputmode="numeric" placeholder="W"> × <input data-f="h" value="${esc(i.h)}" inputmode="numeric" placeholder="H"> in</div>` : ''}
+        <div class="dims">Declared value $ <input data-f="value" value="${esc(i.value || '')}" inputmode="decimal" placeholder="e.g. 2500" aria-label="Declared value for ${esc(i.name)}"></div>
+        ${i.custom && i.weightUnsure ? `<p class="mini">Price may be adjusted once the actual weight is confirmed; we’ll get your approval before charging any additional fees.</p>` : ''}
+        ${isMirror(i.kind) ? `<p class="mini">Mirrors and works on panel are often heavier than they look.</p>` : ''}
         <div class="rmrow"><button type="button" class="rm" data-rm="1" aria-label="Remove ${esc(i.name)}"><span aria-hidden="true">✕</span> Remove</button></div>
       </div></div>`;
   }).join('');
@@ -103,10 +106,11 @@ function problems() {
   if (!S.placedBy) add('Choose who is placing the order', '#placedBy', 'Please choose who is placing the order.');
   else if (S.placedBy === 'Other' && !S.placedOther.trim()) add('Type the name of who is placing the order', '#placedOther', 'Please type your name.');
   if (!S.items.length) add('Add at least one item', '#sec-items', 'Please add at least one item.');
+  S.items.forEach((i) => { if (!(num(i.value) > 0)) add('Declared value for ' + (i.name || 'item'), `[data-uid="${i.uid}"] [data-f="value"]`, 'Please enter a declared value. Declared value protection (1.5%) is included on pieces of $50,000 or less.'); });
   const d = delivery();
   if (!d.name) add('Client name', '#dName', 'Please enter the client’s name.');
   if (d.phone.replace(/\D/g, '').length < 7) add('Client phone', '#dPhone', 'Please enter the client’s phone number.');
-  if (!/\S+@\S+\.\S+/.test(d.email)) add('Client email', '#dEmail', 'Please enter a valid email address.');
+  { const em = (window.CADValidate && CADValidate.emailProblem) ? CADValidate.emailProblem(d.email) : (!/\S+@\S+\.\S+/.test(d.email) ? 'Please enter a valid email address.' : null); if (em) add('Client email', '#dEmail', em); }
   const c2 = d.client2;
   if (c2) {
     if (!c2.name) add('Second client name', '#c2Name', 'Please enter the second client’s name.');
@@ -117,6 +121,7 @@ function problems() {
   if (!d.street) add('Delivery street address', '#dStreet', 'Please enter the street address.');
   if (!d.city) add('City', '#dCity', 'Please enter the city.');
   if (!/^\d{5}(-\d{4})?$/.test(d.zip)) add('ZIP code', '#dZip', 'Please enter a 5-digit ZIP code.');
+  if (window.CADZones && d.city && d.zip) { const c = CADZones.routeConflict({ city: d.city, state: d.state || 'CA', zip: d.zip }); if (c) add('City and ZIP', '#dZip', c.message); }
   const a = access();
   if (!a.mode) add('How we get in at delivery', '#aMode', 'Please tell us how we get in.');
   if (a.mode === 'stairs' && !a.flights) add('Flights of stairs', '#aFlights', 'Please choose how many flights of stairs.');
@@ -334,10 +339,20 @@ function showDone(j, how) {
   const reviewHold = o.status === 'pending_approval' && !!(o.review && o.review.needed);
   const shipping = o.status === 'pending_approval' && !reviewHold;
   const heavy = o.reviewReason === 'heavy';
+  const paySt = (o.payment || {}).status;
+  const reallyPaid = how === 'paid' && (paySt === 'paid' || paySt === 'ach_processing');
+  const palomasPending = (S.payer === 'palomas' || (o.partnerInfo && o.partnerInfo.payer === 'palomas')) && !reallyPaid && how !== 'link' && !shipping && !reviewHold;
   const day = (s) => (s ? new Date(s + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' }) : '');
+  const sub = reviewHold
+    ? ` · ${esc((o.quote || {}).quoteNote || 'Our team confirms the date within 1 business day.')} We’ll email ${esc(d.email)} a payment link once confirmed. No charge until then.`
+    : shipping ? (heavy ? ' · Our team reviews the heavy piece and will email your quote within 1 business day. No charge until you approve it.' : ' · Our team will email your shipping quote within 1 business day. No charge until you approve it.')
+    : how === 'link' ? ` · we emailed ${esc(d.email)} a payment link. <b>Awaiting payment — not scheduled until paid.</b> We'll send a reminder each day until it's paid.`
+    : reallyPaid ? ' · paid, and we have it from here.'
+    : palomasPending ? " · booked, invoiced to Paloma’s / payment pending."
+    : ' · booked. Payment is still pending.';
   $('#main').innerHTML = `<div class="done"><div class="ck">✓</div>
-    <h2>${reviewHold ? 'Date held, team confirming' : shipping ? (heavy ? 'Sent for team review' : 'Shipping quote requested') : how === 'link' ? 'Payment link sent' : 'Delivery locked in'}</h2>
-    <p class="sub">Order <b>${esc(o.id || j.id)}</b>${reviewHold ? ` · ${esc((o.quote || {}).quoteNote || 'Our team confirms the date within 1 business day.')} We’ll email ${esc(d.email)} a payment link once confirmed. No charge until then.` : shipping ? (heavy ? ' · Our team reviews the heavy piece and will email your quote. No charge until you approve it.' : ' · Our team will email your shipping quote. No charge until you approve it.') : how === 'link' ? ` · we emailed ${esc(d.email)} a payment link. <b>Awaiting payment — not scheduled until paid.</b> We'll send a reminder each day until it's paid.` : ' · paid, and we have it from here.'}</p>
+    <h2>${reviewHold ? 'Date held, team confirming' : shipping ? (heavy ? 'Sent for team review' : 'Shipping quote requested') : how === 'link' ? 'Payment link sent' : reallyPaid ? 'Delivery locked in' : palomasPending ? 'Booked, invoiced to Paloma’s' : 'Delivery booked'}</h2>
+    <p class="sub">Order <b>${esc(o.id || j.id)}</b>${sub}</p>
     <div class="box">
       <p><b>Placed by</b> ${esc(S.placedBy === 'Other' ? S.placedOther : S.placedBy)}</p>
       <p><b>Pickup</b> ${esc(S.pickup === 'salinas' ? 'Salinas warehouse, 329 Rianda St' : 'Carmel-by-the-Sea showroom, Ocean Ave at Mission St')}${S.pickupDate && !shipping ? ' · ' + esc(day(S.pickupDate)) : ''}</p>
@@ -346,7 +361,7 @@ function showDone(j, how) {
       ${shipping ? '' : (((j.order || {}).quote || {}).lines || []).filter((l) => l.label === "Manager's courtesy").map((l) => `<p><b>Manager's courtesy</b> −${usd(Math.abs(l.amount))}</p>`).join('')}
       ${shipping ? '' : `<p><b>${reviewHold ? 'Estimated total' : 'Total'}</b> ${usd(q.total)}${S.courtesy ? " (Manager's courtesy)" : ''}</p>`}
       ${shipping ? '' : `<p class="mini">${esc(q.accessFeeNote || (j.order && j.order.quote && j.order.quote.accessFeeNote) || '')}</p>`}
-      ${shipping || reviewHold || how === 'link' ? '' : `<p><b>Paid today</b> ${usd(q.dueNow || q.total)}${o.quote && o.quote.balanceDue ? ' · balance ' + usd(o.quote.balanceDue) + ' due ' + esc(o.quote.balanceWhen || '') : ''} · by ${S.payer === 'palomas' ? "Paloma's Home Furnishings" : esc(d.name)}</p>`}
+      ${shipping || reviewHold || how === 'link' ? '' : (reallyPaid ? `<p><b>Paid today</b> ${usd((o.payment && o.payment.amount) || q.dueNow || q.total)}${o.quote && o.quote.balanceDue ? ' · balance ' + usd(o.quote.balanceDue) + ' due ' + esc(o.quote.balanceWhen || '') : ''} · by ${S.payer === 'palomas' ? "Paloma's Home Furnishings" : esc(d.name)}</p>` : `<p><b>${palomasPending ? "Booked, invoiced to Paloma’s / payment pending" : 'Payment pending'}</b> ${usd(q.dueNow || q.total)}</p>`)}
     </div>
     <button class="btn primary" id="again" type="button">Place another order</button></div>`;
   $('#bar').hidden = true; window.scrollTo({ top: 0, behavior: 'smooth' });

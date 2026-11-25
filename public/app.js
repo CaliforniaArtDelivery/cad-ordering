@@ -625,17 +625,19 @@ const payPlan = (q) => {
       ${q.tripPremium ? `<div class="sum-row"><span>Regular rate</span><span class="amt">${fmt(q.regularTotal || q.total)}</span></div>
       <div class="sum-row"><span>Price range</span><span class="amt"><b>${fmt(q.quoteRange.low)}–${fmt(q.quoteRange.high)}</b></span></div>` : '<div class="sum-row"><span>Price</span><span>Priced by CAD</span></div>'}
       ${q.extraQuoted ? `<div class="sum-row"><span>${esc(q.extraQuoted)}</span><span>Quoted by CAD</span></div>` : ''}
-      <p class="mini" style="margin:4px 0 10px">${esc(q.quoteNote || 'CAD sets a final price in this range. Nothing is charged until you approve it and pay.')}</p></div>`;
+      <p class="mini" style="margin:4px 0 10px">${esc(q.quoteNote || 'Our team will email your price within 1 business day. Nothing is charged until you approve it.')}</p></div>`;
   }
   if (q.paymentPlan === 'deposit') {
     return `<div class="plan"><div class="plan-head">Orders of ${fmt(CFG.payment.depositThreshold)}+ are split 50/50</div>
       <div class="sum-row"><span>${accessTbc(q) ? CADAccess.TBC_DUE : 'Due today'}</span><span class="amt"><b>${fmt(q.dueNow)}</b></span></div>
-      <div class="sum-row"><span>Balance due ${esc(q.balanceWhen)}${accessTbc(q) ? ' (before access check)' : ''}</span><span class="amt"><b>${fmt(q.balanceDue)}</b></span></div>${feeNoteHtml(q)}</div>`;
+      <div class="sum-row"><span>Balance due ${esc(q.balanceWhen)}${accessTbc(q) ? ' (before access check)' : ''}</span><span class="amt"><b>${fmt(q.balanceDue)}</b></span></div>${feeNoteHtml(q)}${weightNoteHtml()}</div>`;
   }
-  return `<div class="plan"><div class="sum-row"><span>${accessTbc(q) ? CADAccess.TBC_DUE : (q.accessFeeNote ? 'Due today' : 'Due today · paid in full at booking')}</span><span class="amt"><b>${fmt(q.dueNow)}</b></span></div>${feeNoteHtml(q)}</div>`;
+  return `<div class="plan"><div class="sum-row"><span>${accessTbc(q) ? CADAccess.TBC_DUE : (q.accessFeeNote ? 'Due today' : (weightTbc() ? 'Due today (weight to be confirmed)' : 'Due today · paid in full at booking'))}</span><span class="amt"><b>${fmt(q.dueNow)}</b></span></div>${feeNoteHtml(q)}${weightNoteHtml()}</div>`;
 };
 // Access flagged Not sure (mode, fit or elevator stairs): the pricing API adds CADAccess.PRICE_NOTE; show it next to the price.
 const accessTbc = (q) => !!(q && (q.notes || []).includes(CADAccess.PRICE_NOTE));
+const weightTbc = (items = S.items) => !!(CADAccess.weightUnconfirmed && CADAccess.weightUnconfirmed(items));
+const weightNoteHtml = () => (weightTbc() ? `<p class="mini access-tbc" data-weight-tbc><b>${esc(CADAccess.WEIGHT_NOTE)}</b></p>` : '');
 // Money in a price row: a discount shows as a minus amount ("−$96.29"), never "$-96.29".
 const fmtRow = (n) => (Number(n) < 0 ? '−' + fmt(-Number(n)) : fmt(n));
 const isProtLine = (l) => /^Declared value protection/.test(l.label);
@@ -919,7 +921,8 @@ const weightField = (item, i, { required = false, approx = false } = {}) => {
       <label class="f" for="f-${p}.weight" style="margin:0">${label}${reqMark}</label>
       <button type="button" class="pill-btn ${item.weightUnsure ? 'on' : ''}" data-weightunsure="${i}">${item.weightUnsure ? '✓ Not sure' : 'Not sure'}</button>
     </div>
-    ${item.weightUnsure ? '<p class="mini" style="margin:0 0 8px">No problem, you can skip this.</p>' : input(`${p}.weight`, '', { ph: approx ? 'e.g. 200' : 'e.g. 40', attrs: `inputmode="decimal" aria-label="${label}"` }) + `<p class="mini">${required ? 'Pick a weight or Not sure; it affects the price.' : 'Pounds. Approximate is fine.'}</p>`}
+    ${CADAccess.needsWeightHint && CADAccess.needsWeightHint(item) ? `<p class="mini" style="margin:0 0 8px">${esc(CADAccess.WEIGHT_HINT)}</p>` : ''}
+    ${item.weightUnsure ? '<p class="mini" style="margin:0 0 8px">No problem, you can skip this.</p>' + (CADAccess.weightFeeType && CADAccess.weightFeeType(item) ? `<p class="mini access-tbc" data-weight-tbc><b>${esc(CADAccess.WEIGHT_NOTE)}</b></p>` : '') : input(`${p}.weight`, '', { ph: approx ? 'e.g. 200' : 'e.g. 40', attrs: `inputmode="decimal" aria-label="${label}"` }) + `<p class="mini">${required ? 'Pick a weight or Not sure; it affects the price.' : 'Pounds. Approximate is fine.'}</p>`}
     <div data-heavywall="${i}">${heavyWallNote(item, i)}</div>
   </div>`;
 };
@@ -973,7 +976,7 @@ const pieceCare = (item, i, ship) => {
       + `<p class="mini" style="margin:-4px 0 8px" data-valhint="${i}">${valueHint(item)}</p>` + checkValueNote(item);
     h = `${needsWeight ? weightField(item, i, { required: true }) : ''}
         ${type === 'custom' ? '' : value}
-        ${type === 'other' ? '<p class="mini" style="margin:0 0 6px">Priced by weight from our sculpture rates. The price covers pickup, delivery and placement wherever you want it. CAD may adjust the final quote after seeing photos.</p>' : ''}
+        ${type === 'other' ? '<p class="mini" style="margin:0 0 6px">Priced by weight from our sculpture rates. The price covers pickup, delivery and placement wherever you want it. CAD may adjust the price after seeing photos.</p>' : ''}
         ${type === 'sculpture' ? '<p class="mini" style="margin:0 0 6px">One weight-based price covers pickup, delivery and placement wherever you want it.</p>' : ''}
         ${hasInstall() && type === 'decor' && quoteHangList().includes(item.furnitureKind) ? `<p class="mini" style="margin:0 0 6px">${esc(item.furnitureKind)} hanging isn’t on our rate card, so this becomes a quick quote request.</p>` : ''}
         ${type === 'furniture' ? '<p class="mini" style="margin:0 0 6px">One price covers pickup, delivery and placement wherever you want it.</p>' : ''}
@@ -1334,10 +1337,10 @@ const views = {
       ${siteReview(S.service === 'install_only' ? 'Installation details' : 'Delivery details', S.dropoff, '1:dropoff-access')}
       <h2>Price</h2>
       ${priceCard(q, true)}
-      ${q && q.notes && q.notes.filter((n) => n !== CADAccess.PRICE_NOTE).length ? `<p class="mini">${q.notes.filter((n) => n !== CADAccess.PRICE_NOTE).map((n) => esc(n)).join(' ')}</p>` : ''}
+      ${q && q.notes && q.notes.filter((n) => n !== CADAccess.PRICE_NOTE && n !== CADAccess.WEIGHT_NOTE).length ? `<p class="mini">${q.notes.filter((n) => n !== CADAccess.PRICE_NOTE && n !== CADAccess.WEIGHT_NOTE).map((n) => esc(n)).join(' ')}</p>` : ''}
       ${discountBlock()}
       ${sp ? '<div class="err" id="err"></div>' : `<h2>Payment</h2>${paymentBlock(q)}`}
-      <p class="mini">${sp ? 'We’ll email your price with a payment link.' : 'Need to change or cancel? Reply to your confirmation email.'}</p>`);
+      <p class="mini">${sp ? 'We’ll email your price with a payment link within 1 business day. Nothing is charged until you approve it.' : 'Need to change or cancel? Reply to your confirmation email.'}</p>`);
   },
 
   ShipPay() {
@@ -1401,7 +1404,7 @@ const views = {
     if (o.status === 'pending_approval') {
       const q = o.quote || quoteData;
       return `<div class="done"><div class="check">✓</div><h1>Order received</h1>
-        <p class="sub">Order <b>${esc(o.id)}</b>. We’ll email ${esc(o.contact.email)} your price with a payment link.</p></div>
+        <p class="sub">Order <b>${esc(o.id)}</b>. We’ll email ${esc(o.contact.email)} your price with a payment link within 1 business day. Nothing is charged until you approve it.</p></div>
         <div class="card">
           <div class="sum-row"><span>Service</span><span>${esc(o.serviceLabel)}${o.rush ? ' · rush' : ''}${o.dedicated ? ' · dedicated trip' : ''}</span></div>
           <div class="sum-row"><span>Date</span><span>${esc(longDate(o.schedule.date))}${o.schedule.deliveryDate ? '<br>Delivery ' + esc(longDate(o.schedule.deliveryDate)) : ''}${timePrefSummary(o.schedule.timePref, o.schedule.timeNote) ? '<br><span class="muted">' + esc(timePrefSummary(o.schedule.timePref, o.schedule.timeNote)) + '</span>' : ''}</span></div>
@@ -1422,7 +1425,7 @@ const views = {
       <div class="sum-row"><span>Payment</span><span>${ach ? `<b>ACH processing</b> · ${fmt(p.amount)}` : `Paid ${fmt(p.amount)}`} · ${how}${p.method && p.method.startsWith('mock') ? ' (test)' : ''}${p.saved ? ' · saved' : ''}</span></div>
       ${o.quote.paymentPlan === 'deposit' ? `<div class="sum-row"><span>Balance due ${esc(o.quote.balanceWhen)}</span><span class="amt"><b>${fmt(o.quote.balanceDue)}</b></span></div>` : ''}
       <div class="total"><span>${accessTbc(o.quote) ? CADAccess.TBC_TOTAL : 'Order total'}</span><span class="amt">${fmt(o.quote.total)}</span></div>
-      ${accessTbc(o.quote) ? `<p class="mini access-tbc" data-access-tbc><b>${esc(CADAccess.PRICE_NOTE)}</b></p>` : ''}${feeNoteHtml(o.quote)}</div>
+      ${accessTbc(o.quote) ? `<p class="mini access-tbc" data-access-tbc><b>${esc(CADAccess.PRICE_NOTE)}</b></p>` : ''}${weightNoteHtml(o.items)}${feeNoteHtml(o.quote)}</div>
       ${ach ? '<p class="mini">Your job is confirmed. The bank transfer shows as processing until it clears.</p>' : ''}
       ${yourPieces(o)}
       <button type="button" class="btn ghost full" id="newOrder">Start a new booking</button>`;
@@ -1446,7 +1449,7 @@ const siteReview = (title, a, goto) => {
 const filled = (a) => a && String(a.street || '').trim() && String(a.city || '').trim();
 const hasContact = (a) => String(a.contactName || '').trim() && String(a.contactPhone || '').trim();
 const siteReady = (a, required) => (required ? filled(a) && hasContact(a) : !filled(a) || hasContact(a));
-const contactReady = () => S.contact.name.trim() && /\S+@\S+\.\S+/.test(S.contact.email) && String(S.contact.phone || '').replace(/\D/g, '').length >= 7;
+const contactReady = () => S.contact.name.trim() && !V.emailProblem(S.contact.email) && String(S.contact.phone || '').replace(/\D/g, '').length >= 7;
 
 const needsDims = (it) => !['custom', 'furniture'].includes(it.type || 'painting') || shipService();
 const dimsOk = (it) => !V.dimProblem(it);
@@ -1485,7 +1488,7 @@ function missingFields(name = STEPS[step]) {
   }
   if (name === 'Where') {
     if (!String(S.contact.name || '').trim()) add('#f-contact.name', 'Full name', 'Please enter your full name.');
-    if (!/\S+@\S+\.\S+/.test(S.contact.email || '')) add('#f-contact.email', 'Email', 'Please enter a valid email address.');
+    { const em = V.emailProblem(S.contact.email); if (em) add('#f-contact.email', 'Email', em); }
     if (String(S.contact.phone || '').replace(/\D/g, '').length < 7) add('#f-contact.phone', 'Mobile', 'Please enter a mobile number.');
     if (!String(S.contact.clientType || '').trim()) add('#f-contact.clientType', 'I am a…', 'Please choose one.');
     if (!(S.heard && S.heard.repeatClient)) {
@@ -1497,7 +1500,7 @@ function missingFields(name = STEPS[step]) {
       const a = S[key] || {};
       if (!required && !filled(a)) return;
       if (key === 'dropoff' && shipService() && !String(a.country || '').trim()) add('#f-dropoff.country', 'Country', 'Please enter the country.');
-      { const zm = zipMismatch[key]; if (zm && zm.zip === (String(a.zip || '').match(/^\d{5}/) || [])[0] && zm.city === String(a.city || '').trim()) add(`#f-${key}.zip`, `City and ZIP don’t match — ${title}`, `ZIP ${zm.zip} is in ${zm.place}. Tap Use ${zm.place}, or fix the ZIP.`); }
+      { const zm = zipMismatch[key]; if (zm && zm.zip === (String(a.zip || '').match(/^\d{5}/) || [])[0] && zm.city === String(a.city || '').trim()) add(`#f-${key}.zip`, `City and ZIP don’t match — ${title}`, zm.conflict ? (zm.message || `The city and ZIP don’t belong to the same delivery area. Please fix the city or the ZIP.`) : `ZIP ${zm.zip} is in ${zm.place}. Tap Use ${zm.place}, or fix the ZIP.`); }
       if (key === 'dropoff' && shipInsideCA()) add('#f-dropoff.state', 'Destination is in California', 'Shipping is for destinations outside California. Tap Switch to Pickup + Delivery.');
       // Street (with a number), a plausible city and a 5-digit ZIP (or ZIP+4): the same checks the server runs (public/validate.js).
       V.addressProblems(a, title).forEach((pr) => add(`#f-${key}.${pr.field}`, `${{ street: 'Street address', city: 'City', state: 'State', zip: 'ZIP' }[pr.field]} — ${title}`, pr.message));
@@ -2027,10 +2030,10 @@ function splitStreet(key) {
   if (m[4] && !String(a.zip || '').trim()) a.zip = m[4];
   persist(); render(); checkZipCity(key);
 }
-// ZIP vs city cross-check (QA audit Nov 22, #6): a soft, non-blocking hint with a one-tap fix. The route is picked from the ZIP,
-// so a typo here would quietly book the wrong route day. Uses the public Zippopotam lookup; if it is unreachable, nothing shows.
+// ZIP vs city cross-check: a hard block when the city and ZIP belong to different CAD route areas (never route on the ZIP alone).
+// Zippopotam is used as a secondary typo hint; a CADZones conflict still blocks even if that lookup is down.
 const zipCache = {}, cityCache = {};
-// A confirmed city/ZIP mismatch blocks Next until the customer takes the suggested city or fixes the ZIP (QA re-check S1).
+// A confirmed city/ZIP mismatch blocks Next until the customer fixes the city or the ZIP.
 const zipMismatch = { pickup: null, dropoff: null };
 // Shipping destination: State starts blank (no "stays in California" note on an empty form). Typed "CA" is kept.
 let shipStateTyped = false;
@@ -2051,6 +2054,10 @@ async function checkZipCity(key) {
     if (!!prev !== !!mm && STEPS[step] === 'Where') { updateNext(); paintRequired(); }
   };
   if (!zip || city.length < 2) return show('');
+  if (window.CADZones) {
+    const conflict = CADZones.routeConflict({ city, state: a.state || 'CA', zip });
+    if (conflict) return show(`<b>City and ZIP don’t match the same delivery area.</b> ${esc(conflict.message)}`, { zip, city, place: conflict.zipArea || conflict.zipZone, conflict: true, message: conflict.message });
+  }
   if (!(zip in zipCache)) { const j = await geoGet(`https://api.zippopotam.us/us/${zip}`); zipCache[zip] = j && j.places ? j.places.map((pl) => ({ name: pl['place name'], st: String(pl['state abbreviation'] || '').toLowerCase(), at: [+pl.latitude, +pl.longitude] })) : []; }
   const zp = zipCache[zip];
   if (!zp.length || !/^[a-z]{2}$/.test(zp[0].st)) return show('');

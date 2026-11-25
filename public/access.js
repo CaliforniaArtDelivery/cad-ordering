@@ -35,6 +35,22 @@
   const REVIEW_NOTE = 'We’ll confirm access with you before the job.';
   // Shown next to the price whenever access is flagged for review (mode, fit or elevator stairs = Not sure).
   const PRICE_NOTE = 'Access isn’t confirmed yet. If it needs an added fee, we’ll go over it with you and get your OK before charging it.';
+  const WEIGHT_NOTE = 'Price may be adjusted once the actual weight is confirmed; we’ll get your approval before charging any additional fees.';
+  const WEIGHT_HINT = 'Mirrors and works on panel are often heavier than they look.';
+  // Types whose online price includes a weight-based fee (wall-art over 50 lb, plus sculpture/other by weight).
+  const WEIGHT_FEE_TYPES = ['painting', 'photograph', 'mirror', 'wallart', 'sculpture', 'other'];
+  function pieceType(it) {
+    if (!it) return '';
+    if (it.type === 'decor' && it.furnitureKind === 'Mirror') return 'mirror';
+    return it.type || '';
+  }
+  function weightFeeType(it) { return WEIGHT_FEE_TYPES.includes(pieceType(it)); }
+  function weightUnconfirmed(items) { return (items || []).some((it) => it && it.weightUnsure && weightFeeType(it)); }
+  function needsWeightHint(it) {
+    if (pieceType(it) === 'mirror') return true;
+    const blob = [it && it.materialNotes, it && it.description, it && it.furnitureKind, it && it.name].filter(Boolean).join(' ');
+    return /\bpanel\b/i.test(blob);
+  }
   // The customer still pays the base amount now; these labels replace "Total" and "Due today · paid in full at booking".
   const TBC_TOTAL = 'Total (before access check)';
   const TBC_DUE = 'Due today (base price)';
@@ -202,5 +218,5 @@
   const TIME_PREFS = [['none', 'No preference'], ['morning', 'Morning'], ['late_morning', 'Late morning'], ['midday', 'Midday'], ['early_afternoon', 'Early afternoon'], ['afternoon', 'Afternoon'], ['late_afternoon', 'Late afternoon'], ['early_evening', 'Early evening'], ['evening', 'Evening'], ['late_evening', 'Late evening']];
   const timePrefList = (v) => String(v == null ? '' : v).split(',').map((x) => x.trim()).filter((x) => x && x !== 'none' && TIME_PREFS.some(([k]) => k === x));
   const timePrefText = (v) => timePrefList(v).map((k) => TIME_PREFS.find(([x]) => x === k)[1]).join(', ');
-  return { TIME_PREFS, timePrefList, timePrefText, FLIGHT_COUNTS, ELEV_TYPES, ELEV_FIT, PATH_TYPES, roughPath, ACK_TEXT, sitePhotosNeeded, MODES, FLIGHTS, DIRS, YNS, DOORWAYS, FITS, ELEV_STAIRS, ELEV_STEPS, MODE_KEYS, REVIEW_NOTE, PRICE_NOTE, TBC_TOTAL, TBC_DUE, wholeFlights, HEAVY_LB, LONG_IN, isBigPiece, firm, normalize, gaps, summary, stairPhotosNeeded, doorPhotosNeeded, usesStairs, fitUnsure, needsReview, plural };
+  return { TIME_PREFS, timePrefList, timePrefText, FLIGHT_COUNTS, ELEV_TYPES, ELEV_FIT, PATH_TYPES, roughPath, ACK_TEXT, sitePhotosNeeded, MODES, FLIGHTS, DIRS, YNS, DOORWAYS, FITS, ELEV_STAIRS, ELEV_STEPS, MODE_KEYS, REVIEW_NOTE, PRICE_NOTE, WEIGHT_NOTE, WEIGHT_HINT, WEIGHT_FEE_TYPES, pieceType, weightFeeType, weightUnconfirmed, needsWeightHint, TBC_TOTAL, TBC_DUE, wholeFlights, HEAVY_LB, LONG_IN, isBigPiece, firm, normalize, gaps, summary, stairPhotosNeeded, doorPhotosNeeded, usesStairs, fitUnsure, needsReview, plural };
 });
