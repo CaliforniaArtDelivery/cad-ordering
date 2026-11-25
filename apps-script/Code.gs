@@ -18,10 +18,10 @@
  *    PENDING block at the top.
  *  - Quote / review request (not paid): goes in the PENDING block at the top of the tab (rows above the first divider row), marked
  *    the way the team marks tentative jobs: Job Assignments "PENDINGJOB", Update Status "CONTACT THEM!!!", Payment Status
- *    "Pending Job", and Update Notes "ONLINE ORDER <id> · PENDING REVIEW ...". When it is approved and paid, those pending rows are
+ *    "Pending Job", and Update Notes "ONLINE ORDER <id> \u00B7 PENDING REVIEW ...". When it is approved and paid, those pending rows are
  *    removed and the confirmed rows go on their dates.
- *  - Test (mock-payment) orders: same places, with Update Notes starting "TEST ORDER (not a real job) · ".
- *  - The order id lives at the start of Update Notes (column J): "ONLINE ORDER <id> · ...". That is how retries, the checker and
+ *  - Test (mock-payment) orders: same places, with Update Notes starting "TEST ORDER (not a real job) \u00B7 ".
+ *  - The order id lives at the start of Update Notes (column J): "ONLINE ORDER <id> \u00B7 ...". That is how retries, the checker and
  *    the reconcile find an order's rows. Nothing is written anywhere else (small per-order check data sits in Script Properties).
  *
  * Actions: order (write + read-back verify), days (read-only digest per date), reconcile, alert, verifyAll() (time trigger).
@@ -50,10 +50,10 @@ var COL_DATE = 2, COL_ROUTE = 5, COL_TYPE = 6, COL_ASSIGN = 7, COL_STATUS = 9, C
 var JOB_RE = /^(PU|DEL|INST|DE-INST|MOVING|On-site Move|SHIPPING)/i;
 var OFF_RE = /(\boff day\b|\bday off\b|\bdays off\b|christmas day off|out of office|\bvacation\b|\bholiday\b|\bclosed\b|no schedule|don'?t book)/i;
 var NOISE_RE = /send second review/i;
-var TEST_TAG = 'TEST ORDER (not a real job) · ';
-var PEND_TAG = 'PENDING REVIEW: not paid or confirmed yet, CAD to review and contact client · ';
-// Accept · (U+00B7) and 路 (U+8DEF, which the Apps Script editor has sometimes stored in place of ·) plus common bullets.
-var TAG_RE = /^(TEST ORDER \(not a real job\) [·路•∙] )?ONLINE ORDER (\S+) [·路•∙]\s?(PENDING REVIEW)?/;
+var TEST_TAG = 'TEST ORDER (not a real job) \u00B7 ';
+var PEND_TAG = 'PENDING REVIEW: not paid or confirmed yet, CAD to review and contact client \u00B7 ';
+// Accept \u00B7 (U+00B7) and \u8DEF (U+8DEF, which the Apps Script editor has sometimes stored in place of \u00B7) plus common bullets.
+var TAG_RE = /^(TEST ORDER \(not a real job\) [\u00B7\u8DEF\u2022\u2219] )?ONLINE ORDER (\S+) [\u00B7\u8DEF\u2022\u2219]\s?(PENDING REVIEW)?/;
 var STATE_PREFIX = 'O:';
 
 function props_() { return PropertiesService.getScriptProperties(); }
@@ -100,14 +100,14 @@ function doPost(e) {
 function norm_(h) { return String(h == null ? '' : h).replace(/\s+/g, ' ').trim().toLowerCase(); }
 function blank_(v) { return v === '' || v == null; }
 function isBool_(v) { return v === true || v === false; }
-function normDots_(s) { return String(s == null ? '' : s).replace(/[路•∙]/g, '·'); }
+function normDots_(s) { return String(s == null ? '' : s).replace(/[\u8DEF\u2022\u2219]/g, '\u00B7'); }
 function tagOf_(notes) {
   var m = normDots_(notes).match(TAG_RE);
   return m ? { id: m[2], test: !!m[1], pending: !!m[3] } : null;
 }
-// Site rows start Update Notes with "submitted ..."; the bridge prepends "ONLINE ORDER <id> ·" plus TEST / PENDING marks.
+// Site rows start Update Notes with "submitted ..."; the bridge prepends "ONLINE ORDER <id> \u00B7" plus TEST / PENDING marks.
 function tagNotes_(notes, id, test, pending) {
-  var s = normDots_(notes), head = 'ONLINE ORDER ' + id + ' ·';
+  var s = normDots_(notes), head = 'ONLINE ORDER ' + id + ' \u00B7';
   var rest = s.indexOf(head) === 0 ? s.substr(head.length).replace(/^\s+/, '') : s;
   return (test ? TEST_TAG : '') + head + ' ' + (pending ? PEND_TAG : '') + rest;
 }
