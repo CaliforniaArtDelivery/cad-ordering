@@ -439,14 +439,14 @@ module.exports = {
     // even though the rest of that Monday is a through LA run.
     dayCatalog: {
       NorCal: {
-        0: { zones: ['Central', 'SB'], label: 'Central Coast → Santa Barbara (or on to LA)', shortLabel: 'Central Coast → SB', routeType: 'through' },
-        1: { zones: ['LA', 'SB'], label: 'LA, heading northwest (SB late or Fresno very late)', shortLabel: 'LA · heading NW', routeType: 'through',
+        0: { zones: ['Central', 'SB'], conditionalZones: ['LA'], label: 'Central California: SLO/Pismo Beach → Santa Barbara OR Fresno → Santa Barbara', shortLabel: 'Central Coast & Santa Barbara', routeType: 'through' },
+        1: { zones: ['LA'], conditionalZones: ['SB', 'Central'], label: 'LA, heading northwest (SB late or Fresno very late)', shortLabel: 'Los Angeles', routeType: 'through',
             simpleStops: [{ zone: 'OC', maxStandardItems: 2, label: 'OC simple stop (1–2 standard items) leaving the Irvine hub, then LA heading northwest', shortLabel: 'OC · simple stop', routeType: 'downAndBack' }] },
-        2: { zones: ['Carmel'], label: 'Carmel, Salinas and Monterey Bay (night in San Jose)', shortLabel: 'Carmel / Monterey', routeType: 'through' },
-        3: { zones: ['BayWest'], label: 'Silicon Valley, SF, Marin, Healdsburg, Cupertino', shortLabel: 'SV / SF / Marin', routeType: 'downAndBack' },
-        4: { zones: ['EastBay', 'Sacramento', 'Tahoe'], label: 'Sacramento & surroundings; East Bay if quick', shortLabel: 'Sacramento / East Bay', routeType: 'downAndBack' },
-        5: { zones: ['EastBay', 'NapaWine', 'BayWest'], label: 'East Bay, Napa; SF & Silicon Valley if quick', shortLabel: 'East Bay / Napa', routeType: 'downAndBack' },
-        6: { zones: ['Carmel'], label: 'Carmel / Salinas (then toward SLO or Fresno)', shortLabel: 'Carmel / Salinas', routeType: 'through' },
+        2: { zones: ['Carmel'], label: 'Carmel, Salinas and Monterey Bay (night in San Jose)', shortLabel: 'Monterey Bay & Salinas', routeType: 'through' },
+        3: { zones: ['BayWest'], label: 'Silicon Valley → SF → Marin → Healdsburg → San Jose', shortLabel: 'Peninsula, SF & Marin', routeType: 'downAndBack' },
+        4: { zones: ['Sacramento', 'Tahoe'], conditionalZones: ['EastBay'], label: 'Sacramento & surrounding areas (priority) — East Bay only if quick / en route', shortLabel: 'Sacramento', routeType: 'downAndBack' },
+        5: { zones: ['EastBay', 'NapaWine', 'BayWest'], conditionalZones: ['BayWest'], label: 'San Jose → East Bay → Napa → SF/Silicon Valley (late & if quick) → San Jose', shortLabel: 'East Bay & Napa', routeType: 'downAndBack' },
+        6: { zones: ['Carmel'], conditionalZones: ['Central'], label: 'Carmel / Salinas (then toward SLO or Fresno)', shortLabel: 'Monterey Bay & Salinas', routeType: 'through' },
       },
       SoCal: {
         0: { zones: [], label: 'No regular stops (OC overflow only)', overflow: true },
