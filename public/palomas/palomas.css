@@ -218,8 +218,32 @@ html{scroll-padding-bottom:96px;scroll-padding-top:12px}
 .skip:focus{left:0}
 
 /* Small steps: one short screen at a time */
-.pbar{position:sticky;top:0;z-index:25;height:4px;background:var(--line)}
-.pbar i{display:block;height:100%;width:0;background:var(--navy);border-radius:0 4px 4px 0;transition:width .45s var(--ease)}
+/* Laser progress beam: same language as the CAD order form, full-bleed sticky track. */
+.pbar{position:sticky;top:0;z-index:25;height:12px;background:transparent;display:flex;align-items:center;overflow:visible}
+.pbar::before{content:"";position:absolute;left:0;right:0;top:50%;height:4px;transform:translateY(-50%);background:var(--line);pointer-events:none}
+.pbar i{display:block;position:relative;z-index:1;height:4px;width:0;border-radius:0 4px 4px 0;container-type:inline-size;container-name:beam;overflow:visible;transition:width .45s var(--ease);
+  background:linear-gradient(90deg,#16325f 0%,#3264AE 58%,#7eafeb 90%,#e8f2ff 100%);
+  box-shadow:0 0 6px 1px rgba(50,100,174,.35),0 0 12px 3px rgba(50,100,174,.2);
+  animation:cadBeamGlow 5.6s ease-in-out infinite}
+.pbar .beam-pulse{position:absolute;top:50%;left:0;width:min(48px,55cqi);height:8px;border-radius:999px;pointer-events:none;
+  background:linear-gradient(90deg,transparent 0%,rgba(255,255,255,.18) 28%,rgba(255,255,255,.95) 50%,rgba(180,214,255,.7) 62%,transparent 100%);
+  transform:translate(-120%,-50%);animation:cadBeamPulse 5.6s ease-in-out infinite;will-change:transform,opacity}
+.pbar .beam-tip{position:absolute;right:0;top:50%;width:7px;height:7px;border-radius:50%;transform:translate(40%,-50%);pointer-events:none;background:#fff;
+  box-shadow:0 0 4px 1px #fff,0 0 8px 3px rgba(215,232,255,.95),0 0 14px 5px rgba(50,100,174,.7)}
+@keyframes cadBeamGlow{
+  0%,100%{box-shadow:0 0 6px 1px rgba(50,100,174,.35),0 0 12px 3px rgba(50,100,174,.2)}
+  50%{box-shadow:0 0 10px 2px rgba(50,100,174,.6),0 0 22px 6px rgba(50,100,174,.5),0 0 32px 10px rgba(50,100,174,.2)}
+}
+@keyframes cadBeamPulse{
+  0%,16%{transform:translate(-120%,-50%);opacity:0}
+  22%{opacity:1}
+  62%{transform:translate(100cqi,-50%);opacity:1}
+  70%,100%{transform:translate(calc(100cqi + 12px),-50%);opacity:0}
+}
+@media (prefers-reduced-motion:reduce){
+  .pbar i{animation:none;transition:none;box-shadow:0 0 8px 2px rgba(50,100,174,.42),0 0 16px 5px rgba(50,100,174,.24)}
+  .pbar .beam-pulse{animation:none;opacity:0;transform:translate(-120%,-50%)}
+}
 .layout{padding-bottom:120px}
 .layout.single{grid-template-columns:minmax(0,720px);justify-content:center}
 .form .card.step{animation:stepin .3s var(--ease)}

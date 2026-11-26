@@ -24,9 +24,32 @@ button{-webkit-tap-highlight-color:transparent;touch-action:manipulation}
 .mark{flex:none;background:var(--navy);color:#fff;font-weight:700;letter-spacing:.08em;font-size:12px;padding:7px 9px;border-radius:9px}
 .brand-name{font-weight:600;font-size:15px;letter-spacing:-.01em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .steps-label{flex:none;font-size:13px;color:var(--muted);white-space:nowrap}
-.progress{display:block;height:4px;border-radius:999px;background:var(--line);overflow:hidden;margin-top:16px}
-.progress i{display:block;height:100%;width:0;border-radius:999px;background:var(--navy);transition:width .45s var(--ease)}
-@media (prefers-reduced-motion:reduce){.progress i{transition:none}}
+/* Laser progress beam: a single unlabeled line with a soft brand glow and an intermittent pulsar. */
+.progress{display:flex;align-items:center;height:12px;margin-top:10px;position:relative;background:transparent;overflow:visible}
+.progress::before{content:"";position:absolute;left:0;right:0;top:50%;height:4px;transform:translateY(-50%);border-radius:999px;background:var(--line);pointer-events:none}
+.progress i{display:block;position:relative;z-index:1;height:4px;width:0;border-radius:999px;container-type:inline-size;container-name:beam;overflow:visible;transition:width .45s var(--ease);
+  background:linear-gradient(90deg,#16325f 0%,#3264AE 58%,#7eafeb 90%,#e8f2ff 100%);
+  box-shadow:0 0 6px 1px rgba(50,100,174,.35),0 0 12px 3px rgba(50,100,174,.2);
+  animation:cadBeamGlow 5.6s ease-in-out infinite}
+.progress .beam-pulse{position:absolute;top:50%;left:0;width:min(48px,55cqi);height:8px;border-radius:999px;pointer-events:none;
+  background:linear-gradient(90deg,transparent 0%,rgba(255,255,255,.18) 28%,rgba(255,255,255,.95) 50%,rgba(180,214,255,.7) 62%,transparent 100%);
+  transform:translate(-120%,-50%);animation:cadBeamPulse 5.6s ease-in-out infinite;will-change:transform,opacity}
+.progress .beam-tip{position:absolute;right:0;top:50%;width:7px;height:7px;border-radius:50%;transform:translate(40%,-50%);pointer-events:none;background:#fff;
+  box-shadow:0 0 4px 1px #fff,0 0 8px 3px rgba(215,232,255,.95),0 0 14px 5px rgba(50,100,174,.7)}
+@keyframes cadBeamGlow{
+  0%,100%{box-shadow:0 0 6px 1px rgba(50,100,174,.35),0 0 12px 3px rgba(50,100,174,.2)}
+  50%{box-shadow:0 0 10px 2px rgba(50,100,174,.6),0 0 22px 6px rgba(50,100,174,.5),0 0 32px 10px rgba(50,100,174,.2)}
+}
+@keyframes cadBeamPulse{
+  0%,16%{transform:translate(-120%,-50%);opacity:0}
+  22%{opacity:1}
+  62%{transform:translate(100cqi,-50%);opacity:1}
+  70%,100%{transform:translate(calc(100cqi + 12px),-50%);opacity:0}
+}
+@media (prefers-reduced-motion:reduce){
+  .progress i{animation:none;transition:none;box-shadow:0 0 8px 2px rgba(50,100,174,.42),0 0 16px 5px rgba(50,100,174,.24)}
+  .progress .beam-pulse{animation:none;opacity:0;transform:translate(-120%,-50%)}
+}
 
 .app{max-width:720px;margin:0 auto;padding:26px calc(var(--sar) + 20px) calc(var(--dock-h) + var(--kb-h, 0px) + 28px) calc(var(--sal) + 20px)}
 .app.no-dock{padding-bottom:calc(var(--sab) + 32px)}
