@@ -36,7 +36,7 @@ const ok = (c, m, extra) => { res.push([!!c, m]); console.log(c ? '  PASS:' : ' 
   const shot = async (n) => { await page.evaluate(() => { window.scrollTo(0, 0); document.querySelectorAll('.upload-toast').forEach((t) => { t.hidden = true; }); }); await page.waitForTimeout(250); await page.screenshot({ path: path.join(SHOTS, n + '.png') }); };
   const piece = async (i, desc, value) => { await fill(`items.${i}.description`, desc); await next(); if ((await panel()) === `p${i}b`) { await fill(`items.${i}.w`, 72); await fill(`items.${i}.h`, 60); await fill(`items.${i}.d`, 2); if (await page.$(`[data-seg="items.${i}.framed"]`)) await page.click(`[data-seg="items.${i}.framed"] [data-v="no"]`); if (await page.$(`[data-seg="items.${i}.glazing"]`)) await page.click(`[data-seg="items.${i}.glazing"] [data-v="no"]`); await next(); } await fill(`items.${i}.value`, value); await next(); };
   try {
-    await page.goto(BASE); await page.evaluate(() => sessionStorage.clear()); await page.goto(BASE);
+    await page.goto(BASE); await page.evaluate(() => (sessionStorage.clear(), localStorage.clear())); await page.goto(BASE);
     await page.waitForSelector('[data-service]'); await page.click('[data-service="pickup_delivery"]'); await next();
     await piece(0, 'ZZ TEST post-deploy A', 12000);
     ok((await panel()) === 'pieces-more', 'piece 1 added, list screen shown');

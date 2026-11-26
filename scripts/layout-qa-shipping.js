@@ -16,7 +16,7 @@ const engine = pw[process.env.E2E_BROWSER || 'chromium'];
       if (r.h1 < r.top) problems.push(`${w}px ${label}: heading under header`);
     };
     const next = async () => { await page.click('#nextBtn:not([disabled])'); await page.waitForTimeout(500); };
-    await page.goto(BASE); await page.evaluate(() => sessionStorage.clear()); await page.goto(BASE); await page.waitForSelector('[data-service]');
+    await page.goto(BASE); await page.evaluate(() => (sessionStorage.clear(), localStorage.clear())); await page.goto(BASE); await page.waitForSelector('[data-service]');
     await page.click('[data-service="crating_shipping"]'); await page.waitForTimeout(300);
     await fill('items.0.description', 'Oil on linen'); await fill('items.0.w', 60); await fill('items.0.h', 48); await fill('items.0.weight', 35); await fill('items.0.value', 20000); await page.click('[data-seg="items.0.framed"] [data-v="no"]'); await page.waitForTimeout(150);
     await page.evaluate(() => scrollTo(0, 0)); await check('what');

@@ -14,7 +14,7 @@ const base = (service, items, x = {}) => ({ service, items, contact: { name: 'Jo
     const page = await ctx.newPage();
     const open = async (state, stepN, sub) => {
       await page.goto(BASE + '/cad-logo.jpg'); // same origin, no app script (so nothing re-saves the old step on unload)
-      await page.evaluate(([s, st, sb]) => { sessionStorage.clear(); sessionStorage.setItem('cad-order', JSON.stringify(s)); sessionStorage.setItem('cad-step', String(st)); sessionStorage.setItem('cad-sub', sb); }, [state, stepN, sub]);
+      await page.evaluate(([s, st, sb]) => { (sessionStorage.clear(), localStorage.clear()); sessionStorage.setItem('cad-order', JSON.stringify(s)); sessionStorage.setItem('cad-step', String(st)); sessionStorage.setItem('cad-sub', sb); }, [state, stepN, sub]);
       await page.goto(BASE + '/?shot=' + Date.now());
       await page.waitForTimeout(1800);
     };

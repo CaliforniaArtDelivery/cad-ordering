@@ -436,3 +436,9 @@ details.access-extras .extras-body{padding:0 18px 18px}
 .est-label{overflow:hidden;text-overflow:ellipsis;letter-spacing:.08em}
 .dock-actions{flex:0 0 auto;align-items:center}
 @media(max-width:380px){.btn.back{font-size:15px;padding:14px 6px;min-width:44px}.dock-row{gap:8px}}
+/* Route-aware time windows: a grayed window is not color alone (it is struck through and its reason is written below). */
+.chip.off{background:#f1f1f1;color:#8a8a8a;border-style:dashed;text-decoration:line-through;cursor:not-allowed}
+.tw-why{margin:6px 0 0;color:#555}
+.tw-why span{display:block}
+.zelle-box{background:#f4f3ef;border-radius:12px;padding:12px 14px;margin:0 0 12px}
+.zelle-box p{margin:0 0 6px}

@@ -205,7 +205,7 @@ async function sectionLabelsAndUi() {
   };
   async function openWhat(page, service = 'pickup_delivery') {
     await page.goto(BASE);
-    await page.evaluate(() => sessionStorage.clear());
+    await page.evaluate(() => (sessionStorage.clear(), localStorage.clear()));
     await page.goto(BASE);
     await page.waitForSelector('[data-service]');
     await page.click(`[data-service="${service}"]`);
@@ -249,7 +249,7 @@ async function sectionLabelsAndUi() {
     ok(before === 'note A original', 'navigating back keeps piece 1 notes', before);
     await page.fill('[data-path="items.0.materialNotes"]', 'note A edited');
     await nextFree(page);
-    const st = await page.evaluate(() => JSON.parse(sessionStorage.getItem('cad-order')));
+    const st = await page.evaluate(() => JSON.parse(localStorage.getItem('cad-order')));
     ok(st.items[0].materialNotes === 'note A edited' && st.items[1].materialNotes === 'note B stays', 'after editing piece 1, each note stays on its own piece', st.items.map((i) => i.materialNotes));
     await ctx.close();
   }

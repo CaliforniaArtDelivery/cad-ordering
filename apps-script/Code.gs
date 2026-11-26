@@ -27,7 +27,8 @@
  *  - The order id lives at the start of Update Notes (column J): "ONLINE ORDER <id> \u00B7 ...". That is how retries, the checker and
  *    the reconcile find an order's rows. Nothing is written anywhere else (small per-order check data sits in Script Properties).
  *
- * Actions: order (write + read-back verify), days (read-only digest per date), reconcile, alert, verifyAll() (time trigger).
+ * Actions: order (write + read-back verify; event "payment" rewrites only the payment columns), days (read-only digest per date,
+ * v5 adds each date's stops for route-aware time windows), reconcile, alert, verifyAll() (time trigger).
  */
 var TAB_MAIN_DEFAULT = 'SCHEDULE 2026', TAB_TEST_DEFAULT = 'TEST SCHEDULE 2026', TAB_CAL = 'ROUTE CALENDAR';
 function tabName_() {
@@ -307,6 +308,23 @@ function handleOrder_(b) {
     }
     if (isConfirmed && !n) throw new Error('confirmed order without rows');
     var snap = snapshot_(sh), present = findOrderRows_(snap, id);
+    // v5 "payment" event: a payment changed after booking (Zelle verified by CAD, ACH cleared or failed). Rewrites ONLY the payment
+    // columns AD..AI (Who's paying?, Amount Due, Payment Status, Amount Paid, Pymnt method, Payment Notes) of the order's existing
+    // confirmed rows. Never adds or deletes rows; Payment Status is coerced to the strict dropdown list.
+    if (b.event === 'payment') {
+      var prow = present.filter(function (p) { return !p.pending; });
+      if (prow.length !== n) throw new Error('payment update: order has ' + prow.length + ' confirmed rows on the sheet, site sent ' + n + '. Nothing written.');
+      for (var pk = 0; pk < n; pk++) {
+        var pc = rows[pk].slice(29, NCOLS); // AD..AI
+        pc[2] = coercePayStatus_(pc[2]);
+        var pr = sh.getRange(prow[pk].row, 30, 1, NCOLS - 29);
+        pr.setNumberFormat('@');
+        pr.setValues([pc.map(function (v) { return (typeof v === 'number' || typeof v === 'boolean') ? '' : (v == null ? '' : String(v)); })]);
+        for (var nq = 0; nq < NUM_COLS.length; nq++) { var ncol = NUM_COLS[nq], nval = rows[pk][ncol - 1]; if (typeof nval === 'number') sh.getRange(prow[pk].row, ncol).setNumberFormat('$#,##0.00').setValue(nval); }
+      }
+      SpreadsheetApp.flush();
+      return { ok: true, paymentUpdated: n, tab: tabName_(), rows: prow.map(function (p) { return p.row; }), test: test };
+    }
     if (isConfirmed) {
       var conf = present.filter(function (p) { return !p.pending; });
       if (st && st.e === 'confirmed') return { ok: true, duplicate: true, rowCount: st.n, tab: tabName_(), firstRow: conf.length ? conf[0].row : 0, test: test };
@@ -408,14 +426,20 @@ function migrateLegacy_(ss) {
 // TEST rows and PENDING REVIEW rows (the site holds those dates itself), and never add route text or off-day marks.
 function handleDays_() {
   var ss = daysSs_(), tz = ss.getSpreadsheetTimeZone(), days = {};
-  function rec(iso) { return days[iso] || (days[iso] = { routes: [], jobRows: 0, off: false, offWhy: '' }); }
+  // v5 (route-aware time windows): every date also gets `stops` = its job rows in sheet order, each { town: TOWN REF (H),
+  // type: JOB TYPE (F), win: Arrival Time Window (K), at: Arrival Time (L) }, for dates from yesterday on. Read-only, as before.
+  function rec(iso) { return days[iso] || (days[iso] = { routes: [], jobRows: 0, off: false, offWhy: '', stops: [] }); }
   var main = daysSh_(), last = main.getLastRow();
+  var fromIso = Utilities.formatDate(new Date(Date.now() - 864e5), tz, 'yyyy-MM-dd');
+  function cellText(x) { return x instanceof Date ? Utilities.formatDate(x, tz, 'h:mm a') : String(x == null ? '' : x).trim(); }
   if (last >= 3) {
-    var v = main.getRange(3, 1, last - 2, COL_NOTES).getValues(); // A..J
+    var v = main.getRange(3, 1, last - 2, 12).getValues(); // A..L
     for (var i = 0; i < v.length; i++) {
       var iso = parseDate_(v[i][1], tz); if (!iso) continue;
       var d = rec(iso), e = String(v[i][4] || '').trim(), f = String(v[i][5] || '').trim(), st = String(v[i][8] || ''), tg = tagOf_(v[i][9]);
-      if (tg) { if (!tg.test && !tg.pending && JOB_RE.test(f)) { d.jobRows++; d.onlineRows = (d.onlineRows || 0) + 1; } continue; }
+      var stop = (iso >= fromIso && JOB_RE.test(f) && !/^PENDING JOB/i.test(f)) ? { town: String(v[i][7] || '').trim().slice(0, 60), type: f.slice(0, 30), win: cellText(v[i][10]).slice(0, 40), at: cellText(v[i][11]).slice(0, 20) } : null;
+      if (tg) { if (!tg.test && !tg.pending && JOB_RE.test(f)) { d.jobRows++; d.onlineRows = (d.onlineRows || 0) + 1; if (stop) d.stops.push(stop); } continue; }
+      if (stop && String(v[i][6] || '').trim().toUpperCase() !== 'PENDINGJOB') d.stops.push(stop);
       if (e && !NOISE_RE.test(e) && d.routes.indexOf(e) < 0) d.routes.push(e);
       if (JOB_RE.test(f)) d.jobRows++;
       if ((e && !NOISE_RE.test(e) && OFF_RE.test(e)) || /don'?t book/i.test(st)) { d.off = true; d.offWhy = e || st; }
@@ -434,7 +458,7 @@ function handleDays_() {
       cd.crew = String(cv[q][5] || ''); cd.vehicle = String(cv[q][6] || ''); cd.calNote = String(cv[q][7] || '');
     }
   }
-  return { ok: true, days: days, sheetVersion: main.getLastRow(), generatedAt: new Date().toISOString() };
+  return { ok: true, days: days, digest: 5, sheetVersion: main.getLastRow(), generatedAt: new Date().toISOString() };
 }
 
 // ---------- ROUTE CALENDAR: one-tab rule, the bridge never creates it. If the team ever adds that tab, missing dates are seeded. ----------

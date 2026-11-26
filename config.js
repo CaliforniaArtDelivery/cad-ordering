@@ -288,6 +288,12 @@ module.exports = {
     // Confirm the job as soon as payment is submitted, including ACH.
     // Do not wait for the bank transfer to clear (ACH can take a few days).
     confirmOnSubmit: true,
+    // Pay by Zelle (Chad, Nov 25 2026): the order books at once with Payment Status "Payment Requested" and the slot is held 24 h.
+    // CAD verifies the transfer by hand; the site NEVER marks a Zelle order paid on its own. Unverified after 24 h => team alert +
+    // flagged list (admin), never an automatic row deletion. No public check / cash option, no card surcharge.
+    zelle: { enabled: true, payee: 'California Art Delivery, LLC', email: 'contact@californiaartdelivery.com', holdHours: Number(process.env.ZELLE_HOLD_HOURS) > 0 ? Number(process.env.ZELLE_HOLD_HOURS) : 24 },
+    // "Pay by bank" is shown first and recommended from this order total up (lower fees for CAD, no card surcharge for anyone).
+    bankProminentFrom: 1000,
   },
 
   // ---------- ROUTES / SCHEDULING ----------

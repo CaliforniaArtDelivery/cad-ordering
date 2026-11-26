@@ -58,7 +58,38 @@ const fresh = () => ({
   shipping: { serviceLevel: '', shipBy: '', arriveBy: '', flexible: false, customs: { name: '', phone: '', email: '' } },
   quoteOnly: false,
 });
-const S = Object.assign(fresh(), JSON.parse(sessionStorage.getItem('cad-order') || 'null') || {});
+// Saved progress (Chad, Nov 25 2026): the draft lives in this browser's localStorage, so a long multi-piece order survives closing
+// the tab. It comes back quietly on return, expires after DRAFT_DAYS, is cleared after a successful booking, and never holds card
+// or bank details (those fields are read straight from the payment screen and are never part of the draft).
+const DRAFT_DAYS = 14;
+const DRAFT_KEYS = ['cad-order', 'cad-step', 'cad-sub'];
+const NEVER_SAVE = ['card', 'cardNumber', 'cvc', 'cvv', 'exp', 'expiry', 'routing', 'account', 'accountNumber'];
+const draftStore = (() => {
+  let ls = null;
+  try { ls = window.localStorage; const k = '__cad_t'; ls.setItem(k, '1'); ls.removeItem(k); } catch (_) { ls = null; }
+  const mem = {};
+  const raw = { get: (k) => { try { return ls ? ls.getItem(k) : (mem[k] ?? null); } catch (_) { return mem[k] ?? null; } },
+    set: (k, v) => { try { if (ls) ls.setItem(k, v); else mem[k] = v; } catch (_) { mem[k] = v; } },
+    del: (k) => { try { if (ls) ls.removeItem(k); } catch (_) { /* ignore */ } delete mem[k]; } };
+  // Move a draft from the old per-tab storage (a tab opened before this change holds the newest work, so it wins).
+  try { DRAFT_KEYS.forEach((k) => { const v = sessionStorage.getItem(k); if (v != null) { raw.set(k, v); if (k === 'cad-order') raw.set('cad-saved-at', String(Date.now())); sessionStorage.removeItem(k); } }); } catch (_) { /* ignore */ }
+  const at = Number(raw.get('cad-saved-at') || 0);
+  if (raw.get('cad-order') != null && at && Date.now() - at > DRAFT_DAYS * 864e5) { DRAFT_KEYS.forEach(raw.del); raw.del('cad-saved-at'); }
+  return {
+    getItem: raw.get,
+    setItem: (k, v) => {
+      if (k === 'cad-order') {
+        try { const o = JSON.parse(v); NEVER_SAVE.forEach((f) => { delete o[f]; }); v = JSON.stringify(o); } catch (_) { /* keep as is */ }
+        raw.set('cad-saved-at', String(Date.now()));
+      }
+      raw.set(k, v);
+    },
+    removeItem: (k) => { raw.del(k); if (k === 'cad-order') raw.del('cad-saved-at'); },
+    clear: () => { DRAFT_KEYS.forEach(raw.del); raw.del('cad-saved-at'); },
+  };
+})();
+const S = Object.assign(fresh(), JSON.parse(draftStore.getItem('cad-order') || 'null') || {});
+NEVER_SAVE.forEach((f) => { delete S[f]; });
 // A draft saved before this change may carry a quantity: expand it into separate pieces (and repair missing / repeated ids), so a refresh never shows or books one piece as ten.
 const MAX_PIECES = 60;
 const normalizePieces = (list) => {
@@ -77,7 +108,7 @@ const normalizePieces = (list) => {
 };
 S.items = normalizePieces(S.items);
 // Save the expanded pieces (with their new ids) right away, so a second refresh shows exactly the same pieces.
-if (sessionStorage.getItem('cad-order')) { try { sessionStorage.setItem('cad-order', JSON.stringify(S)); } catch (_) { /* storage full or blocked: the in-memory copy still works */ } }
+if (draftStore.getItem('cad-order')) { try { draftStore.setItem('cad-order', JSON.stringify(S)); } catch (_) { /* storage full or blocked: the in-memory copy still works */ } }
 S.pickup = migrateAddr(S.pickup);
 S.dropoff = migrateAddr(S.dropoff);
 // Saved before the access rebuild: nothing was really chosen, so ask again rather than keep old defaults.
@@ -106,10 +137,19 @@ const FIRST_DAYS = 3; const moreDays = { pu: false, del: false };
 const dayWindow = (days, sel, key) => { const hide = !moreDays[key] && days.length > FIRST_DAYS && !days.slice(FIRST_DAYS).some((d) => d.date === sel); return { list: hide ? days.slice(0, FIRST_DAYS) : days, btn: hide ? `<button type="button" class="linkbtn show-more-dates" data-moredays="${key}">Show more dates (${days.length - FIRST_DAYS} more)</button>` : '' }; };
 let quoteData = null, avail = null, confirmed = null, delAvail = null;
 let payMethod = 'card';
+let payPicked = false; // the customer tapped a payment method (otherwise larger orders start on Pay by bank)
+const zelleOn = () => !!(CFG && CFG.payment && CFG.payment.zelle && CFG.payment.zelle.enabled);
+const bankFirst = (q) => !!(q && CFG && CFG.payment && Number(q.dueNow || q.total) >= Number(CFG.payment.bankProminentFrom || Infinity));
+// Same words as the confirmation email (lib/email.js zelleLines).
+const zelleHtml = (amt, id, dueBy) => { const Z = CFG.payment.zelle; const due = dueBy ? new Date(dueBy).toLocaleString('en-US', { timeZone: 'America/Los_Angeles', weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) + ' PT' : ''; return `<div class="zelle-box" data-zelle>
+  <p><b>Pay by Zelle${amt != null ? ': ' + fmt(amt) : ''}</b> to <b>${esc(Z.payee)}</b> at <b>${esc(Z.email)}</b>.</p>
+  <p>Put your order number${id ? ` <b>${esc(id)}</b>` : ''} in the Zelle memo.</p>
+  <p>Payment is due within 24 hours${due ? ` (by ${esc(due)})` : ''}. Split transfers are OK as long as the full amount arrives on time.</p>
+  <p class="mini">Your time slot is held for 24 hours. If payment isn’t received by then, the slot may be released.</p></div>`; };
 let saveMethod = false;
 let busy = false;
 
-const persist = () => { if (STEPS[step] === 'Done') return; sessionStorage.setItem('cad-order', JSON.stringify(S)); sessionStorage.setItem('cad-step', String(step)); };
+const persist = () => { if (STEPS[step] === 'Done') return; draftStore.setItem('cad-order', JSON.stringify(S)); draftStore.setItem('cad-step', String(step)); };
 // What actually gets priced / booked: drop fields that don't apply to the chosen service.
 const payload = () => {
   applySameAsMe('pickup'); applySameAsMe('dropoff'); // default on-site contact = the booker
@@ -685,14 +725,28 @@ async function applyDiscount() {
 // ---------- payment block (shared by new orders and payment links) ----------
 const paymentBlock = (q) => {
   const saveToggle = CFG.payment.savePaymentMethod ? toggleRaw('saveMethod', saveMethod, 'Save this payment method', 'We keep it on file with CAD for future bookings.') : '';
+  // Larger orders open on Pay by bank (no card surcharge on any method; bank is simply recommended for big totals).
+  if (!payPicked && bankFirst(q) && payMethod === 'card') payMethod = CFG.stripe ? 'stripe' : 'ach';
+  if (CFG.stripe && zelleOn()) {
+    const on = payMethod === 'zelle' ? 'zelle' : 'stripe';
+    const big = bankFirst(q);
+    return `<div class="card"><span class="badge">${CFG.stripeTestMode && !CFG.livemode ? 'Stripe test mode' : 'Secure payment'}</span>
+      <div class="field"><div class="seg" data-pay-method>
+        <button type="button" class="${on === 'stripe' ? 'on' : ''}" data-v="stripe">${big ? 'Pay by bank or card' : 'Card or bank'}</button>
+        <button type="button" class="${on === 'zelle' ? 'on' : ''}" data-v="zelle">Zelle</button></div></div>
+      ${on === 'zelle' ? zelleHtml(q && q.dueNow, null, null) : `<p class="mini" style="margin:0 0 12px">${big ? '<b>Pay by bank (ACH) is recommended for larger orders.</b> ' : ''}You’ll pay on Stripe’s secure page: ${big ? 'bank (ACH), Apple Pay, Google Pay or card' : 'Apple Pay, Google Pay, card or bank (ACH)'}. A bank payment shows as processing until it clears.</p>${saveToggle}`}<div class="err" id="err"></div></div>`;
+  }
   if (CFG.stripe) {
     // "Stripe test mode" only when the server really runs a Stripe test key; otherwise a neutral label (QA re-check N1).
     return `<div class="card"><span class="badge">${CFG.stripeTestMode && !CFG.livemode ? 'Stripe test mode' : 'Secure payment by Stripe'}</span>
       <p class="mini" style="margin:0 0 12px">You’ll pay on Stripe’s secure page: Apple Pay, Google Pay, card or bank (ACH).</p>${saveToggle}<div class="err" id="err"></div></div>`;
   }
   // Mock checkout (prefilled test numbers, mock Apple / Google Pay) only when the server runs with TEST_MODE=1.
+  if (!CFG.testMode && zelleOn()) { payMethod = 'zelle'; return `<div class="card">${zelleHtml(q && q.dueNow, null, null)}<div class="err" id="err"></div></div>`; }
   if (!CFG.testMode) return `<div class="card"><p class="mini" style="margin:0">Online payment isn’t switched on yet. Please contact CAD to complete your booking.</p><div class="err" id="err"></div></div>`;
-  const fields = payMethod === 'ach'
+  if (payMethod === 'stripe') payMethod = 'ach';
+  const big = bankFirst(q);
+  const fields = payMethod === 'zelle' ? zelleHtml(q && q.dueNow, null, null) : payMethod === 'ach'
     ? `<div class="row"><div class="field"><label class="f" for="routing">Routing number</label><input type="text" id="routing" value="110000000" inputmode="numeric" autocomplete="off"></div><div class="field"><label class="f" for="account">Account number</label><input type="text" id="account" value="000123456789" inputmode="numeric" autocomplete="off"></div></div>
        <p class="mini" style="margin:0 0 12px">Your job is confirmed the moment you submit. The bank transfer shows as “ACH processing” until it clears, usually a few business days.</p>`
     : `<div class="field"><label class="f" for="card">Card number</label><input type="text" id="card" class="cardnum" value="4242 4242 4242 4242" inputmode="numeric" autocomplete="cc-number"></div>
@@ -704,9 +758,11 @@ const paymentBlock = (q) => {
     </div>
     <div class="or">or pay with</div>
     <div class="field">${'<div class="seg" data-pay-method>'}
-      <button type="button" class="${payMethod === 'card' ? 'on' : ''}" data-v="card">Card</button>
-      <button type="button" class="${payMethod === 'ach' ? 'on' : ''}" data-v="ach">Bank (ACH)</button></div></div>
-    ${fields}${saveToggle}<div class="err" id="err"></div></div>`;
+      ${big ? `<button type="button" class="${payMethod === 'ach' ? 'on' : ''}" data-v="ach">Pay by bank</button><button type="button" class="${payMethod === 'card' ? 'on' : ''}" data-v="card">Card</button>`
+        : `<button type="button" class="${payMethod === 'card' ? 'on' : ''}" data-v="card">Card</button><button type="button" class="${payMethod === 'ach' ? 'on' : ''}" data-v="ach">Bank (ACH)</button>`}
+      ${zelleOn() ? `<button type="button" class="${payMethod === 'zelle' ? 'on' : ''}" data-v="zelle">Zelle</button>` : ''}</div></div>
+    ${big && payMethod === 'ach' ? '<p class="mini" style="margin:0 0 8px"><b>Recommended for larger orders.</b></p>' : ''}
+    ${fields}${payMethod === 'zelle' ? '' : saveToggle}<div class="err" id="err"></div></div>`;
 };
 const toggleRaw = (id, on, label, hint) => `<label class="toggle"><span>${label}<small>${hint}</small></span><span class="sw"><input type="checkbox" id="${id}" ${on ? 'checked' : ''}><i></i></span></label>`;
 
@@ -725,11 +781,47 @@ const tripLine = () => (needsTwoDates() && String(S.pickup.city || '').trim() &&
 const needsTwoDates = () => !!(svc().needsPickup && svc().needsDropoff && !isShip());
 const routeHint = () => '';
 const timeReassure = ""; // the Dedicated trip toggle right below says it (Nov 23 2026)
+// Route-aware windows (Chad, Nov 25 2026): the server says which arrival windows fit that day's route; the others are grayed with a
+// short reason in words (not color alone). With no route data every window stays open.
+let tw = null, twKey = '', twSeq = 0;
+const twFor = (prefPath) => { const leg = prefPath === 'schedule.deliveryTimePref' ? 'delivery' : 'pickup'; const r = tw && tw[leg]; const date = leg === 'delivery' ? S.schedule.deliveryDate : S.schedule.date; return r && r.date === date ? r : null; };
+const twOff = (prefPath, v) => { const r = twFor(prefPath); const w = r && (r.windows || []).find((x) => x.v === v); return w && !w.ok ? (w.why || 'Doesn’t fit our route that day') : ''; };
+function windowsKey() {
+  if (STEPS[step] !== 'When' || !S.schedule.date && !S.schedule.deliveryDate) return '';
+  const a = (x) => [x && x.zip, x && x.city].join('|');
+  return JSON.stringify([S.service, S.rush, S.dedicated, S.schedule.date, S.schedule.deliveryDate, S.schedule.timePref, S.schedule.deliveryTimePref, a(S.pickup), a(S.dropoff)]);
+}
+async function loadWindows() {
+  const key = windowsKey();
+  if (!key || key === twKey) return;
+  twKey = key; const seq = ++twSeq;
+  const { ok, j } = await api('/api/time-windows', payload());
+  if (seq !== twSeq) return;
+  if (!ok || !j) { tw = null; return; } // no answer: every window stays open
+  tw = j;
+  // A chosen window that no longer fits is dropped (like a date that no longer works), so the order can't carry it.
+  let changed = false;
+  [['schedule.timePref', 'pickup'], ['schedule.deliveryTimePref', 'delivery']].forEach(([path]) => {
+    const on = CADAccess.timePrefList(get(path)); const keep = on.filter((v) => !twOff(path, v));
+    if (keep.length !== on.length) { set(path, keep.length ? keep.join(',') : 'none'); changed = true; }
+  });
+  if (changed) { twKey = ''; loadWindows(); }
+  if (STEPS[step] === 'When') renderWhenIdle();
+}
 const timePrefBlock = (prefPath, notePath, { showReassure = false, explain = true } = {}) => {
   const on = CADAccess.timePrefList(get(prefPath));
+  const offs = TIME_PREF_OPTS.filter(([v]) => v !== 'none' && twOff(prefPath, v));
+  const byWhy = {}; offs.forEach(([v, l]) => { const w = twOff(prefPath, v); (byWhy[w] = byWhy[w] || []).push(l); });
+  const whyHtml = offs.length ? `<p class="mini tw-why" data-twwhy="${prefPath}">${Object.entries(byWhy).map(([w, ls]) => `<span>Grayed out: ${esc(ls.join(', '))}. ${esc(w)}.</span>`).join(' ')}</p>` : '';
+  const chip = ([v, l]) => {
+    const off = v !== 'none' && twOff(prefPath, v);
+    const sel = (v === 'none' ? !on.length : on.includes(v));
+    return `<button type="button" class="chip ${sel ? 'on' : ''} ${off ? 'off' : ''}" data-v="${esc(v)}" aria-pressed="${sel ? 'true' : 'false'}"${off ? ` aria-disabled="true" data-off="1" title="${esc(off)}"` : ''}>${esc(l)}</button>`;
+  };
   return `<h2>Preferred times <span class="opt">(we’ll do our best to accommodate)</span></h2>
     <p class="mini" style="margin:-4px 0 8px">Select all that work.</p>
-    <div class="chips" data-chips="${prefPath}" data-multi>${TIME_PREF_OPTS.map(([v, l]) => `<button type="button" class="chip ${(v === 'none' ? !on.length : on.includes(v)) ? 'on' : ''}" data-v="${esc(v)}" aria-pressed="${(v === 'none' ? !on.length : on.includes(v)) ? 'true' : 'false'}">${esc(l)}</button>`).join('')}</div>
+    <div class="chips" data-chips="${prefPath}" data-multi>${TIME_PREF_OPTS.map(chip).join('')}</div>
+    ${whyHtml}
     ${input(notePath, 'Timing notes (optional)', { ph: 'Anything we should know about timing' })}
     ${explain ? `<p class="mini">We’ll do our best but can’t promise an exact time. As your date gets closer, and on the day, we’ll keep sending you narrower ETA windows. We serve clients all over the state, so a little flexibility helps us help everyone.</p>` : ''}
     ${showReassure ? timeReassure : ''}`;
@@ -1451,18 +1543,20 @@ const views = {
     }
     const p = o.payment || {};
     const ach = p.status === 'ach_processing';
-    const how = p.method && p.method.includes('apple') ? 'Apple Pay' : p.method && p.method.includes('google') ? 'Google Pay' : p.method && p.method.includes('ach') ? 'Bank (ACH)' : 'Card';
+    const zel = p.method === 'zelle' && p.status === 'zelle_requested';
+    const how = p.method === 'zelle' ? 'Zelle' : p.method && p.method.includes('apple') ? 'Apple Pay' : p.method && p.method.includes('google') ? 'Google Pay' : p.method && p.method.includes('ach') ? 'Bank (ACH)' : 'Card';
     const shipDone = o.service === 'crating_shipping';
     const delLine = o.schedule.deliveryDate ? `<p class="sub" style="margin:-4px 0 4px"><strong>Pickup: ${esc(longDate(o.schedule.date))}</strong>${timePrefSummary(o.schedule.timePref, o.schedule.timeNote) ? ' · ' + esc(timePrefSummary(o.schedule.timePref, o.schedule.timeNote)) : ''}</p><p class="sub" style="margin:0 0 10px"><strong>Delivery: ${esc(longDate(o.schedule.deliveryDate))}</strong>${timePrefSummary(o.schedule.deliveryTimePref, o.schedule.deliveryTimeNote) ? ' · ' + esc(timePrefSummary(o.schedule.deliveryTimePref, o.schedule.deliveryTimeNote)) : ''}</p>` : '';
     return `<div class="done"><div class="check">✓</div><h1>${shipDone ? 'Your shipment is confirmed.' : o.schedule.deliveryDate ? 'You’re booked.' : `You’re booked for ${esc(longDate(o.schedule.date))}.`}</h1>${delLine}
       <p class="sub">Order <b>${esc(o.id)}</b> is confirmed. A confirmation was sent to ${esc(o.contact.email)}. ${shipDone ? 'Our shipping team will confirm packing and pickup dates by email.' : 'We’ll be in touch before your date with your arrival window.'}</p></div>
       <div class="card"><div class="sum-row"><span>Service</span><span>${esc(o.serviceLabel)}</span></div>
       ${shipDone ? `<div class="sum-row"><span>Timing</span><span>${esc(timingText(o.shipping || {}))}</span></div><div class="sum-row"><span>Destination</span><span>${destText(o.dropoff)}</span></div>` : `<div class="sum-row"><span>${o.pickup && o.pickup.city && o.dropoff && o.dropoff.city && o.schedule.deliveryDate ? 'Trip' : 'Route'}</span><span>${esc(o.pickup && o.pickup.city && o.dropoff && o.dropoff.city && o.schedule.deliveryDate ? `${String(o.pickup.city).trim()} → ${String(o.dropoff.city).trim()}` : (crossRegionLine((o.quote || {}).regions, o.pickup, o.dropoff) || (regionName(((o.quote || {}).regions || {}).pickup || o.schedule.region) + ' route')))}</span></div>`}
-      <div class="sum-row"><span>Payment</span><span>${ach ? `<b>ACH processing</b> · ${fmt(p.amount)}` : `Paid ${fmt(p.amount)}`} · ${how}${p.method && p.method.startsWith('mock') ? ' (test)' : ''}${p.saved ? ' · saved' : ''}</span></div>
+      <div class="sum-row"><span>Payment</span><span>${zel ? `<b>Zelle payment due within 24 hours</b> · ${fmt(p.amount)}` : ach ? `<b>ACH processing</b> · ${fmt(p.amount)}` : `Paid ${fmt(p.amount)}`} · ${how}${p.method && p.method.startsWith('mock') ? ' (test)' : ''}${p.saved ? ' · saved' : ''}</span></div>
       ${o.quote.paymentPlan === 'deposit' ? `<div class="sum-row"><span>Balance due ${esc(o.quote.balanceWhen)}</span><span class="amt"><b>${fmt(o.quote.balanceDue)}</b></span></div>` : ''}
       <div class="total"><span>${accessTbc(o.quote) ? CADAccess.TBC_TOTAL : 'Order total'}</span><span class="amt">${fmt(o.quote.total)}</span></div>
       ${accessTbc(o.quote) ? `<p class="mini access-tbc" data-access-tbc><b>${esc(CADAccess.PRICE_NOTE)}</b></p>` : ''}${weightNoteHtml(o.items)}${feeNoteHtml(o.quote)}</div>
       ${ach ? '<p class="mini">Your job is confirmed. The bank transfer shows as processing until it clears.</p>' : ''}
+      ${zel ? `<div class="card">${zelleHtml(p.amount, o.id, p.dueBy)}</div>` : ''}
       ${yourPieces(o)}
       <button type="button" class="btn ghost full" id="newOrder">Start a new booking</button>`;
   },
@@ -1809,7 +1903,7 @@ function paintButton() {
     if (existing || !special()) {
       // Longest label that fits the bar without pushing or covering anything (320–430px phones).
       const amt = q ? fmt(q.dueNow) : '';
-      const opts = payWhat ? [`Pay ${payWhat}${amt} and book`, `Pay ${amt} and book`, `Pay ${amt}`] : [`Pay ${amt} and book`, `Pay ${amt}`];
+      const opts = payMethod === 'zelle' ? ['Book and pay by Zelle', 'Book, pay by Zelle', 'Book'] : payWhat ? [`Pay ${payWhat}${amt} and book`, `Pay ${amt} and book`, `Pay ${amt}`] : [`Pay ${amt} and book`, `Pay ${amt}`];
       btn.textContent = opts[opts.length - 1];
       const base = dockOverflowAmount();
       btn.textContent = opts.find((t) => { btn.textContent = t; return dockOverflowAmount() <= base + 0.5; }) || opts[opts.length - 1];
@@ -1831,8 +1925,8 @@ function render() {
   if ((S.items || []).some(routeDecorMirror)) persist();
   const name = STEPS[step];
   // Done: forget the draft so a refresh or Continue can't book (or charge) the same job twice; a refresh shows this order again.
-  if (name === 'Done' && confirmed) { sessionStorage.removeItem('cad-order'); sessionStorage.removeItem('cad-step'); sessionStorage.removeItem('cad-sub'); }
-  else if (name !== 'Done') sessionStorage.setItem('cad-step', String(step));
+  if (name === 'Done' && confirmed) { draftStore.clear(); try { DRAFT_KEYS.forEach((k) => sessionStorage.removeItem(k)); } catch (_) { /* ignore */ } }
+  else if (name !== 'Done') draftStore.setItem('cad-step', String(step));
   lastShipKey = shipKey(); lastPhotoKey = itemKey();
   // Y position and focus belong to the screen being left, so read them before the view is rebuilt.
   const y = window.scrollY;
@@ -1863,7 +1957,8 @@ function render() {
     } catch (_) { /* history unavailable: ignore */ }
   }
   lastStep = step; lastSub = sub;
-  if (name !== 'Done') sessionStorage.setItem('cad-sub', sub);
+  if (name !== 'Done') draftStore.setItem('cad-sub', sub);
+  if (name === 'When' && windowsKey() !== twKey) setTimeout(loadWindows, 0);
   if (focusId) {
     const f = document.getElementById(focusId);
     if (f) {
@@ -2251,9 +2346,10 @@ app.addEventListener('click', async (e) => {
   const acc = sg && sg.dataset.seg.match(/^(pickup|dropoff)\.(accessMode|stairFlights|stairDir|stairTurns|serviceElevator|elevatorType|elevatorFit|pathType|elevatorStairs|doorway|fits)$/);
   if (acc) { setAccessAnswer(acc[1], sg.dataset.seg, t.dataset.v); render(); return; }
   if (sg) { const v = t.dataset.v; set(sg.dataset.seg, isNaN(v) ? v : Number(v)); render(); return; }
-  const paySeg = t.closest('[data-pay-method]'); if (paySeg) { payMethod = t.dataset.v; render(); return; }
+  const paySeg = t.closest('[data-pay-method]'); if (paySeg) { payMethod = t.dataset.v; payPicked = true; render(); return; }
   const chips = t.closest('[data-chips]');
   if (chips && 'multi' in chips.dataset) {
+    if (t.dataset.off) return; // grayed: doesn't fit the route that day (the reason is written under the chips)
     const v = t.dataset.v; let on = CADAccess.timePrefList(get(chips.dataset.chips));
     if (v === 'none') on = []; else on = on.includes(v) ? on.filter((x) => x !== v) : [...on, v];
     set(chips.dataset.chips, on.length ? CADAccess.TIME_PREFS.map(([k]) => k).filter((k) => on.includes(k)).join(',') : 'none'); render(); return;
@@ -2279,7 +2375,7 @@ app.addEventListener('click', async (e) => {
   }
   if (t.dataset.level) { S.shipping.serviceLevel = t.dataset.level; persist(); render(); return; }
   if (t.dataset.deldate) { S.schedule.deliveryDate = t.dataset.deldate; if (S.schedule.date && !pairOk(S.schedule.date, S.schedule.deliveryDate)) { S.schedule.date = ''; S.rush = false; } persist(); render(); return; }
-  if (t.id === 'newOrder') { sessionStorage.clear(); location.href = '/'; }
+  if (t.id === 'newOrder') { sessionStorage.clear(); draftStore.clear(); location.href = '/'; }
 });
 
 app.addEventListener('toggle', (e) => { const d = e.target; if (d && d.dataset && d.dataset.extras) { if (d.open) openExtras.add(d.dataset.extras); else openExtras.delete(d.dataset.extras); } }, true);
@@ -2337,10 +2433,18 @@ async function placeOrder() {
   const sig = JSON.stringify(payload());
   if (orderId && orderSig === sig) return { ok: true };
   const { ok, j } = await api('/api/orders', payload());
-  if (!ok) return { ok: false, error: j.error || 'Something went wrong. Please try again.' };
+  if (!ok) return { ok: false, error: j.error || 'Something went wrong. Please try again.', timeConflict: !!j.timeConflict };
   orderId = j.id; orderSig = sig; quoteData = j.quote;
   if (j.status === 'pending_approval') return { ok: true, pending: j.order };
   return { ok: true };
+}
+// The chosen time no longer fits the route (re-checked by the server before any charge): nothing was charged, everything typed is
+// kept, and the customer lands on the dates and times screen with the refreshed windows.
+function backToTimes(msg) {
+  twKey = ''; tw = null;
+  step = STEPS.indexOf('When'); sub = ''; render();
+  if (needsTwoDates()) loadDelivery();
+  setTimeout(() => showErr(msg || 'The time you picked no longer fits our route that day. Please pick another time.'), 0);
 }
 async function pay(method) {
   if (busy) return;
@@ -2350,12 +2454,14 @@ async function pay(method) {
     showErr('');
     if (!existing) {
       const r = await placeOrder();
+      if (!r.ok && r.timeConflict) return backToTimes(r.error);
       if (!r.ok) return showErr(r.error);
       if (r.pending) { confirmed = r.pending; sessionStorage.setItem('cad-done', confirmed.id); step = STEPS.indexOf('Done'); render(); return; }
     }
     const id = existing ? existing.id : orderId;
     const body = { method, card: $('#card')?.value, routing: $('#routing')?.value, account: $('#account')?.value, save: !!($('#saveMethod') && $('#saveMethod').checked) };
     const { ok, j } = await api(`/api/orders/${id}/pay`, body);
+    if (!ok && j && j.timeConflict && !existing) { orderId = null; orderSig = null; return backToTimes(j.error); }
     if (!ok) return showErr(j.error || 'Payment failed. Please try again.');
     if (j.redirect) { location.href = j.redirect; return; }
     confirmed = j.order; existing = null; sessionStorage.setItem('cad-done', confirmed.id); step = STEPS.indexOf('Done'); render();
@@ -2413,7 +2519,7 @@ async function goNext() {
   if (returnToReview && name !== 'Pay') return backToReview();
   if (returnToList && step === 0 && /^p\d+c$/.test(sub)) { returnToList = false; sub = 'pieces-more'; render(); return; }
   if (!last) { sub = ids[idx + 1]; render(); return; }
-  if (name === 'Pay') return pay(CFG.stripe ? 'stripe' : payMethod);
+  if (name === 'Pay') return pay(payMethod === 'zelle' ? 'zelle' : CFG.stripe ? 'stripe' : payMethod);
   if (name === 'Where' && isShip()) { step++; sub = ''; render(); return; }
   if (name === 'Where') {
     busy = true; updateNext();
@@ -2461,7 +2567,7 @@ app.addEventListener('keydown', (e) => {
     else sessionStorage.removeItem('cad-done');
   } else if (S.service) {
     // Returning mid-booking: land on the step they were on (never past one that still needs answers).
-    const saved = Math.min(Math.max(0, parseInt(sessionStorage.getItem('cad-step'), 10) || 0), STEPS.indexOf('Pay'));
+    const saved = Math.min(Math.max(0, parseInt(draftStore.getItem('cad-step'), 10) || 0), STEPS.indexOf('Pay'));
     if (saved >= STEPS.indexOf('When') && !isShip()) {
       const r = await api('/api/availability', payload());
       avail = r.ok ? r.j : null;
@@ -2471,7 +2577,7 @@ app.addEventListener('keydown', (e) => {
     if (step >= STEPS.indexOf('When') && !isShip() && !(avail && avail.days)) step = STEPS.indexOf('Where');
     if (step === STEPS.indexOf('Pay') && !isShip() && !S.schedule.date) step = STEPS.indexOf('When');
     // Same screen they were on, unless the step had to move.
-    sub = step === saved ? (sessionStorage.getItem('cad-sub') || '') : '__last';
+    sub = step === saved ? (draftStore.getItem('cad-sub') || '') : '__last';
   }
   render();
   // A saved draft from before Nov 19 may carry member fields: drop them so they can never reach the quote.

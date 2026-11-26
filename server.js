@@ -72,7 +72,16 @@ app.post('/api/stripe/webhook', express.raw({ type: 'application/json' }), (req,
   let evt;
   try { evt = stripe.webhooks.constructEvent(req.body, req.get('stripe-signature'), secret); } catch (e) { return res.status(400).json({ error: 'bad signature' }); }
   const hit = STRIPE_CO.orderFromEvent(evt);
-  if (hit && findOrder(hit.orderId)) finalize(hit.orderId, hit.payment);
+  const cur = hit && findOrder(hit.orderId);
+  if (cur && hit.failed) {
+    // Bank payment failed after processing: never shown as paid; the team follows up.
+    if (cur.payment && cur.payment.status === 'ach_processing') { update(cur.id, (x) => { x.payment = { ...x.payment, status: 'failed', failedAt: new Date().toISOString() }; x.statusNote = 'Bank payment failed after processing.'; }); sheetSync.enqueue(cur.id, 'payment'); }
+    teamAlert(`BANK PAYMENT FAILED: ${cur.id}`, `Stripe reports the bank (ACH) payment for order ${cur.id} failed. The booking is not paid. Please contact the client.`);
+  } else if (cur && cur.status === 'confirmed' && cur.payment && cur.payment.status === 'ach_processing' && hit.payment.status === 'paid') {
+    // ACH cleared: only now does it become PAID (schedule row updated too).
+    update(cur.id, (x) => { x.payment = { ...x.payment, status: 'paid', achPending: false, settledAt: new Date().toISOString() }; delete x.statusNote; });
+    sheetSync.enqueue(cur.id, 'payment');
+  } else if (cur) finalize(hit.orderId, hit.payment);
   res.json({ received: true });
 });
 app.use(express.json({ limit: '2mb' }));
@@ -225,6 +234,22 @@ app.post('/api/availability', async (req, res) => {
   });
 });
 
+// Route-aware time windows for the chosen date(s) (lib/route-windows.js). Read-only; the browser grays the windows that don't fit.
+app.post('/api/time-windows', (req, res) => {
+  const o = req.body || {};
+  const svc = SERVICES[o.service] || SERVICES.pickup_delivery;
+  const RW = require('./lib/route-windows');
+  const sc = o.schedule || {};
+  const iso = (x) => (/^\d{4}-\d{2}-\d{2}$/.test(String(x || '')) ? String(x) : '');
+  const pu = iso(sc.date), de = iso(sc.deliveryDate);
+  const opts = { order: o, puPref: RW.prefList(sc.timePref), delPref: RW.prefList(sc.deliveryTimePref) };
+  if (svc.needsPickup && svc.needsDropoff) {
+    if (pu && de) { const r = RW.pair(o.pickup, o.dropoff, pu, de, opts); return res.json({ pickup: { date: pu, ...RW.publicView(r.pickup) }, delivery: { date: de, ...RW.publicView(r.delivery) }, sameDay: r.sameDay }); }
+    return res.json({ pickup: pu ? { date: pu, ...RW.publicView(RW.evaluate(o.pickup, pu, opts)) } : null, delivery: de ? { date: de, ...RW.publicView(RW.evaluate(o.dropoff, de, opts)) } : null, sameDay: false });
+  }
+  const addr = svc.needsPickup ? o.pickup : o.dropoff;
+  res.json({ pickup: pu ? { date: pu, ...RW.publicView(RW.evaluate(addr, pu, opts)) } : null, delivery: null, sameDay: false });
+});
 // Atomic slot hold (lib/holds.js): the date(s) are reserved while the client pays; an uncertain/full date refuses cleanly.
 function holdSlots(order, link) {
   const svc = SERVICES[order.service] || {};
@@ -409,6 +434,8 @@ function scheduleErrors(o) {
     else if (!sched.canPairPickupDelivery(d, o.pickup, o.dropoff, o) || !sched.availableDeliveryDays(o.dropoff, o.pickup, d, o, 400).some((x) => x.date === dd))
       errs.push('a delivery day that matches the pickup route (the van can’t pick up after it has already served the delivery area that week)');
   }
+  // Route-aware time windows: the chosen windows must still fit the day's planned route (re-checked at submit and again at pay).
+  if (!errs.length) errs.push(...require('./lib/route-windows').selectionErrors(o, SERVICES));
   return errs;
 }
 
@@ -432,6 +459,7 @@ app.post('/api/orders', (req, res) => {
     return res.status(400).json({ error: 'Shipping is for destinations outside California. For a delivery within California, choose Pickup + Delivery.', caToCa: true });
   const errs = validate(b);
   if (errs.some((e) => /^FULL:/.test(e))) return res.status(409).json({ error: 'That date just filled up. Please go back and pick another date.', full: [String((b.schedule || {}).date || '')] });
+  { const t = errs.find((e) => /^TIME:/.test(e)); if (t) return res.status(409).json({ error: t.replace(/^TIME:\s*/, ''), timeConflict: true }); }
   if (errs.length) return res.status(400).json({ error: 'Missing: ' + errs.join(', ') });
   const fp = fingerprint(b);
   const dup = load().find((x) => x.fingerprint === fp && Date.now() - Date.parse(x.createdAt) < DEDUPE_MS);
@@ -488,6 +516,15 @@ app.post('/api/orders', (req, res) => {
     update(order.id, (x) => x.emails.push(sent));
     const pc = payerCopy(order);
     if (pc) { const s2 = email.send('payer_quote', order, pc); update(order.id, (x) => x.emails.push(s2)); }
+    // Every order gets an itemized email (Chad, Nov 25 2026): requests our team prices get the plain-text "request received" one.
+    const deliverReq = async (to, forPayer) => {
+      const { subject, body } = email.requestText(findOrder(order.id), forPayer);
+      const r = await sheetSync.mail(to, subject, body);
+      update(order.id, (x) => { x.emailDelivery = [...(x.emailDelivery || []), { to, kind: 'request_received', ok: !!r.ok, error: r.ok ? undefined : r.error, at: new Date().toISOString() }]; });
+      if (!r.ok && sheetSync.configured()) teamAlert(`REQUEST EMAIL FAILED for ${order.id}`, `The request-received email to ${to} did not send: ${r.error}. Please send it by hand.`);
+    };
+    if (/\S+@\S+\.\S+/.test((order.contact && order.contact.email) || '')) deliverReq(String(order.contact.email).trim(), false).catch(() => {});
+    if (pc) deliverReq(pc.to, true).catch(() => {});
   }
   res.json({ id: order.id, quote: order.quote, status: order.status, order: findOrder(order.id) });
 });
@@ -572,12 +609,29 @@ app.post('/api/orders/:id/pay', async (req, res) => {
   const st = PS.payStatus(o);
   if (o.status === 'confirmed' && st === 'paid' && PS.unpaidBalance(o) <= 0) return res.json({ order: o });
   if (o.status === 'confirmed' && st === 'ach_processing') return res.json({ order: o, paymentStatus: 'Payment processing' });
+  if (o.status === 'confirmed' && st === 'zelle_requested') return res.json({ order: o, paymentStatus: 'Zelle payment requested' });
   if (o.quote.paymentPlan === 'quote' || !o.quote.dueNow) return res.status(400).json({ error: 'No amount is due until CAD approves a price.' });
   const pairErrs = scheduleErrors(o);
+  { const t = pairErrs.find((e) => /^TIME:/.test(e)); if (t) return res.status(409).json({ error: t.replace(/^TIME:\s*/, ''), timeConflict: true }); }
   if (pairErrs.length) return res.status(400).json({ error: 'Please go back and pick dates that work together on the route: ' + pairErrs[0] });
   { const held = holdSlots(o, false); if (!held.ok) return res.status(409).json({ error: 'That date just filled up. Please go back and pick another date.', full: held.full }); }
 
   const method = req.body.method;
+  // Pay by Zelle: books now (AF "Payment Requested"), slot held 24 h, CAD verifies by hand. Never marked paid here.
+  if (method === 'zelle') {
+    const Z = config.payment.zelle || {};
+    if (!Z.enabled) return res.status(400).json({ error: 'Zelle isn’t available right now. Please pay by bank or card.' });
+    const now = Date.now();
+    const payment = { method: 'zelle', status: 'zelle_requested', amount: o.quote.dueNow, requestedAt: new Date(now).toISOString(), dueBy: new Date(now + (Z.holdHours || 24) * 3600 * 1000).toISOString(), payee: Z.payee, zelleTo: Z.email, memo: o.id };
+    const done = finalize(o.id, payment);
+    require('./lib/holds').extend(o.id, (Z.holdHours || 24) * 3600 * 1000);
+    teamAlert(`ZELLE REQUESTED: ${o.id} $${Number(payment.amount).toFixed(2)} due by ${ptTime(payment.dueBy)} PT`, `Order ${o.id} is booked with Pay by Zelle (Payment Status: Payment Requested).
+Expected: $${Number(payment.amount).toFixed(2)} to ${Z.email}, memo ${o.id} (split transfers are OK if the total arrives on time).
+Due by: ${ptTime(payment.dueBy)} PT.
+When it arrives, mark it received in the admin page (Zelle list) or set PAID on the schedule by hand. The site never marks Zelle paid on its own.
+If it is not verified by then, the order is flagged for the team to release the slot. Nothing is deleted automatically.`);
+    return res.json({ order: done || findOrder(o.id) });
+  }
   if (method === 'invoice') return res.status(400).json({ error: 'There are no trade accounts. Payment is due up front by card or bank transfer.' });
 
   const saveMethod = !!(req.body.save && config.payment.savePaymentMethod);
@@ -637,6 +691,40 @@ function rememberMockMethod(order, payment) {
   saveCustomers(book);
 }
 
+// ---------- Zelle: 24-hour verification window (flag, never auto-delete) ----------
+const ptTime = (iso) => new Date(iso).toLocaleString('en-US', { timeZone: 'America/Los_Angeles', weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+const zelleOrders = () => load().filter((o) => o.payment && o.payment.method === 'zelle');
+function zelleSweep(now = Date.now()) {
+  const flagged = [];
+  zelleOrders().filter((o) => o.payment.status === 'zelle_requested' && Date.parse(o.payment.dueBy) <= now && !o.payment.overdueFlaggedAt).forEach((o) => {
+    update(o.id, (x) => { x.payment.overdueFlaggedAt = new Date(now).toISOString(); x.zelleOverdue = true; });
+    teamAlert(`ZELLE NOT VERIFIED IN 24 H: ${o.id} — release the slot?`, `Order ${o.id} (${(o.contact || {}).name || ''}, ${(o.schedule || {}).date || ''}${(o.schedule || {}).deliveryDate ? ' / ' + o.schedule.deliveryDate : ''}) chose Pay by Zelle and $${Number(o.payment.amount).toFixed(2)} has not been marked received by ${ptTime(o.payment.dueBy)} PT.
+Check the CAD Zelle account for memo ${o.id}. If it arrived, mark it received. If not, contact the client and, if you release the slot, clear its schedule rows by hand. The site has not deleted anything.`);
+    flagged.push(o.id);
+  });
+  return flagged;
+}
+setInterval(() => { try { zelleSweep(); } catch (e) { console.error('zelle sweep', e.message); } }, Number(process.env.ZELLE_SWEEP_MS) || 15 * 60 * 1000).unref();
+setTimeout(() => { try { zelleSweep(); } catch {} }, 5000).unref();
+const zelleAdminOk = (req) => typeof adminKeyOk === 'function' && adminKeyOk(req.query.key || req.get('x-admin-key'));
+// Flagged list for the team: every Zelle order still waiting, and the ones past 24 h.
+app.get('/api/admin/zelle', (req, res) => {
+  if (!zelleAdminOk(req)) return res.status(401).json({ error: 'admin key required' });
+  zelleSweep();
+  const rows = zelleOrders().map((o) => ({ id: o.id, client: (o.contact || {}).name, email: (o.contact || {}).email, dates: [(o.schedule || {}).date, (o.schedule || {}).deliveryDate].filter(Boolean), amount: o.payment.amount, status: o.payment.status, requestedAt: o.payment.requestedAt, dueBy: o.payment.dueBy, overdue: o.payment.status === 'zelle_requested' && Date.parse(o.payment.dueBy) <= Date.now(), flaggedAt: o.payment.overdueFlaggedAt || null }));
+  res.json({ waiting: rows.filter((r) => r.status === 'zelle_requested' && !r.overdue), overdue: rows.filter((r) => r.overdue), verified: rows.filter((r) => r.status === 'paid') });
+});
+// A person on the CAD team confirms the money arrived (the only way a Zelle order becomes PAID).
+app.post('/api/admin/orders/:id/zelle-received', (req, res) => {
+  if (!zelleAdminOk(req)) return res.status(401).json({ error: 'admin key required' });
+  const o = findOrder(req.params.id);
+  if (!o || !o.payment || o.payment.method !== 'zelle') return res.status(404).json({ error: 'not a Zelle order' });
+  const by = String((req.body && req.body.by) || 'CAD team').slice(0, 60);
+  update(o.id, (x) => { x.payment = { ...x.payment, status: 'paid', verifiedAt: new Date().toISOString(), verifiedBy: by, received: Number((req.body && req.body.amount) || x.payment.amount) }; delete x.zelleOverdue; });
+  sheetSync.enqueue(o.id, 'payment');
+  res.json({ order: findOrder(o.id) });
+});
+
 // Return from Stripe Checkout
 app.get('/api/orders/:id/verify', async (req, res) => {
   const o = findOrder(req.params.id);
@@ -684,7 +772,7 @@ app.post('/api/orders/:id/mock-payment-update', (req, res) => {
     const cur = findOrder(o.id);
     if (cur.status !== 'confirmed') return res.json({ order: finalize(o.id, pay) });
     update(o.id, (ord) => { ord.payment = pay; delete ord.statusNote; });
-    sheetSync.enqueue(o.id, 'confirmed');
+    sheetSync.enqueue(o.id, 'payment');
     return res.json({ order: findOrder(o.id), paymentStatus: 'Paid' });
   }
   return res.status(400).json({ error: 'result must be fail or paid' });

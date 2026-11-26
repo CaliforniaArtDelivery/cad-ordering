@@ -19,11 +19,11 @@ exports.uiTests = async (H) => {
   const blocked = async () => { await settle(); return page.$eval('#nextBtn', (b) => !!(b.disabled || b.getAttribute('aria-disabled') === 'true' || b.classList.contains('is-wait'))); };
   const next = async () => { await settle(); try { await page.click('#nextBtn:not([disabled]):not([aria-disabled="true"])', { timeout: 8000 }); } catch (e) { throw new Error('Next was blocked on ' + (await panel()) + ': ' + (await page.evaluate(() => { const b = document.querySelector('#nextBtn'); return b.className + ' | ' + (document.querySelector('.dock') || document.body).innerText.slice(0, 300); }))); } await page.waitForTimeout(350); };
   const panel = () => page.evaluate(() => { const p = [...document.querySelectorAll('[data-panel]')].find((x) => !x.hidden); return p ? p.dataset.panel : ''; });
-  const state = () => page.evaluate(() => JSON.parse(sessionStorage.getItem('cad-order') || 'null'));
+  const state = () => page.evaluate(() => JSON.parse(localStorage.getItem('cad-order') || 'null'));
   const fill = (p, v) => page.fill(`[data-path="${p}"]`, String(v));
   const shot = async (name, full) => { await page.evaluate(() => window.scrollTo(0, 0)); await page.waitForTimeout(250); await page.screenshot({ path: path.join(SHOTS, name + '.png'), fullPage: !!full, style: full ? '.dock{position:relative!important}' : undefined }); };
   const freshStart = async (service = 'pickup_delivery') => {
-    await page.goto(BASE); await page.evaluate(() => sessionStorage.clear()); await page.goto(BASE);
+    await page.goto(BASE); await page.evaluate(() => (sessionStorage.clear(), localStorage.clear())); await page.goto(BASE);
     await page.waitForSelector('[data-service]'); await page.click(`[data-service="${service}"]`); await settle(); await next();
   };
   const overflow = () => page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
@@ -40,7 +40,7 @@ exports.uiTests = async (H) => {
     if (s.unsure) await page.click(`[data-weightunsure="${i}"]`);
     else if (s.weight !== undefined) await fill(`items.${i}.weight`, s.weight);
     if (s.fragile) await page.click(`label.toggle:has([data-path="items.${i}.fragile"])`);
-    if (s.photo) { await page.setInputFiles(`[data-upload="${i}"]`, PHOTO); await page.waitForFunction((n) => JSON.parse(sessionStorage.getItem('cad-order')).items[n].photos.length > 0, i, { timeout: 8000 }); await page.waitForTimeout(300); }
+    if (s.photo) { await page.setInputFiles(`[data-upload="${i}"]`, PHOTO); await page.waitForFunction((n) => JSON.parse(localStorage.getItem('cad-order')).items[n].photos.length > 0, i, { timeout: 8000 }); await page.waitForTimeout(300); }
     if (s.fragile && !s.photo) { await page.click('#nextBtn', { force: true }); await page.waitForTimeout(350); } // blocked on purpose: special handling needs a photo
     else await next();
   }
@@ -76,7 +76,7 @@ exports.uiTests = async (H) => {
   if (!process.env.UI_LATE_ONLY) {
   hdr('UI 0: an old saved draft with a quantity (refresh never shows one piece as ten)');
   {
-    await page.goto(BASE); await page.evaluate(() => sessionStorage.clear());
+    await page.goto(BASE); await page.evaluate(() => (sessionStorage.clear(), localStorage.clear()));
     await page.evaluate(() => { sessionStorage.setItem('cad-order', JSON.stringify({ service: 'pickup_delivery', items: [{ qty: 3, type: 'painting', description: 'Old canvas', w: 40, h: 30, d: 2, framed: 'no', value: '3,000' }, { type: 'painting', description: 'Single', w: 40, h: 30, d: 2, framed: 'no', value: '1,000' }] })); sessionStorage.setItem('cad-step', '0'); sessionStorage.setItem('cad-sub', 'pieces-more'); });
     await page.goto(BASE); await page.waitForSelector('[data-piece-row]');
     const st = await state();
@@ -84,7 +84,7 @@ exports.uiTests = async (H) => {
     ok((await page.locator('[data-piece-row] .pc-title').allTextContents()).join('|') === 'Piece 1 — Old canvas|Piece 2 — Old canvas|Piece 3 — Old canvas|Piece 4 — Single', 'labels: Piece 1–3 Old canvas, Piece 4 Single');
     ok(st.items.map((i) => !!i.checkValue).join() === 'false,true,true,false', 'the two expanded copies of the old draft are flagged Check value; the original entry and the single piece are not', st.items.map((i) => i.checkValue));
     const ids = await page.$$eval('[data-piece-id]', (e) => e.map((x) => x.dataset.pieceId));
-    await page.evaluate(() => { const o = JSON.parse(sessionStorage.getItem('cad-order')); sessionStorage.setItem('cad-order', JSON.stringify(o)); });
+    await page.evaluate(() => { const o = JSON.parse(localStorage.getItem('cad-order')); sessionStorage.setItem('cad-order', JSON.stringify(o)); });
     ok(new Set(ids).size === 4 && (st.items || []).every((i) => !('qty' in i)), 'unique ids and no qty field in the saved draft', ids);
     await page.reload(); await page.waitForSelector('[data-piece-row]');
     ok((await rowCount()) === 4 && (await page.$$eval('[data-piece-id]', (e) => e.map((x) => x.dataset.pieceId))).join() === ids.join(), 'a second refresh keeps the same 4 pieces and ids (no duplicates)');
@@ -149,7 +149,7 @@ exports.uiTests = async (H) => {
     await shot('05-copy-check-value-and-photo');
     await page.click('[data-panel="p1c"] [data-valok]'); await page.waitForTimeout(200);
     ok((await state()).items[1].checkValue === false && (await state()).items[2].checkValue === true, '"Value is right" clears the flag for this piece only');
-    await page.setInputFiles('[data-upload="1"]', PHOTO); await page.waitForFunction(() => JSON.parse(sessionStorage.getItem('cad-order')).items[1].photos.length > 0); await page.waitForTimeout(300);
+    await page.setInputFiles('[data-upload="1"]', PHOTO); await page.waitForFunction(() => JSON.parse(localStorage.getItem('cad-order')).items[1].photos.length > 0); await page.waitForTimeout(300);
     ok((await state()).items[1].photos.length === 1 && (await state()).items[2].photos.length === 0 && (await state()).items[0].photos.length === 1, 'Piece 2\'s photo went to Piece 2 only');
     await page.goBack(); await page.waitForTimeout(400); // browser Back returns to the list
     ok((await panel()) === 'pieces-more' && (await rowCount()) === 4, 'browser Back returns to the list with all 4 pieces');
@@ -306,7 +306,7 @@ exports.uiTests = async (H) => {
     await fill(`items.0.materialNotes`, 'ceramic vase, glass top');
     await settle();
     ok(await blocked() && (await state()).items[0].materialNotes === 'ceramic vase, glass top', 'material notes are optional: filling them does not clear the photo requirement');
-    await page.setInputFiles('[data-upload="0"]', PHOTO); await page.waitForFunction(() => JSON.parse(sessionStorage.getItem('cad-order')).items[0].photos.length > 0); await page.waitForTimeout(300);
+    await page.setInputFiles('[data-upload="0"]', PHOTO); await page.waitForFunction(() => JSON.parse(localStorage.getItem('cad-order')).items[0].photos.length > 0); await page.waitForTimeout(300);
     await settle();
     ok(!(await blocked()), 'special handling with a photo enables Next');
     await next();

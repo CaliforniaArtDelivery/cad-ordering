@@ -17,7 +17,7 @@ const BAD = /(?<!TEST MODE · )(?:nothing is charged)|(?<!Other )request|(?<!cus
     const page = await ctx.newPage();
     const jsErr = []; page.on('pageerror', (e) => jsErr.push(e.message));
     await page.goto(BASE + '/cad-logo.jpg');
-    await page.evaluate((s) => { sessionStorage.clear(); sessionStorage.setItem('cad-order', JSON.stringify(s)); sessionStorage.setItem('cad-step', '0'); sessionStorage.setItem('cad-sub', ''); }, state());
+    await page.evaluate((s) => { (sessionStorage.clear(), localStorage.clear()); sessionStorage.setItem('cad-order', JSON.stringify(s)); sessionStorage.setItem('cad-step', '0'); sessionStorage.setItem('cad-sub', ''); }, state());
     await page.goto(BASE + '/?qa=' + Date.now()); await page.waitForTimeout(1800);
     const pickDates = async () => {
       await page.waitForSelector('[data-date]', { timeout: 20000 });
@@ -42,11 +42,11 @@ const BAD = /(?<!TEST MODE · )(?:nothing is charged)|(?<!Other )request|(?<!cus
     };
     let r = await dock('start');
     for (let i = 0; i < 30; i++) {
-      const before = await page.evaluate(() => sessionStorage.getItem('cad-step') + '/' + sessionStorage.getItem('cad-sub'));
+      const before = await page.evaluate(() => localStorage.getItem('cad-step') + '/' + localStorage.getItem('cad-sub'));
       if (/^3\/review/.test(before)) break;
-      if (/^2\/date/.test(before) || await page.$('[data-reqblock="date"] [data-date]')) { if (!(await page.evaluate(() => JSON.parse(sessionStorage.getItem('cad-order')).schedule.date))) await pickDates(); }
+      if (/^2\/date/.test(before) || await page.$('[data-reqblock="date"] [data-date]')) { if (!(await page.evaluate(() => JSON.parse(localStorage.getItem('cad-order')).schedule.date))) await pickDates(); }
       await page.click('#nextBtn'); await page.waitForTimeout(1300);
-      const after = await page.evaluate(() => sessionStorage.getItem('cad-step') + '/' + sessionStorage.getItem('cad-sub'));
+      const after = await page.evaluate(() => localStorage.getItem('cad-step') + '/' + localStorage.getItem('cad-sub'));
       r = await dock(after.replace('/', '-'));
       if (after === before) { problems.push(`${vw}: stuck at ${after}: ${(await page.textContent('#dockErr').catch(() => '')) || ''} ${(await page.textContent('#needLine').catch(() => ''))}`); break; }
     }

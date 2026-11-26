@@ -11,7 +11,7 @@ const WIDTHS = (process.env.WIDTHS || '320,375,390,430').split(',').map(Number);
 
 async function openDecor(page) {
   await page.goto(BASE);
-  await page.evaluate(() => sessionStorage.clear());
+  await page.evaluate(() => (sessionStorage.clear(), localStorage.clear()));
   await page.goto(BASE);
   await page.waitForSelector('[data-service="pickup_delivery"]');
   await page.click('[data-service="pickup_delivery"]');

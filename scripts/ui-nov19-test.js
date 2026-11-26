@@ -36,7 +36,7 @@ const hdr = (t) => console.log('\n[' + t + ']');
   const label = () => page.textContent('#stepsLabel');
   const fill = (p, v) => page.fill(`[data-path="${p}"]`, String(v));
   const shot = async (n) => { await page.waitForTimeout(250); await page.screenshot({ path: path.join(SHOTS, n + '.png') }); };
-  const state = () => page.evaluate(() => JSON.parse(sessionStorage.getItem('cad-order') || 'null'));
+  const state = () => page.evaluate(() => JSON.parse(localStorage.getItem('cad-order') || 'null'));
   const priceText = () => page.evaluate(() => (document.querySelector('[data-price]') || {}).innerText || '');
   const VAL = { 'contact.name': 'Jordan Lee', 'contact.email': 'jordan@example.com', 'contact.phone': '3105550199', 'pickup.street': '2 Henry Adams St', 'pickup.city': 'San Francisco', 'pickup.zip': '94103', 'dropoff.street': '1 Main St', 'dropoff.city': 'San Francisco', 'dropoff.zip': '94110' };
   async function walkTo(stopAt, valOver = {}) {
@@ -55,7 +55,7 @@ const hdr = (t) => console.log('\n[' + t + ']');
     }
     return panel();
   }
-  const start = async () => { await page.goto(BASE); await page.evaluate(() => sessionStorage.clear()); await page.goto(BASE); await page.waitForSelector('[data-service]'); await page.click('[data-service="pickup_delivery"]'); await settle(); await next(); };
+  const start = async () => { await page.goto(BASE); await page.evaluate(() => (sessionStorage.clear(), localStorage.clear())); await page.goto(BASE); await page.waitForSelector('[data-service]'); await page.click('[data-service="pickup_delivery"]'); await settle(); await next(); };
   const onePiece = async (value) => {
     await fill('items.0.description', 'Canvas'); await next();
     await fill('items.0.w', 30); await fill('items.0.h', 40); await fill('items.0.d', 2);

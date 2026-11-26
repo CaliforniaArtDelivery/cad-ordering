@@ -143,7 +143,7 @@ async function inStepToggleKeepsScroll(page, selector, label, problems) {
     const page = await ctx.newPage();
     page.on('pageerror', (e) => problems.push(`${w}x${h}: pageerror ${e.message}`));
     const L = (s) => `${w}x${h} ${s}`;
-    await page.goto(BASE); await page.evaluate(() => sessionStorage.clear()); await page.goto(BASE); await page.waitForSelector('[data-service]');
+    await page.goto(BASE); await page.evaluate(() => (sessionStorage.clear(), localStorage.clear())); await page.goto(BASE); await page.waitForSelector('[data-service]');
     await checkStep(page, L('1 What (empty)'), problems, true);
     // Real CAD logo: exact site file, loaded, 72–96px wide, square corners, no filters, horizontally centered, no duplicate text.
     const logo = await page.evaluate(() => { const i = document.querySelector('.brand img.logo'); if (!i) return null; const r = i.getBoundingClientRect(); const cs = getComputedStyle(i); return { ok: i.complete && i.naturalWidth === 1023 && i.naturalHeight === 928, w: r.width, h: r.height, cx: r.left + r.width / 2, vw: document.documentElement.clientWidth, right: r.right, alt: i.alt, radius: cs.borderRadius, filter: cs.filter, text: document.querySelector('.brand').textContent.trim() }; });
