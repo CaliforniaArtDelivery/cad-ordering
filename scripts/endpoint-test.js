@@ -9,6 +9,10 @@
  * Rejected requests must leave every counter at zero and orders.json untouched. Positive controls prove the counters are wired.
  *   node scripts/endpoint-test.js
  */
+// Route dates come only from the CAD SCHEDULE digest; this older test runs against the stand-in built from the weekly catalog (never production).
+if (!process.env.SHEET_DAYS_FIXTURE) process.env.SHEET_DAYS_FIXTURE = 'catalog';
+// Many orders land on the same route date here; the 8-job daily cap is covered by its own tests.
+if (!process.env.DAILY_JOB_CAP) process.env.DAILY_JOB_CAP = '500';
 const fs = require('fs');
 const os = require('os');
 const path = require('path');

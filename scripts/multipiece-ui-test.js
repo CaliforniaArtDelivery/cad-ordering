@@ -69,6 +69,8 @@ exports.uiTests = async (H) => {
     const VAL = { 'contact.name': 'Jordan Lee', 'contact.email': 'jordan@example.com', 'contact.phone': '3105550199', 'pickup.street': '8678 Melrose Ave', 'pickup.city': 'West Hollywood', 'pickup.zip': '90069', 'pickup.contactName': 'Andrea B', 'pickup.contactPhone': '3105550101', 'dropoff.street': '1200 Summit Ridge Dr', 'dropoff.city': 'Beverly Hills', 'dropoff.zip': '90210', 'dropoff.contactName': 'Jordan Lee', 'dropoff.contactPhone': '3105550199' };
     await next(); // list -> Where
     for (let n = 0; n < 40 && (await panel()) !== 'review'; n++) {
+      // address checks and /api/availability finish after Next: let them land so the panel read below is the real one
+      await page.waitForLoadState('networkidle', { timeout: 10000 }).catch(() => {}); await settle();
       if (onPanel) await onPanel(await panel());
       if (await page.$('[data-panel]:not([hidden]) [data-seg="heard.repeatAnswer"]') && !(await page.$('[data-seg="heard.repeatAnswer"] button.on'))) { await page.click('[data-seg="heard.repeatAnswer"] [data-v="no"]'); await page.waitForTimeout(200); }
       const v = await page.evaluate(() => { const p = [...document.querySelectorAll('[data-panel]')].find((x) => !x.hidden); return [...p.querySelectorAll('input,select,textarea,[data-seg]')].filter((e) => e.offsetParent).map((e) => ({ k: e.dataset.path || e.dataset.seg || e.id, t: e.tagName, v: e.value, opts: e.tagName === 'SELECT' ? [...e.options].map((o) => o.value) : undefined })); });
@@ -77,8 +79,11 @@ exports.uiTests = async (H) => {
         else if (f.t === 'SELECT' && !f.v && f.opts) await page.selectOption(`[data-path="${f.k}"]`, f.k === 'heard.source' ? 'google' : f.opts[1]);
         else if (f.t === 'DIV' && /^(pickup|dropoff)\./.test(f.k) && !(await page.$(`[data-seg="${f.k}"] button.on`))) { const btn = page.locator(`[data-seg="${f.k}"] button`).first(); if (await btn.isVisible()) { await btn.click(); await page.waitForTimeout(120); } }
       }
-      if (await page.locator('[data-reqblock="date"] .day:not(.rush):visible').count()) { await page.click('[data-reqblock="date"] .day:not(.rush):visible >> nth=0'); await page.waitForTimeout(250); }
-      if (await page.locator('[data-deldate]:not([data-off]):visible').count()) { await page.click('[data-deldate]:not([data-off]):visible >> nth=0'); await page.waitForTimeout(250); }
+      // the route days arrive from /api/availability after the date panel renders: wait for them before picking
+      if ((await panel()) === 'date' || (await blocked())) await page.waitForSelector('[data-reqblock="date"] .day:not(.rush):visible, [data-noroute]:visible', { timeout: 10000 }).catch(() => {});
+      if (await page.locator('[data-reqblock="date"] .day:not(.rush):visible').count()) { await page.click('[data-reqblock="date"] .day:not(.rush):visible >> nth=0'); await page.waitForTimeout(400); await page.waitForLoadState('networkidle', { timeout: 10000 }).catch(() => {}); await settle(); }
+      if ((await panel()) === 'date' && (await blocked())) await page.waitForSelector('[data-deldate]:not([data-off]):visible', { timeout: 8000 }).catch(() => {});
+      if (await page.locator('[data-deldate]:not([data-off]):visible').count()) { await page.click('[data-deldate]:not([data-off]):visible >> nth=0'); await page.waitForTimeout(400); await page.waitForLoadState('networkidle', { timeout: 10000 }).catch(() => {}); await settle(); }
       await next();
     }
   }

@@ -5,6 +5,8 @@
  *
  *   node scripts/atlas-review-test.js
  */
+// Route dates come only from the CAD SCHEDULE digest; this older test runs against the stand-in built from the weekly catalog (never production).
+if (!process.env.SHEET_DAYS_FIXTURE) process.env.SHEET_DAYS_FIXTURE = 'catalog';
 const { spawn } = require('child_process');
 const fs = require('fs');
 const os = require('os');

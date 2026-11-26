@@ -217,6 +217,13 @@ const payload = () => {
   return o;
 };
 const esc = (v) => String(v ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+// Date-column pill: the address's own city (never a generic area name). Hidden when there is no city or it would not fit the pill.
+const cityPill = (addr) => {
+  const c = String((addr && addr.city) || '').trim().replace(/\s+/g, ' ');
+  if (!c || c.length > 16) return '';
+  const nice = c.toLowerCase().replace(/(^|[\s-])([a-z])/g, (m, a, b) => a + b.toUpperCase());
+  return `<div class="region">● ${esc(nice)}</div>`;
+};
 const nearest5 = (n) => { const x = Number(n); if (!Number.isFinite(x) || x === 0) return 0; const sign = x < 0 ? -1 : 1; const cents = Math.round(Math.abs(x) * 100); const rem = cents % 500; return sign * ((rem >= 250 ? cents - rem + 500 : cents - rem) / 100); };
 const fmt = (n) => { const x = Number(n || 0); const cents = Math.round(x * 100) % 100 !== 0; return '$' + x.toLocaleString('en-US', { minimumFractionDigits: cents ? 2 : 0, maximumFractionDigits: 2 }); };
 const uncomma = (s) => String(s ?? '').replace(/,/g, '');
@@ -974,7 +981,7 @@ function deliveryBlock() {
     <h1 class="when-h1">Choose your delivery date</h1>
     <p class="sub">On or after your pickup date.</p>
     ${cross}
-    <div class="region">● ${esc((delAvail && (delAvail.area || delAvail.region)) || 'Your area')} route</div>
+    ${cityPill(S.dropoff)}
     ${days}`;
 }
 // Pickup + delivery on one screen (Chad, Nov 21 2026). The server returns the pickup days, the delivery days and, for each
@@ -1050,13 +1057,13 @@ function pairBlock() {
   return `<p class="pair-hint mini" data-pairhint>${hint}</p>${cross}
     <div class="date-pair">
       <div class="date-col" data-col="pu">${head('Pickup', S.schedule.date, 'pu')}
-        ${dedOn('pickup') ? '' : `${pw.list.length || rush.length ? `<div class="region">● ${esc((avail && avail.area) || 'Pickup')} route</div>` : ''}
+        ${dedOn('pickup') ? '' : `${pw.list.length || rush.length ? cityPill(S.pickup) : ''}
         ${pw.list.length || rush.length ? `<div class="days col-days" data-reqblock="date">${pw.list.map((d) => pairCard(d, 'pu')).join('')}</div>${pw.btn}` : noRouteLine('date')}
         ${rush.length ? `<p class="col-sub">Need a different pickup date?</p><div class="days col-days">${rush.map((d) => pairCard(d, 'pu')).join('')}</div>` : ''}`}
         ${dedBox('pickup', true)}
       </div>
       <div class="date-col" data-col="del">${head('Delivery', S.schedule.deliveryDate, 'del')}
-        ${dedOn('delivery') ? '' : `${delAvail && !dw.list.length ? '' : `<div class="region">● ${esc((delAvail && delAvail.area) || 'Delivery')} route</div>`}
+        ${dedOn('delivery') ? '' : `${delAvail && !dw.list.length ? '' : cityPill(S.dropoff)}
         ${delAvail ? (dw.list.length ? `<div class="days col-days" data-reqblock="deldate">${dw.list.map((d) => pairCard(d, 'del')).join('')}</div>${dw.btn}` : noRouteLine('deldate')) : '<p class="mini" data-reqblock="deldate">Finding delivery days…</p>'}`}
         ${dedBox('delivery', true)}
       </div>
@@ -1623,7 +1630,7 @@ const views = {
     if (S.schedule.deliveryDate && !(S.schedule.deliveryTimePref || '').trim()) S.schedule.deliveryTimePref = 'none';
     const fd = dedOn(firstSide());
     const pickupHtml = `<h1 class="when-h1">${title}</h1>${fd ? '' : `<p class="sub">${subTxt}</p>
-      ${avail.days.length || avail.rush.length ? `<div class="region">● ${esc(avail.area || region)} route</div>` : ''}
+      ${avail.days.length || avail.rush.length ? cityPill(svc().needsPickup ? S.pickup : S.dropoff) : ''}
       ${avail.days.length || avail.rush.length ? `<div class="days" data-reqblock="date">${dayWindow(avail.days, S.schedule.date, 'pu').list.map(card).join('')}</div>${dayWindow(avail.days, S.schedule.date, 'pu').btn}` : noRouteLine('date') + noRouteQuote()}
       ${intro ? `<p class="mini">${intro}</p>` : ''}
       ${avail.rush.length ? `<h2>Need a different date?</h2><div class="days">${avail.rush.map(card).join('')}</div>` : ''}`}

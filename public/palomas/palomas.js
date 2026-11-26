@@ -2,6 +2,8 @@
 'use strict';
 const $ = (s, r = document) => r.querySelector(s);
 const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+// Date-column pill: the place's own city (never a generic area name); hidden when it would not fit.
+const cityPill = (city) => { const c = String(city || '').trim().replace(/\s+/g, ' '); if (!c || c.length > 16) return ''; return `<div class="region">● ${esc(c.toLowerCase().replace(/(^|[\s-])([a-z])/g, (m, a, b) => a + b.toUpperCase()))}</div>`; };
 const usd = (n) => '$' + Number(n || 0).toLocaleString('en-US', { maximumFractionDigits: 0 });
 const num = (v) => { const n = Number(String(v ?? '').replace(/[,$\s]/g, '')); return Number.isFinite(n) ? n : 0; };
 
@@ -413,19 +415,19 @@ function renderDays() {
     : S.pickupDate && S.deliveryDate ? 'Both dates are set. Tap Clear on either one to change it.'
     : S.pickupDate ? 'Now pick a delivery day. Grayed-out days don’t work with that pickup.'
     : S.deliveryDate ? 'Now pick a pickup day. Grayed-out days are too late for that delivery.'
-    : 'Start with either one. We’ll gray out the days that don’t work together.';
+    : ''; // nothing picked yet: the step's own subtitle (#datesSub) already says "Start with either side…"
   const head = (label, iso, key) => `<div class="col-head"><span class="col-t">${label}</span>${iso ? `<span class="col-sel"><b>${esc(shortDate(iso))}</b><button type="button" class="linkbtn" data-clear="${key}" aria-label="Clear ${label.toLowerCase()} date">Clear</button></span>` : '<span class="col-sel mini">Not picked</span>'}</div>`;
   const puList = shownDays(S.puDays, puState, S.puMore, S.pickupDate);
   const deList = shownDays(S.deDays, delState, S.deMore, S.deliveryDate);
   const zipOk = /^\d{5}/.test(d.zip);
-  box.innerHTML = `${zipOk ? `<p class="pair-hint mini">${hint}</p>` : '<p class="pair-hint mini">Enter the delivery ZIP on the address step and the available days appear here.</p>'}
+  box.innerHTML = `${zipOk ? (hint ? `<p class="pair-hint mini">${hint}</p>` : '') : '<p class="pair-hint mini">Enter the delivery ZIP on the address step and the available days appear here.</p>'}
     <div class="date-pair">
       <div class="date-col" data-col="pu">${head('Pickup', S.pickupDate, 'pu')}
-        ${dedOn('pickup') ? '' : `${S.puDays.length ? `<div class="region">● Pickup route</div><div class="days col-days">${puList.map((x, i) => pairCard(x, 'pu', puState(x), i)).join('')}</div>${dayCtl(S.puDays, S.pickupDate, 'pu')}` : (zipOk ? '<p class="mini no-route" data-noroute><b>No confirmed route dates for this address.</b> Select a dedicated trip below, or request a custom date once the trip is on.</p>' : '<p class="mini">Available pickup days appear after the delivery ZIP is entered.</p>')}`}
+        ${dedOn('pickup') ? '' : `${S.puDays.length ? `${cityPill(S.pickup === 'salinas' ? 'Salinas' : 'Carmel-by-the-Sea')}<div class="days col-days">${puList.map((x, i) => pairCard(x, 'pu', puState(x), i)).join('')}</div>${dayCtl(S.puDays, S.pickupDate, 'pu')}` : (zipOk ? '<p class="mini no-route" data-noroute><b>No confirmed route dates for this address.</b> Select a dedicated trip below, or request a custom date once the trip is on.</p>' : '<p class="mini">Available pickup days appear after the delivery ZIP is entered.</p>')}`}
         ${dedBox('pickup')}
       </div>
       <div class="date-col" data-col="del">${head('Delivery', S.deliveryDate, 'del')}
-        ${dedOn('delivery') ? '' : `${S.deDays.length ? `<div class="region">● Delivery route</div><div class="days col-days">${deList.map((x, i) => pairCard(x, 'de', delState(x), i)).join('')}</div>${dayCtl(S.deDays, S.deliveryDate, 'de')}` : (zipOk ? '<p class="mini no-route" data-noroute><b>No confirmed route dates for this address.</b> Select a dedicated trip below, or request a custom date once the trip is on.</p>' : '<p class="mini">Available delivery days appear after the delivery ZIP is entered.</p>')}`}
+        ${dedOn('delivery') ? '' : `${S.deDays.length ? `${cityPill(S.f.dCity)}<div class="days col-days">${deList.map((x, i) => pairCard(x, 'de', delState(x), i)).join('')}</div>${dayCtl(S.deDays, S.deliveryDate, 'de')}` : (zipOk ? '<p class="mini no-route" data-noroute><b>No confirmed route dates for this address.</b> Select a dedicated trip below, or request a custom date once the trip is on.</p>' : '<p class="mini">Available delivery days appear after the delivery ZIP is entered.</p>')}`}
         ${dedBox('delivery')}
       </div>
     </div>`;

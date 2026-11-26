@@ -140,8 +140,15 @@ console.log('[Dec 6 branch]');
   ok(!has(sb, '2026-12-06') && !has(la, '2026-12-06'), 'a row that matches no branch = disagreement: date hidden'); live(); }
 
 console.log('[stale / missing / conflicting data]');
-useSheet(clone(LIVE), { fetchedAt: Date.now() - 31 * 60 * 1000 });
-ok(!days(menlo).length && !days(oak).length, 'sheet data older than 30 min: no dates at all');
+{ const warns = []; const cw = console.warn; console.warn = (m) => warns.push(String(m));
+  useSheet(clone(LIVE), { fetchedAt: Date.now() - 31 * 60 * 1000 });
+  ok(has(menlo, '2026-12-02') && has(oak, '2026-12-04'), 'sheet data 31 min old: dates still shown (one missed sync does not blank the site)');
+  ok(warns.some((w) => /stale/.test(w) && /31 min/.test(w)), 'sheet data older than 30 min: the server logs a stale-data warning', warns);
+  useSheet(clone(LIVE), { fetchedAt: Date.now() - 5.9 * 3600e3 });
+  ok(has(menlo, '2026-12-02'), 'sheet data 5.9 h old: dates still shown');
+  useSheet(clone(LIVE), { fetchedAt: Date.now() - 6.1 * 3600e3 });
+  ok(!days(menlo).length && !days(oak).length, 'sheet data older than 6 h: no dates at all');
+  console.warn = cw; }
 useSheet({}, { fetchedAt: 0 });
 ok(!days(menlo).length, 'sheet never read: no dates (the weekly catalog never fills in)');
 { const s2 = clone(LIVE); s2['2026-12-02'].routes.push('Los Angeles'); useSheet(s2);

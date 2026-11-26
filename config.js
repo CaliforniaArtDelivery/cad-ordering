@@ -401,7 +401,10 @@ module.exports = {
       ],
     },
     // Live sheet data older than this hides every route date (Dot, CAD-ROUTE-REGIONS-001 #1). Matches lib/sheet-days FRESH_MS.
-    liveScheduleMaxAgeMs: Number(process.env.LIVE_SCHEDULE_MAX_AGE_MS || 30 * 60 * 1000),
+    // Route dates are hidden only when the live SCHEDULE digest is older than this (one missed sync must not blank the site);
+    // past liveScheduleWarnAgeMs the server logs a warning so a stuck sync is noticed long before that.
+    liveScheduleMaxAgeMs: Number(process.env.LIVE_SCHEDULE_MAX_AGE_MS || 6 * 60 * 60 * 1000),
+    liveScheduleWarnAgeMs: Number(process.env.LIVE_SCHEDULE_WARN_AGE_MS || 30 * 60 * 1000),
     rushEnabled: true,
     // No regular route days on federal and major holidays, plus Thanksgiving Friday, Christmas Eve and New Year's Eve.
     // Weekend holidays also block the observed weekday. Extend this list each year (covers bookings out to the end of 2027).
