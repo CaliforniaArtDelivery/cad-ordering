@@ -548,12 +548,49 @@ function showDone(j, how) {
 const ALL_STEPS = ['start', 'items', 'client', 'address', 'access', 'dates', 'review'];
 const visibleSteps = () => ALL_STEPS.filter((id) => id !== 'access' || needsDeliveryAccess());
 let stepI = 0, returnToReview = false, stepReady = false;
+let stepAttempted = false;
+const hintedSels = new Set();
 const stepOfSel = (sel) => { const el = $(sel); const st = el && el.closest ? el.closest('[data-step]') : null; return st ? st.dataset.step : 'review'; };
 const problemsFor = (id) => problems().filter((p) => stepOfSel(p.sel) === id);
 const firstProblemStep = () => { const vis = visibleSteps(); const ps = problems(); if (!ps.length) return vis.length - 1; const idxs = ps.map((p) => vis.indexOf(stepOfSel(p.sel))).filter((i) => i >= 0); return idxs.length ? Math.min(...idxs) : vis.length - 1; };
 function clearStepErrors() {
   document.querySelectorAll('[data-stepmsg]').forEach((e) => e.remove());
   document.querySelectorAll('#form .bad').forEach((e) => e.classList.remove('bad'));
+}
+function paintHints() {
+  const id = visibleSteps()[stepI];
+  document.querySelectorAll('#form .req-glow, #form .need-ok').forEach((e) => e.classList.remove('req-glow', 'need-ok'));
+  if (id === 'review') return;
+  const errs = problemsFor(id);
+  const errSels = new Set(errs.map((e) => e.sel));
+  const apply = (el, cls) => {
+    if (!el || (el.closest && el.closest('[hidden]'))) return;
+    el.classList.add(cls);
+  };
+  if (!stepAttempted) {
+    document.querySelectorAll('#form .bad').forEach((e) => e.classList.remove('bad'));
+    errs.forEach((e) => {
+      hintedSels.add(e.sel);
+      if (e.sel === '#sec-dates') {
+        if (!S.pickupDate) apply(document.querySelector('[data-col="pu"]'), 'req-glow');
+        if (!S.deliveryDate) apply(document.querySelector('[data-col="de"]'), 'req-glow');
+        return;
+      }
+      if (e.sel === '#sec-items') return;
+      apply($(e.sel), 'req-glow');
+    });
+  }
+  hintedSels.forEach((sel) => {
+    if (errSels.has(sel)) return;
+    if (sel === '#sec-dates' || sel === '#sec-items') return;
+    apply($(sel), 'need-ok');
+  });
+  if (stepAttempted && !errSels.has('#sec-dates')) {
+    const pu = document.querySelector('[data-col="pu"]');
+    const de = document.querySelector('[data-col="de"]');
+    if (S.pickupDate) apply(pu, 'need-ok');
+    if (S.deliveryDate) apply(de, 'need-ok');
+  }
 }
 function showStepErrors(errs, { quiet = false } = {}) {
   clearStepErrors();
@@ -577,7 +614,10 @@ function showStepErrors(errs, { quiet = false } = {}) {
   if (target && target.scrollIntoView) target.scrollIntoView({ behavior: 'smooth', block: 'center' });
   if (fel && fel.focus && /^(INPUT|SELECT|TEXTAREA)$/.test(fel.tagName)) fel.focus({ preventScroll: true });
 }
-function refreshStepErrors() { if (document.querySelector('[data-stepmsg]')) showStepErrors(problemsFor(visibleSteps()[stepI]), { quiet: true }); }
+function refreshStepErrors() {
+  if (stepAttempted) showStepErrors(problemsFor(visibleSteps()[stepI]), { quiet: true });
+  paintHints();
+}
 function frontLoadedPct(index, total, atEnd) {
   if (atEnd || total <= 1) return 100;
   const i = Math.max(0, Math.min(index, total - 1));
@@ -603,6 +643,7 @@ function showStep(i, { push = true } = {}) {
   else { pct = Math.max(pct, palProgressHigh); palProgressHigh = pct; }
   palLastIndex = i;
   $('#pbar i').style.width = pct + '%'; $('#pbar').setAttribute('aria-valuenow', String(pct));
+  if (changed) { stepAttempted = false; hintedSels.clear(); }
   clearStepErrors();
   if (isLast) { returnToReview = false; renderReview(); renderSummary(); }
   if (changed) {
@@ -612,6 +653,7 @@ function showStep(i, { push = true } = {}) {
   if (id === 'dates') renderDays();
   tidyAccessIfSkipped();
   saveDraft();
+  paintHints();
 }
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 async function waitSettled() { for (let t = 0; t < 4000 && (S.quoteBusy || availPending); t += 60) await sleep(60); }
@@ -624,11 +666,11 @@ async function goNext() {
     const err = $('#cErr'); err.hidden = false; err.textContent = 'You started a custom item. Tap “Add item” to include it, or clear the form.'; $('#cAdd').focus({ preventScroll: false }); return;
   }
   const errs = problemsFor(id);
-  if (errs.length) { showStepErrors(errs); return; }
+  if (errs.length) { stepAttempted = true; showStepErrors(errs); paintHints(); return; }
   if (returnToReview || stepI + 1 === visibleSteps().length - 1) {
     // Going to the review screen: make sure every screen is complete first.
     const all = problems();
-    if (all.length) { const sid = stepOfSel(all[0].sel); showStep(visibleSteps().indexOf(sid)); showStepErrors(problemsFor(sid)); return; }
+    if (all.length) { const sid = stepOfSel(all[0].sel); showStep(visibleSteps().indexOf(sid)); stepAttempted = true; showStepErrors(problemsFor(sid)); paintHints(); return; }
     showStep(visibleSteps().length - 1); return;
   }
   showStep(stepI + 1);

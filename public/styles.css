@@ -214,7 +214,16 @@ input:focus,select:focus,textarea:focus{border-color:var(--navy);background:#fff
 #top .brand{justify-self:center}
 
 /* Required-field cue: 2px solid underline on the bottom edge only — never a red box.
-   Missing = brand red; when filled, the bar animates to green in ~250ms. */
+   Missing = brand red; when filled, the bar animates to green in ~250ms.
+   Before Next, empty required fields get a soft accent-blue ring and glow instead. */
+.field.req-glow > input, .field.req-glow > select, .field.req-glow > textarea, .field.req-glow .seg,
+.photos.req-glow .upload, .choices.req-glow, .days.req-glow, .chips.req-glow,
+[data-reqblock].req-glow:not(.field), [data-reqblock].req-glow .seg{
+  border-color:rgba(50,100,174,.55);
+  box-shadow:0 0 0 1.5px rgba(50,100,174,.42), 0 0 0 5px rgba(50,100,174,.14), 0 0 14px rgba(50,100,174,.22);
+  transition:border-color .25s var(--ease), box-shadow .25s var(--ease);
+}
+
 .field.need > input, .field.need > select, .field.need > textarea, .field.need .seg,
 .photos.need .upload, .choices.need, .days.need, .chips.need, [data-reqblock].need,
 .field.need-ok > input, .field.need-ok > select, .field.need-ok > textarea, .field.need-ok .seg,

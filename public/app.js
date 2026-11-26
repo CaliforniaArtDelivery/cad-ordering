@@ -1556,7 +1556,8 @@ const views = {
         <div class="row">${input('contact.email', 'Email', { type: 'email', attrs: 'autocomplete="email" autocapitalize="off"', req: true })}${input('contact.phone', 'Mobile', { type: 'tel', ph: '(415) 555-0123', attrs: 'autocomplete="tel"', req: true })}</div>
       </div>`));
     out.push(panel('about', `<h1>A little about you</h1><div class="card">
-        <div class="row">${input('contact.company', 'Company (optional)')}${select('contact.clientType', 'I am a…', ['Collector', 'Gallery', 'Furniture showroom', 'Interior designer', 'Auction house', 'Artist', 'Other'], { req: true, placeholder: 'Please choose one' })}</div>
+        ${select('contact.clientType', 'I am a…', ['Collector', 'Gallery', 'Furniture showroom', 'Interior designer', 'Auction house', 'Artist', 'Other'], { req: true, placeholder: 'Please choose one' })}
+        ${input('contact.company', 'Company (optional)')}
       </div><h2>How did you find us?</h2><div class="card">
         <div class="field" data-reqblock="repeatAnswer" style="margin:0 0 12px"><label class="f">I’ve ordered with CAD before?${req}</label>${seg('heard.repeatAnswer', [['yes', 'Yes'], ['no', 'No']])}
         ${S.heard.repeatAnswer === 'yes' ? '<p class="mini" style="margin:6px 0 0">Welcome back.</p>' : ''}</div>
@@ -1972,6 +1973,7 @@ const okUntil = new Map();
 let okTimer;
 // Required fields stay neutral until the person touches them (or tries to continue): no red before interaction (Dot, Nov 18).
 const touchedSels = new Set(); let attemptedStep = false;
+const hintedSels = new Set();
 const touchFrom = (t) => {
   if (!t || !t.closest || !app.contains(t)) return;
   missingFields().forEach((m) => { const el = reqEl(m.sel); const w = reqWrap(el); if ((el && (el === t || el.contains(t))) || (w && w.contains(t))) touchedSels.add(m.sel); });
@@ -1985,25 +1987,49 @@ function paintRequired() {
   missSels.forEach((sel) => okUntil.delete(sel));
   lastMissingSels = missSels;
   const wrapFor = (m) => reqWrap(reqEl(m.sel));
-  document.querySelectorAll('.need, .need-ok').forEach((el) => {
-    el.classList.remove('need', 'need-ok');
+  const onVisiblePanel = (m) => {
+    const el = reqEl(m.sel);
+    if (!el) return false;
+    const p = el.closest('[data-panel]');
+    return p ? p.dataset.panel === sub && !p.hidden : !el.closest('[hidden]');
+  };
+  document.querySelectorAll('.need, .need-ok, .req-glow').forEach((el) => {
+    el.classList.remove('need', 'need-ok', 'req-glow');
   });
-  miss.forEach((m) => {
-    if (!attemptedStep && !touchedSels.has(m.sel)) return;
-    const w = wrapFor(m);
-    if (!w) return;
-    w.classList.add('need');
-    w.classList.remove('need-ok');
-    setReqMsg(w, m.msg || '');
-  });
-  okUntil.forEach((exp, sel) => {
-    if (exp <= now) { okUntil.delete(sel); return; }
-    const w = reqWrap(reqEl(sel));
-    if (!w) return;
-    w.classList.remove('need');
-    w.classList.add('need-ok');
-    setReqMsg(w, '');
-  });
+  if (!attemptedStep) {
+    // Before Next: empty required fields get a soft blue glow; filled ones turn green.
+    miss.forEach((m) => {
+      if (!onVisiblePanel(m)) return;
+      hintedSels.add(m.sel);
+      const w = wrapFor(m);
+      if (!w) return;
+      w.classList.add('req-glow');
+      setReqMsg(w, '');
+    });
+    hintedSels.forEach((sel) => {
+      if (missSels.has(sel)) return;
+      const w = reqWrap(reqEl(sel));
+      if (!w) return;
+      w.classList.add('need-ok');
+      setReqMsg(w, '');
+    });
+  } else {
+    miss.forEach((m) => {
+      const w = wrapFor(m);
+      if (!w) return;
+      w.classList.add('need');
+      w.classList.remove('need-ok');
+      setReqMsg(w, m.msg || '');
+    });
+    okUntil.forEach((exp, sel) => {
+      if (exp <= now) { okUntil.delete(sel); return; }
+      const w = reqWrap(reqEl(sel));
+      if (!w) return;
+      w.classList.remove('need');
+      w.classList.add('need-ok');
+      setReqMsg(w, '');
+    });
+  }
   clearTimeout(okTimer);
   if (okUntil.size) {
     const nextExp = Math.min(...okUntil.values());
@@ -2174,7 +2200,7 @@ function render() {
     else if (!sub || sub === '__missing' || !ids.includes(sub)) sub = ids[0];
   } else sub = '';
   const stepChanged = step !== lastStep || sub !== lastSub || wantMissing;
-  if (stepChanged) { touchedSels.clear(); attemptedStep = keepAttempt || wantMissing; keepAttempt = false; }
+  if (stepChanged) { touchedSels.clear(); hintedSels.clear(); attemptedStep = keepAttempt || wantMissing; keepAttempt = false; }
   const ae = document.activeElement;
   const focusId = !stepChanged && ae && app.contains(ae) ? ae.id : '';
   // Keep the caret / selection and textarea scroll, so typing after a re-render continues where it was (Dot, Nov 16).
