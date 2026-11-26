@@ -192,7 +192,6 @@
       // Older orders saved before the access questions were rebuilt.
       if (a.floor) bits.push(`Floor ${a.floor}`);
       if (a.elevator) bits.push('Elevator: yes');
-      if (a.loadingDock) bits.push('Loading dock: yes');
       const k = a.stairKind;
       if (k === 'steps') bits.push('3 steps or fewer');
       else if (k === 'half') bits.push('Half flight of stairs');

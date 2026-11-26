@@ -62,7 +62,7 @@ const fresh = () => ({
 // the tab. It comes back quietly on return, expires after DRAFT_DAYS, is cleared after a successful booking, and never holds card
 // or bank details (those fields are read straight from the payment screen and are never part of the draft).
 const DRAFT_DAYS = 14;
-const DRAFT_KEYS = ['cad-order', 'cad-step', 'cad-sub'];
+const DRAFT_KEYS = ['cad-order', 'cad-step', 'cad-sub', 'cad-ui'];
 const NEVER_SAVE = ['card', 'cardNumber', 'cvc', 'cvv', 'exp', 'expiry', 'routing', 'account', 'accountNumber'];
 const draftStore = (() => {
   let ls = null;
@@ -149,10 +149,16 @@ const zelleHtml = (amt, id, dueBy) => { const Z = CFG.payment.zelle; const due =
 let saveMethod = false;
 let busy = false;
 
-const persist = () => { if (STEPS[step] === 'Done') return; draftStore.setItem('cad-order', JSON.stringify(S)); draftStore.setItem('cad-step', String(step)); };
+// Screen-skipping flags (Nov 25 2026) and "return to review" live with the saved progress, so a refresh mid-edit still goes back to review.
+const UI = { showContact: [], showPayer: false, showList: false };
+// The payer screen is skipped while the payer is the pre-selected contact; review shows it as a line with Edit.
+const payerShown = () => UI.showPayer || !['pickup', 'dropoff'].includes(S.payer);
+let returnToReview = false; // set by Edit on the review screen: the next Next goes straight back to review
+const saveUi = () => { try { draftStore.setItem('cad-ui', JSON.stringify({ ...UI, rtr: !!returnToReview })); } catch (_) { /* ignore */ } };
+const persist = () => { if (STEPS[step] === 'Done') return; draftStore.setItem('cad-order', JSON.stringify(S)); draftStore.setItem('cad-step', String(step)); saveUi(); };
 // What actually gets priced / booked: drop fields that don't apply to the chosen service.
 const payload = () => {
-  applySameAsMe('pickup'); applySameAsMe('dropoff'); // default on-site contact = the booker
+  applySameAsMe('pickup'); applySameAsMe('dropoff'); applySamePickup(); syncDoorway('pickup'); syncDoorway('dropoff'); // default on-site contact = the booker
   const o = JSON.parse(JSON.stringify(S));
   const sv = (CFG && CFG.services[o.service]) || {};
   // "Same as me": no role is sent; the server uses the booker's own "I am a…" (never a silent default).
@@ -470,6 +476,25 @@ const applySameAsMe = (k) => {
   a.contactName = S.contact.name;
   a.contactPhone = S.contact.phone;
 };
+// "Same as pickup contact" (Nov 25 2026): the delivery contact copies the pickup contact (name, mobile, role) when that is someone else.
+const samePickupOn = () => !!(S.dropoff && S.dropoff.samePickup && S.pickup && !S.pickup.sameAsMe && svc().needsPickup);
+const applySamePickup = () => {
+  if (!samePickupOn()) { if (S.dropoff && S.dropoff.samePickup && (!S.pickup || S.pickup.sameAsMe)) S.dropoff.samePickup = false; return; }
+  const a = S.dropoff, pu = S.pickup;
+  a.sameAsMe = false; a.contactName = pu.contactName; a.contactPhone = pu.contactPhone; a.contactRole = pu.contactRole; a.contactRoleOther = pu.contactRoleOther;
+};
+// Fewer screens on a simple order (Nov 25 2026):
+// - the contact screen is skipped while "I'm the contact" is on (a one-line "Contact: you · Change" sits on the access screen);
+// - normal-size pieces get one tap "Standard doorway and hallway?" on the access screen; "Doors and fit" opens only on No.
+const contactShown = (k) => !(S[k] && S[k].sameAsMe) || UI.showContact.includes(k);
+const doorsShown = (k) => CADAccess.firm(S.items) || (S[k] && S[k].stdDoorway === 'no');
+function syncDoorway(k) {
+  const a = S[k]; if (!a) return;
+  if (CADAccess.firm(S.items)) { if (a.fitsAuto) { a.fits = ''; a.fitsAuto = false; } return; }
+  if (!a.stdDoorway && (a.fits || a.doorway)) a.stdDoorway = a.fits === 'yes' && a.doorway !== 'not_sure' ? 'yes' : 'no';
+  if (a.stdDoorway === 'yes') { if (a.fits !== 'yes') { a.fits = 'yes'; a.fitsAuto = true; } if (a.doorway === 'not_sure') a.doorway = ''; }
+  else if (a.stdDoorway === 'no' && a.fitsAuto) { a.fits = ''; a.fitsAuto = false; }
+}
 const syncHeardPayload = (o) => {
   const h = { ...emptyHeard(), ...(o.heard || {}) };
   if (h.repeatClient || !HEARD_DETAIL[h.source]) h.sourceDetail = '';
@@ -954,6 +979,18 @@ const protectionNote = (q) => (q && q.protection && q.protection.amount > 0
   : '');
 const PROTECTION_DOCK = 'Includes declared value protection';
 const weightRequired = (it) => shipService() || it.type === 'sculpture' || it.type === 'other';
+// Weight (Chad, Nov 25 2026): optional and skippable, and only asked where it matters: sculptures, furniture, mirrors, and large or
+// wood-panel pieces. A regular framed painting doesn't ask (size and framing tell us enough). Already-answered weights stay visible.
+const WEIGHT_LARGE_IN = 48;
+const askWeight = (it) => {
+  if (!it) return false;
+  if (shipService() || weightRequired(it)) return true;
+  if (it.weightUnsure || num(it.weight) > 0) return true;
+  const t = it.type || 'painting';
+  if (t === 'furniture' || CADAccess.pieceType(it) === 'mirror') return true;
+  if (CADAccess.needsWeightHint(it)) return true; // works on panel
+  return Math.max(num(it.w), num(it.h), num(it.d)) >= WEIGHT_LARGE_IN || ['large', 'xlarge'].includes(it.sizeClassOnly ? it.sizeClass : '');
+};
 const weightOk = (it) => !weightRequired(it) || !!it.weightUnsure || num(it.weight) > 0;
 function updateItemHints(i) {
   const it = S.items[i]; if (!it) return;
@@ -1034,7 +1071,7 @@ const shipExtras = (item, i) => {
 };
 const shipReady = () => S.items.every((it) => weightOk(it) && num(it.value) > 0 && dimsOk(it))
   && !!S.shipping.serviceLevel && !!(S.shipping.shipBy || S.shipping.flexible);
-const LEVELS = [['curbside', 'Curbside', 'Delivered to the curb or loading dock.'], ['inside', 'Inside delivery', 'Carried in and placed in the room of your choice.'], ['unpack', 'Inside + unpack & install', 'We unpack, place or hang, and check every piece.'], ['unpack_debris', 'Unpack, install + debris removal', 'Full white glove: all packing removed.']];
+const LEVELS = [['curbside', 'Curbside', 'Delivered to the curb or front entry.'], ['inside', 'Inside delivery', 'Carried in and placed in the room of your choice.'], ['unpack', 'Inside + unpack & install', 'We unpack, place or hang, and check every piece.'], ['unpack_debris', 'Unpack, install + debris removal', 'Full white glove: all packing removed.']];
 const levelText = (v) => (LEVELS.find((l) => l[0] === v) || [, '—'])[1];
 const timingText = (s) => [s.shipBy && `Ship by ${shortDate(s.shipBy)}`, s.arriveBy && `Arrive by ${shortDate(s.arriveBy)}`, s.flexible ? 'Flexible' : ''].filter(Boolean).join(' · ') || 'Flexible';
 const destText = (a) => [a.street, [a.city, intlDest(a) ? '' : a.state].filter(Boolean).join(', '), a.zip, intlDest(a) ? a.country : ''].filter(Boolean).map(esc).join(', ');
@@ -1078,13 +1115,13 @@ const pieceCare = (item, i, ship) => {
   } else {
     const value = input(`${p}.value`, 'Declared value per piece ($)', { ph: 'e.g. 12,000', attrs: 'inputmode="numeric"', req: true })
       + `<p class="mini" style="margin:-4px 0 8px" data-valhint="${i}">${valueHint(item)}</p>` + checkValueNote(item);
-    h = `${needsWeight ? weightField(item, i, { required: true }) : weightField(item, i, { required: false, approx: true })}
+    h = `${needsWeight ? weightField(item, i, { required: true }) : ''}
         ${type === 'custom' ? '' : value}
         ${type === 'other' ? '<p class="mini" style="margin:0 0 6px">Priced by weight from our sculpture rates. The price covers pickup, delivery and placement wherever you want it. CAD may adjust the price after seeing photos.</p>' : ''}
         ${type === 'sculpture' ? '<p class="mini" style="margin:0 0 6px">One weight-based price covers pickup, delivery and placement wherever you want it.</p>' : ''}
         ${hasInstall() && type === 'decor' && quoteHangList().includes(item.furnitureKind) ? `<p class="mini" style="margin:0 0 6px">${esc(item.furnitureKind)} hanging isn’t on our rate card, so this becomes a quick quote request.</p>` : ''}
         ${type === 'furniture' ? '<p class="mini" style="margin:0 0 6px">One price covers pickup, delivery and placement wherever you want it.</p>' : ''}
-        ${!needsWeight ? weightField(item, i, { approx: true }) : ''}
+        ${!needsWeight && askWeight(item) ? weightField(item, i, { approx: true }) : ''}
         ${handlingBlock(item, i)}`;
   }
   return `${h}
@@ -1169,8 +1206,8 @@ const quickEditBlock = () => {
         ${FRAMING_TYPES.includes(it.type || 'painting') ? `<div class="field"><label class="f">Framed?</label>${seg(`${p}.framed`, [['yes', 'Yes'], ['no', 'No']])}</div>` : ''}
         ${it.type !== 'custom' ? input(`${p}.value`, 'Declared value ($)', { ...ip, ph: 'e.g. 12,000', attrs: 'inputmode="numeric"' }) : ''}
         ${it.checkValue ? `<button type="button" class="pill-btn" data-valok="${esc(it.id)}">Value is right</button>` : ''}
-        <div class="field"><div class="qweight"><label class="f" for="q-${p}.weight">Weight (lb)</label><button type="button" class="pill-btn ${it.weightUnsure ? 'on' : ''}" data-weightunsure="${i}">${it.weightUnsure ? '✓ Not sure' : 'Not sure'}</button></div>
-          ${it.weightUnsure ? '<p class="mini">No problem, you can skip this.</p>' : input(`${p}.weight`, '', { ...ip, ph: 'e.g. 40', attrs: 'inputmode="decimal" aria-label="Weight in pounds"' })}</div>
+        ${askWeight(it) ? `<div class="field"><div class="qweight"><label class="f" for="q-${p}.weight">Weight (lb)</label><button type="button" class="pill-btn ${it.weightUnsure ? 'on' : ''}" data-weightunsure="${i}">${it.weightUnsure ? '✓ Not sure' : 'Not sure'}</button></div>
+          ${it.weightUnsure ? '<p class="mini">No problem, you can skip this.</p>' : input(`${p}.weight`, '', { ...ip, ph: 'e.g. 40', attrs: 'inputmode="decimal" aria-label="Weight in pounds"' })}</div>` : ''}
         ${toggle(`${p}.fragile`, 'Special handling needed', '', true)}
         ${input(`${p}.materialNotes`, 'Material or notes (optional)', { ...ip, ph: 'e.g. ceramic vase, glass top' })}
         ${editBtn(`0:p${i}a`, 'Open all details')}
@@ -1225,7 +1262,7 @@ function payerCardHtml() {
   return `<div class="card">${seg('payer', payerOptions())}
         ${S.payer === 'other' ? `<div class="row" style="margin-top:12px">${input('payerOther.name', 'Payer name', { req: true })}${input('payerOther.email', 'Payer email', { type: 'email', req: true, attrs: 'autocapitalize="off" autocomplete="email"' })}</div>
         ${input('payerOther.phone', 'Payer phone', { type: 'tel', req: true, ph: '(415) 555-0123', attrs: 'autocomplete="tel"' })}` : ''}
-        ${S.payer === 'partner' && !(isBizReferral() && (S.heard.businessName || S.heard.referrerName || S.partner.name)) ? `<p class="mini">Add the referring partner in <button type="button" class="edit" style="padding:0" data-goto="1:heard">Where</button> so we know who to bill.</p>` : ''}</div>`;
+        ${S.payer === 'partner' && !(isBizReferral() && (S.heard.businessName || S.heard.referrerName || S.partner.name)) ? `<p class="mini">Add the referring partner in <button type="button" class="edit" style="padding:0" data-goto="1:about">Where</button> so we know who to bill.</p>` : ''}</div>`;
 }
 function payerNameLabel() {
   if (S.payer === 'other') return S.payerOther.name || 'Someone else';
@@ -1268,22 +1305,24 @@ const views = {
       S.items.forEach((item, i) => {
         panels.push(panel(`p${i}a`, `<h1>${pieceTitle(i)}</h1>${itemA(item, i)}`));
         if (pieceHasSize(item, ship)) panels.push(panel(`p${i}b`, `<h1>How big is it?</h1>${pieceTag(item, i)}<div class="card">${pieceSize(item, i, ship)}</div>`));
-        panels.push(panel(`p${i}c`, `<h1>${ship ? 'Weight, value and care' : 'Value and care'}</h1>${pieceTag(item, i)}<div class="card">${pieceCare(item, i, ship)}</div>`));
+        panels.push(panel(`p${i}c`, `<h1>${ship ? 'Weight, value and care' : 'Value and care'}</h1>${pieceTag(item, i)}<div class="card">${pieceCare(item, i, ship)}</div>${S.items.length === 1 ? `<button type="button" class="add" id="addItem">＋ Add another piece</button><p class="mini" style="text-align:center;margin-top:8px">Several similar pieces? <button type="button" class="link" data-duplist="${esc(item.id)}">Duplicate this piece</button></p>` : ''}`));
       });
-      panels.push(panel('pieces-more', `<h1>Anything else to ${svcVerbShort()}?</h1>
+      // One piece: no list screen (Add another piece is on the value screen). Two or more: the list screen to check, copy or remove.
+      if (S.items.length > 1 || UI.showList) panels.push(panel('pieces-more', `<h1>Anything else to ${svcVerbShort()}?</h1>
         ${flaggedPieces().length > 1 ? valueConfirmCard('list') : ''}
         ${listSummary()}
         <div class="card pc-list" data-pclist>${S.items.map((it, i) => pieceListRow(it, i)).join('')}</div>
         <button type="button" class="add" id="addItem">＋ Add another piece</button>
         ${quickEditBlock()}
         ${ship ? '<p class="mini">Shipping is custom quoted. We’ll email your price before anything is charged.</p>' : ''}`));
+      if (S.items.length === 1 && ship) panels[panels.length - 1] = panels[panels.length - 1].replace('</section>', '<p class="mini">Shipping is custom quoted. We’ll email your price before anything is charged.</p></section>');
     }
     return panels.join('');
   },
 
   Where() {
     // "Same as me" is the default on-site contact, so keep its name and mobile in step with the booker's before the panels draw.
-    applySameAsMe('pickup'); applySameAsMe('dropoff');
+    applySameAsMe('pickup'); applySameAsMe('dropoff'); applySamePickup(); syncDoorway('pickup'); syncDoorway('dropoff');
     const oos = () => (outOfState() ? `<p class="note" data-oos>${OOS_NOTE}</p>` : '');
     const addrPanel = (key, optional = false) => {
       const a = get(key);
@@ -1318,9 +1357,11 @@ const views = {
       const a = get(key);
       // Chad, Nov 21 2026: "Pickup contact" / "Delivery contact". Nobody has to be on site, so no "let us in" line.
       return panel(`${key}-contact`, `<h1>Who’s the ${whereWord(key)} contact?</h1><div class="card">
-        <div class="sub-head first"><span><b>${whereWord(key)[0].toUpperCase() + whereWord(key).slice(1)}</b> contact</span><button type="button" class="pill-btn ${a.sameAsMe ? 'on' : ''}" data-same="${key}">${a.sameAsMe ? '✓ Same as me' : 'Same as me'}</button></div>
+        <div class="sub-head first"><span><b>${whereWord(key)[0].toUpperCase() + whereWord(key).slice(1)}</b> contact</span></div>
+        <div class="contact-picks"><label class="chk" data-samewrap="${key}"><input type="checkbox" data-same="${key}" ${a.sameAsMe ? 'checked' : ''}> I’m the ${whereWord(key)} contact</label>
+        ${key === 'dropoff' && svc().needsPickup && !S.pickup.sameAsMe ? `<label class="chk" data-samepuwrap><input type="checkbox" data-samepu ${a.samePickup ? 'checked' : ''}> Same as pickup contact${S.pickup.contactName ? ` (${esc(S.pickup.contactName)})` : ''}</label>` : ''}</div>
         <div class="row keep">${input(`${key}.contactName`, 'Name', { ph: 'Name', req: !optional })}${input(`${key}.contactPhone`, 'Mobile', { type: 'tel', ph: '(310) 555-0100', req: !optional, attrs: 'autocomplete="tel"' })}</div>
-        <div data-rolewrap="${key}" ${a.sameAsMe ? 'hidden' : ''}>${select(`${key}.contactRole`, roleLabel(key), CONTACT_ROLES, { req: !optional, placeholder: 'Please choose one', rerender: true })}
+        <div data-rolewrap="${key}" ${a.sameAsMe || (key === 'dropoff' && samePickupOn()) ? 'hidden' : ''}>${select(`${key}.contactRole`, roleLabel(key), CONTACT_ROLES, { req: !optional, placeholder: 'Please choose one', rerender: true })}
         ${a.contactRole === 'Other' ? input(`${key}.contactRoleOther`, 'Describe their role', { req: true, ph: 'e.g. House sitter' }) : ''}</div>
       </div>`);
     };
@@ -1328,9 +1369,11 @@ const views = {
       const a = get(key);
       const ab = accessBlock(key, a);
       const at = `<p class="sub">${key === 'pickup' ? 'Pickup' : S.service === 'install_only' ? 'Install' : shipService() ? 'Destination' : 'Delivery'}${a.street ? ' · ' + esc(a.street) : ''}</p>`;
+      const me = !contactShown(key) ? `<p class="mini contact-line" data-contactline="${key}">Contact: you${a.contactName ? ` (${esc(a.contactName)})` : ''} <button type="button" class="link" data-showcontact="${key}">Change</button></p>` : '';
+      const std = !CADAccess.firm(S.items) ? `<div class="field" data-reqblock="${key}-stdDoorway" style="margin:14px 0 0"><label class="f">Standard doorway and hallway?${req}</label>${seg(`${key}.stdDoorway`, [['yes', 'Yes'], ['no', 'No']])}<p class="mini" style="margin:6px 0 0">No tight doorways, narrow halls or sharp turns on the way in.</p></div>` : '';
       return [
-        panel(`${key}-access`, `<h1>${pathQuestion(key)}</h1>${at}<div class="card">${ab.inn}</div>`),
-        panel(`${key}-doors`, `<h1>Doors and fit</h1>${at}<div class="card">${ab.doors || '<p class="mini" style="margin:0">Tell us how we reach the spot first.</p>'}</div>`),
+        panel(`${key}-access`, `<h1>${pathQuestion(key)}</h1>${at}${me}<div class="card">${ab.inn}${std}</div>`),
+        doorsShown(key) ? panel(`${key}-doors`, `<h1>Doors and fit</h1>${at}<div class="card">${ab.doors || '<p class="mini" style="margin:0">Tell us how we reach the spot first.</p>'}</div>`) : '',
       ];
     };
     const out = [];
@@ -1340,8 +1383,7 @@ const views = {
       </div>`));
     out.push(panel('about', `<h1>A little about you</h1><div class="card">
         <div class="row">${input('contact.company', 'Company (optional)')}${select('contact.clientType', 'I am a…', ['Collector', 'Gallery', 'Furniture showroom', 'Interior designer', 'Auction house', 'Artist', 'Other'], { req: true, placeholder: 'Please choose one' })}</div>
-      </div>`));
-    out.push(panel('heard', `<h1>How did you find us?</h1><div class="card">
+      </div><h2>How did you find us?</h2><div class="card">
         ${toggle('heard.repeatClient', 'I’ve ordered with CAD before', 'Welcome back.', true)}
         ${!S.heard.repeatClient ? `${select('heard.source', 'How did you hear about us?', HEARD_SOURCES, { req: true, placeholder: 'Please choose one', rerender: true })}
         ${S.heard.source === 'referral' ? `${select('heard.referrerKind', 'Who referred you?', REFERRER_KINDS, { req: true, placeholder: 'Please choose one', rerender: true })}
@@ -1352,8 +1394,8 @@ const views = {
         ${HEARD_DETAIL[S.heard.source] ? input('heard.sourceDetail', HEARD_DETAIL[S.heard.source][0], { ph: HEARD_DETAIL[S.heard.source][1] }) : ''}
         ${S.heard.source === 'other' ? input('heard.sourceOther', 'Tell us where', { req: true, ph: 'Where did you hear about us?' }) : ''}` : ''}
       </div>`));
-    if (svc().needsPickup) { out.push(addrPanel('pickup'), contactPanel('pickup'), ...accessPanels('pickup')); }
-    out.push(addrPanel('dropoff'), contactPanel('dropoff'), ...accessPanels('dropoff'));
+    if (svc().needsPickup) { out.push(addrPanel('pickup'), contactShown('pickup') ? contactPanel('pickup') : '', ...accessPanels('pickup')); }
+    out.push(addrPanel('dropoff'), contactShown('dropoff') ? contactPanel('dropoff') : '', ...accessPanels('dropoff'));
     const da = get('dropoff');
     if (intlDest(da) && shipService()) {
       out.push(panel('customs', `<h1>Customs / import contact</h1><p class="sub">The person or broker who clears the shipment at the destination. Leave blank if it’s the recipient.</p><div class="card">
@@ -1362,7 +1404,7 @@ const views = {
     }
     if (hasHanging() && !isShip()) {
       out.push(panel('hang', `<h1>About the walls</h1><p class="sub">For hanging.</p><div class="card">
-        ${select('dropoff.wallType', 'Wall type', ['Not sure', 'Drywall', 'Plaster', 'Concrete / brick', 'Wood', 'Tile / stone', 'Glass'])}
+        ${select('dropoff.wallType', 'Wall type (optional)', ['Not sure', 'Drywall', 'Plaster', 'Concrete / brick', 'Wood', 'Tile / stone', 'Glass'], { placeholder: 'Please choose one' })}
         ${S.items.map((it, i) => (isHung(it) ? hardwareField(it, i) : '')).join('')}</div>`));
       S.items.forEach((it, i) => { if (isHung(it)) out.push(panel(`hang-p${i}`, `<h1>How high should we hang it?</h1><div class="card">${hangPieceBlock(it, i)}</div>`)); });
     }
@@ -1455,7 +1497,7 @@ const views = {
     const siteRows = (label, a, goto) => (a && a.street ? `<div class="sum-row"><span>${label}</span><span>${addr(a)}<br><span class="muted">${esc(a.contactName)} · ${esc(formatPhone(a.contactPhone))}${a.sameAsMe ? (S.contact.clientType ? ` · ${esc(S.contact.clientType)}` : '') : a.contactRole ? ` · ${esc(a.contactRole === 'Other' ? (a.contactRoleOther || 'Other') : a.contactRole)}` : ''}</span> ${editBtn(goto)}</span></div>` : '');
     const payerCard = payerCardHtml();
     const payerName = payerNameLabel();
-    return panel('payer', `<h1>Who’s paying?</h1>${payerCard}`)
+    return (payerShown() ? panel('payer', `<h1>Who’s paying?</h1>${payerCard}`) : '')
       + panel('review', `<h1>${sp ? 'Review your order' : 'Review & pay'}</h1><p class="sub">${sp ? 'Check the details, then send it to our team for pricing.' : 'Your job is booked as soon as payment goes through.'}</p>${valueConfirmCard('review')}
       ${promiseCard(tripLine() || (date && date.routeLabel) || (avail && avail.region ? avail.region + ' route' : 'Route day'), 'margin-top:0', '2:date')}
       <div class="card">
@@ -1481,7 +1523,7 @@ const views = {
     const declared = S.items.reduce((s, it) => s + num(it.value), 0);
     const payerName = payerNameLabel();
     const payerCard = payerCardHtml();
-    return panel('payer', `<h1>Who’s paying?</h1>${payerCard}`)
+    return (payerShown() ? panel('payer', `<h1>Who’s paying?</h1>${payerCard}`) : '')
       + panel('review', `<h1>Review your shipping request</h1><p class="sub">Our shipping team prices your shipment and emails you a quote. Nothing is charged until you authorize payment.</p>${valueConfirmCard('review')}
       ${outOfState() ? `<p class="note" data-oos>${OOS_NOTE}</p>` : ''}
       <div class="promise quote" style="margin-top:0"><span class="pi">✈</span><span><b>${esc(timingText(sh))}</b><span>${esc(levelText(sh.serviceLevel))}</span></span>${editBtn('2:ship-timing')}</div>
@@ -1676,6 +1718,7 @@ function missingFields(name = STEPS[step]) {
         doorPhotos: [`[data-accessupload="${key}.doorPhotos"]`, 'Photos of the tight spot', 'Please add a photo of the tight spot and the way in.'],
       };
       CADAccess.gaps(a, S.items).forEach((g) => { const [sel, label, msg] = ACCESS_GAP[g]; add(sel, `${label} — ${where}`, msg); });
+      if (!isShip() && !CADAccess.firm(S.items) && !['yes', 'no'].includes(a.stdDoorway)) add(`[data-seg="${key}.stdDoorway"]`, `Standard doorway and hallway? — ${where}`, 'Please tap Yes or No.');
     });
     S.items.forEach((it, i) => {
       if (pieceNeedsStairwellFit(it) && !it.fitsStairwell) add(`[data-reqblock="stairwellFit-${i}"]`, `Stairwell fit — ${pieceName(i)}`, 'Please check the box to continue.');
@@ -1705,7 +1748,7 @@ function missingFields(name = STEPS[step]) {
       if (!/\S+@\S+\.\S+/.test(S.payerOther.email || '')) add('#f-payerOther.email', 'Payer email', 'Please enter the payer’s email.');
       if (String(S.payerOther.phone || '').replace(/\D/g, '').length < 7) add('#f-payerOther.phone', 'Payer phone', 'Please enter the payer’s phone number.');
     }
-    if (S.payer === 'partner' && !(isBizReferral() && (S.heard.businessName || S.heard.referrerName || S.partner.name))) add('[data-goto="1:heard"]', 'Referring partner', 'Please add the referring partner in Where so we know who to bill.');
+    if (S.payer === 'partner' && !(isBizReferral() && (S.heard.businessName || S.heard.referrerName || S.partner.name))) add('[data-goto="1:about"]', 'Referring partner', 'Please add the referring partner in Where so we know who to bill.');
     return out;
   }
   return out;
@@ -1849,6 +1892,7 @@ function refreshQuote() {
 // Description step only: the Next label names the following screen so people don't type size into the description.
 // One piece per p{i}a panel today; if that panel ever listed several pieces, use the generic "sizes" / "values" wording.
 function nextLabelsForStep() {
+  if (returnToReview && STEPS[step] !== 'Pay' && !existing) return ['Back to review'];
   if (STEPS[step] !== 'What') return ['Next'];
   const m = /^p(\d+)a$/.exec(String(sub || ''));
   if (!m) return ['Next'];
@@ -2116,7 +2160,7 @@ app.addEventListener('input', (e) => {
   if (p === 'dropoff.state') shipStateTyped = true;
   if (p === 'contact.name' || p === 'contact.phone') syncSameAsMe();
   const m = p.match(/^(pickup|dropoff)\.contact(Name|Phone)$/);
-  if (m && S[m[1]].sameAsMe) { S[m[1]].sameAsMe = false; persist(); const b = app.querySelector(`[data-same="${m[1]}"]`); if (b) { b.classList.remove('on'); b.textContent = 'Same as me'; } const rw = app.querySelector(`[data-rolewrap="${m[1]}"]`); if (rw) rw.hidden = false; paintButton(); }
+  if (m && S[m[1]].sameAsMe) { S[m[1]].sameAsMe = false; persist(); const b = app.querySelector(`[data-same="${m[1]}"]`); if (b) b.checked = false; const rw = app.querySelector(`[data-rolewrap="${m[1]}"]`); if (rw) rw.hidden = false; paintButton(); }
   const hint = p.match(/^items\.(\d+)\.(weight|value)$/);
   if (hint && hint[2] === 'value' && S.items[+hint[1]] && S.items[+hint[1]].checkValue) { S.items[+hint[1]].checkValue = false; persist(); { const pid = S.items[+hint[1]].id; app.querySelectorAll(`[data-checkvalnote="${pid}"], [data-piece-id="${pid}"] [data-checkvalue]`).forEach((el) => el.remove()); } }
   if (hint) updateItemHints(+hint[1]);
@@ -2224,9 +2268,11 @@ async function checkZipCity(key) {
   if (zp.some((pl) => norm(pl.name) === norm(city))) return show('');
   // Only flag a clear mismatch: the ZIP is more than 15 miles from every ZIP of the typed city (neighborhood names never trip it).
   if (cp.length && cp.some((c) => milesApart(c, zp[0].at) <= 15)) return show('');
-  if (!cp.length) return show(''); // unknown city name (or the lookup is down): stay quiet
   const nm = esc(zp[0].name);
-  show(`<b>City and ZIP don’t match.</b> ZIP ${esc(zip)} is in ${nm}, not ${esc(city)}. <span class="zip-actions"><button type="button" class="link" data-zipfix="${key}" data-city="${nm}">Use ${nm}</button><button type="button" class="link muted" data-zipedit="${key}">Fix the ZIP</button></span>`, { zip, city, place: zp[0].name });
+  const fixes = `<span class="zip-actions"><button type="button" class="link" data-zipfix="${key}" data-city="${nm}">Use ${nm}</button><button type="button" class="link muted" data-zipedit="${key}">Fix the ZIP</button></span>`;
+  // Unknown city name (often a typo like "Menlo Prk"): a one-tap suggestion, never a block. The ZIP sets the route either way.
+  if (!cp.length) return show(`That ZIP is in ${nm}. Use ${nm}? ${fixes}`);
+  show(`<b>City and ZIP don’t match.</b> ZIP ${esc(zip)} is in ${nm}, not ${esc(city)}. Use ${nm}? ${fixes}`, { zip, city, place: zp[0].name });
 }
 function syncOosNote() {
   if (STEPS[step] !== 'Where') return;
@@ -2268,7 +2314,9 @@ const itemKey = () => S.items.map((i) => itemPhotoReason(i) + (num(i.value) > 50
 const shipKey = () => `${isShip()}|${intlDest(S.dropoff)}`;
 let lastShipKey = '', lastPhotoKey = '';
 app.addEventListener('click', async (e) => {
-  const t = e.target.closest('button'); if (!t) return;
+  const t = e.target.closest('button,input[data-same],input[data-samepu]'); if (!t) return;
+  if (t.dataset.duplist) { UI.showList = true; saveUi(); dupAsk = t.dataset.duplist; dupCount = 1; removeAskId = ''; sub = 'pieces-more'; render(); const n = $('#dup-n'); if (n) { n.focus(); n.select(); } return; }
+  if (t.dataset.showcontact) { const k = t.dataset.showcontact; if (!UI.showContact.includes(k)) UI.showContact.push(k); saveUi(); sub = `${k}-contact`; render(); return; }
   if (t.hasAttribute('data-discount-apply')) { applyDiscount(); return; }
   if (t.hasAttribute('data-discount-remove')) { S.discountCode = ''; discountMsg = null; persist(); refreshQuote(); paintDiscount(); return; }
   if (t.dataset.zipedit) { const z = document.getElementById(`f-${t.dataset.zipedit}.zip`); if (z) { z.focus(); z.select && z.select(); } return; }
@@ -2317,7 +2365,7 @@ app.addEventListener('click', async (e) => {
   if (t.dataset.removeyes != null) {
     const ix = S.items.findIndex((x) => x.id === t.dataset.removeyes);
     removeAskId = '';
-    if (ix >= 0 && S.items.length > 1) { const gone = pieceTitle0(S.items[ix], ix); S.items.splice(ix, 1); persist(); sub = 'pieces-more'; render(); uploadToast(`${gone} removed. The price is updated.`); } else render();
+    if (ix >= 0 && S.items.length > 1) { const gone = pieceTitle0(S.items[ix], ix); S.items.splice(ix, 1); persist(); sub = S.items.length > 1 ? 'pieces-more' : 'p0c'; render(); uploadToast(`${gone} removed. The price is updated.`); } else render();
     return;
   }
   if (t.dataset.dupopen != null) { dupAsk = t.dataset.dupopen; dupCount = 1; dupPhotos = false; removeAskId = ''; render(); const n = $('#dup-n'); if (n) { n.scrollIntoView({ block: 'center' }); n.focus(); n.select(); } return; }
@@ -2330,13 +2378,23 @@ app.addEventListener('click', async (e) => {
   if (t.dataset.same) {
     const a = S[t.dataset.same];
     a.sameAsMe = !a.sameAsMe;
-    if (a.sameAsMe) applySameAsMe(t.dataset.same);
+    if (a.sameAsMe) { applySameAsMe(t.dataset.same); if (t.dataset.same === 'dropoff') a.samePickup = false; }
+    else { a.contactName = ''; a.contactPhone = ''; }
+    persist(); render(); return;
+  }
+  if (t.dataset.samepu != null) {
+    const a = S.dropoff;
+    a.samePickup = !a.samePickup;
+    if (a.samePickup) applySamePickup(); else { a.contactName = ''; a.contactPhone = ''; a.contactRole = ''; a.contactRoleOther = ''; }
     persist(); render(); return;
   }
   if (t.dataset.goto != null) {
     // "1:pickup-addr" = Where, Pickup address. From the review screen, the next Next brings them straight back to it.
     const [gs, gp] = String(t.dataset.goto).split(':');
     if (STEPS[step] === 'Pay' && !existing) returnToReview = true;
+    { const cm = /^(pickup|dropoff)-contact$/.exec(gp || ''); if (cm && !UI.showContact.includes(cm[1])) UI.showContact.push(cm[1]); }
+    if (gp === 'payer') UI.showPayer = true;
+    saveUi();
     returnToList = +gs === 0 && STEPS[step] === 'What' && sub === 'pieces-more' && /^p\d+a$/.test(gp || '');
     step = +gs; sub = gp || ''; render(); return;
   }
@@ -2345,6 +2403,9 @@ app.addEventListener('click', async (e) => {
   if (hp) { const it = S.items[+hp[1]]; const v = t.dataset.v; if (v === 'standard') { it.hangHeight = 'standard'; it.hangWhere = ''; } else { it.hangHeight = 'higher'; it.hangWhere = v; } set(sg.dataset.seg, v); render(); return; }
   const pth = sg && sg.dataset.seg.match(/^(pickup|dropoff)\.pathPick$/);
   if (pth) { setPathPick(pth[1], t.dataset.v); render(); return; }
+  const sdw = sg && sg.dataset.seg.match(/^(pickup|dropoff)\.stdDoorway$/);
+  if (sdw) { S[sdw[1]].stdDoorway = t.dataset.v; syncDoorway(sdw[1]); persist(); render(); return; }
+  if (sg && /^(pickup|dropoff)\.fits$/.test(sg.dataset.seg)) S[sg.dataset.seg.split('.')[0]].fitsAuto = false;
   const acc = sg && sg.dataset.seg.match(/^(pickup|dropoff)\.(accessMode|stairFlights|stairDir|stairTurns|serviceElevator|elevatorType|elevatorFit|pathType|elevatorStairs|doorway|fits)$/);
   if (acc) { setAccessAnswer(acc[1], sg.dataset.seg, t.dataset.v); render(); return; }
   if (sg) { const v = t.dataset.v; set(sg.dataset.seg, isNaN(v) ? v : Number(v)); render(); return; }
@@ -2489,7 +2550,6 @@ $('#backBtn').addEventListener('click', () => {
 const needLine = $('#needLine');
 if (needLine) needLine.addEventListener('click', () => revealFirstMissing());
 
-let returnToReview = false;
 // Edit or "fix" on one piece from the list: after that piece's last screen, Next goes back to the list, not on to the next piece.
 let returnToList = false;
 // After Edit on the review screen: check the booking is still complete and go straight back to the review.
@@ -2509,7 +2569,7 @@ async function backToReview() {
     if (n === 'When' && !isShip() && !avail) continue;
     if (missingFields(n).length) { step = STEPS.indexOf(n); sub = '__missing'; render(); return; }
   }
-  returnToReview = false;
+  returnToReview = false; saveUi();
   step = STEPS.indexOf('Pay'); sub = '__last'; render();
 }
 async function goNext() {
@@ -2569,6 +2629,7 @@ app.addEventListener('keydown', (e) => {
     else sessionStorage.removeItem('cad-done');
   } else if (S.service) {
     // Returning mid-booking: land on the step they were on (never past one that still needs answers).
+    try { const u = JSON.parse(draftStore.getItem('cad-ui') || 'null'); if (u) { UI.showContact = Array.isArray(u.showContact) ? u.showContact.filter((k) => k === 'pickup' || k === 'dropoff') : []; UI.showPayer = !!u.showPayer; UI.showList = !!u.showList; returnToReview = !!u.rtr; } } catch (_) { /* ignore */ }
     const saved = Math.min(Math.max(0, parseInt(draftStore.getItem('cad-step'), 10) || 0), STEPS.indexOf('Pay'));
     if (saved >= STEPS.indexOf('When') && !isShip()) {
       const r = await api('/api/availability', payload());

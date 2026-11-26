@@ -45,6 +45,8 @@ exports.uiTests = async (H) => {
     else await next();
   }
   const rowCount = () => page.locator('[data-piece-row]').count();
+  // Nov 25 2026: a one-piece order skips the list screen; Add another piece is on the value screen (Back from Where lands there).
+  const addPiece = async () => { if ((await panel()) === 'you') { await page.click('#backBtn'); await page.waitForTimeout(300); } await page.click('[data-panel]:not([hidden]) #addItem'); await page.waitForTimeout(250); };
   const freshQuoteMatches = async (label) => {
     await settle(); await page.waitForTimeout(200); await settle();
     const body = lastQuote && lastQuote.req; const st = await state();
@@ -99,7 +101,13 @@ exports.uiTests = async (H) => {
   ok((await page.locator('[data-path$=".qty"]').count()) === 0 && !/\bQty\b/.test(await page.content()), 'there is no quantity control anywhere');
   await shot('01-what-is-it');
   await fillPiece(0, { desc: 'Canvas', value: 12000, fragile: true, photo: true });
-  ok((await panel()) === 'pieces-more', 'after the value screen we land on "Anything else to deliver?"');
+  // Nov 25 2026: one piece skips the list screen (Add another piece / Duplicate this piece sit on the value screen).
+  ok((await panel()) === 'you', 'one piece: after the value screen we go straight to Where (no list screen)', await panel());
+  await page.click('#backBtn'); await page.waitForTimeout(400);
+  ok((await panel()) === 'p0c' && (await page.locator('[data-panel="p0c"] #addItem').count()) === 1, 'Back lands on the value screen, which has Add another piece');
+  await page.click('[data-duplist]'); await page.waitForTimeout(400);
+  ok((await panel()) === 'pieces-more', 'Duplicate this piece opens the list screen');
+  await page.click('[data-dupcancel]'); await page.waitForTimeout(300);
   {
     const t = await page.textContent('[data-panel="pieces-more"] h1');
     ok(/Anything else to deliver\?/.test(t), 'heading: Anything else to deliver?');
@@ -279,7 +287,8 @@ exports.uiTests = async (H) => {
   {
     await freshStart();
     await fill(`items.0.description`, 'Care test'); await next();
-    await fill(`items.0.w`, 30); await fill(`items.0.h`, 40); await fill(`items.0.d`, 2);
+    // Nov 25 2026: weight is asked only for large (48 in.+), panel, mirror, sculpture and furniture pieces; a 50 in. canvas asks.
+    await fill(`items.0.w`, 50); await fill(`items.0.h`, 40); await fill(`items.0.d`, 2);
     await page.click('[data-seg="items.0.framed"] [data-v="no"]'); if (await page.$(`[data-seg="items.0.glazing"]`)) await page.click(`[data-seg="items.0.glazing"] [data-v="no"]`); await next();
     ok((await panel()) === 'p0c', 'landed on Value and care');
     ok(await page.isVisible('[data-path="items.0.materialNotes"]'), 'Material or notes (optional) is on the Value and care step');
@@ -310,8 +319,8 @@ exports.uiTests = async (H) => {
     await settle();
     ok(!(await blocked()), 'special handling with a photo enables Next');
     await next();
-    ok((await panel()) === 'pieces-more', 'continues to the list');
-    await page.click('#addItem'); await page.waitForTimeout(250);
+    ok((await panel()) === 'you', 'one piece continues straight to Where (no list screen)', await panel());
+    await addPiece();
     await fillPiece(1, { desc: 'Second, not sure', value: 8000, unsure: true });
     ok((await panel()) === 'pieces-more', 'second piece with Not sure and no photo is complete');
     ok((await state()).items[0].fragile === true && (await state()).items[1].weightUnsure === true && (await state()).items[1].photos.length === 0, 'mixed order: piece 1 special handling + photo, piece 2 Not sure and no photo');
@@ -321,11 +330,11 @@ exports.uiTests = async (H) => {
   hdr('UI 9: $49,999 / $50,000 / $50,001 and "Not sure" weight, in the browser');
   await freshStart();
   await fillPiece(0, { desc: 'Under', value: 49999 });
-  await page.click('#addItem'); await page.waitForTimeout(250);
+  await addPiece();
   ok((await panel()) === 'p1a' && /Piece 2: what is it\?/.test(await page.textContent('[data-panel="p1a"] h1')), 'Add another piece opens "Piece 2: what is it?"');
   await fillPiece(1, { desc: 'Exactly', value: 50000, unsure: true });
   ok((await panel()) === 'pieces-more', 'Not sure weight does not require a photo; Next continues to the list', await panel());
-  await page.click('#addItem'); await page.waitForTimeout(250);
+  await addPiece();
   await fillPiece(2, { desc: 'Over', value: 50001 });
   {
     const q = await freshQuoteMatches('three values');

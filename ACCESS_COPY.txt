@@ -41,7 +41,7 @@ Photo requirement line (Yes or Not sure) | Photos of the stairs and path — req
 Upload button | ＋ Photos of the stairs and path
 
 --- Every mode, once Q1 is answered ---
-Question label | Loading dock available? (optional)
+Question label | (removed Nov 23 2026: CAD does not use loading docks)
 Options | Yes / No / Not sure
 Question label | Doors (optional)
 Options | Single door / Double doors / Not sure
@@ -78,7 +78,7 @@ Stairs, photos | 1 photo of the stairs / 2 photos of the stairs
 Elevator | Elevator, floor 30   (also "Elevator, floor Basement")
 Elevator, service | Service elevator: yes / Service elevator: no / Service elevator: not sure
 Elevator, stairs on the way | No stairs on the way / A few steps (3 or fewer) on the way / 2 flights of stairs up on the way to the elevator (+ the turns and photos lines above) / Not sure about stairs on the way
-Loading dock (any mode) | Loading dock: yes / Loading dock: no / Loading dock: not sure
+(Loading dock summary removed Nov 25 2026)
 Doors | Single door / Double doors / Doors: not sure
 Fit | Fits easily / Tight fit / Not sure everything fits
 Narrowest opening | Narrowest opening 30 in
