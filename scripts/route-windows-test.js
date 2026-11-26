@@ -155,14 +155,16 @@ function partA2() {
   const pa = addr('1 University Ave', 'Palo Alto', '94301');
   const busy = { routes: ['Silicon Valley → SF → Marin → Healdsburg → San Jose'], jobRows: 5, stops: [st('San Jose', '9AM-10AM'), st('San Rafael', '11AM-12PM'), st('Healdsburg', '12:30PM-1:30PM'), st('San Francisco', '3PM-4PM'), st('Palo Alto', '5PM-6PM')] };
   const fourStops = { ...busy, jobRows: 4, stops: busy.stops.slice(0, 4) };
-  const fourPlusOnline = { ...fourStops, jobRows: 5 }; // 4 sheet stops + 1 online order booked since the last refresh (sheet-days.bump)
-  SD._setForTests({ '2027-03-03': busy, '2027-03-10': fourStops, '2027-03-17': fourPlusOnline, '2027-03-24': { routes: ['Carmel'], jobRows: 0, stops: [] } });
+  const fourPlusOnline = { ...fourStops, jobRows: 5, bookedSinceRefresh: 1 }; // 4 sheet stops + 1 online order booked since the last refresh (sheet-days.bump)
+  const fourPlusPending = { ...fourStops, jobRows: 6 }; // 4 stops + 2 PENDING JOB rows (count toward capacity, not toward Morning)
+  SD._setForTests({ '2027-03-03': busy, '2027-03-10': fourStops, '2027-03-17': fourPlusOnline, '2027-03-31': fourPlusPending, '2027-03-24': { routes: ['Carmel'], jobRows: 0, stops: [] } });
   const hidden = (r) => { const w = r.windows.find((x) => x.v === 'morning'); return w && w.hidden && !w.ok; };
   const r5 = RW.evaluate(pa, '2027-03-03'), r4 = RW.evaluate(pa, '2027-03-10'), r4o = RW.evaluate(pa, '2027-03-17'), r0 = RW.evaluate(pa, '2027-03-24');
   ok(!hidden(r5) && (RW.publicView(r5).windows.some((w) => w.v === 'morning')), 'day with 5 stops: Morning is offered');
   ok(hidden(r4) && !RW.publicView(r4).windows.some((w) => w.v === 'morning'), 'day with 4 stops: Morning is not offered at all (left out of the list, not grayed)');
   ok(RW.publicView(r4).windows[0].v === 'late_morning', 'day with 4 stops: earliest window offered is Late morning');
   ok(!hidden(r4o), '4 schedule stops + 1 booked online order = 5: Morning is offered');
+  ok(hidden(RW.evaluate(pa, '2027-03-31')), '4 stops + 2 pending (unconfirmed) jobs: Morning still hidden (pending jobs are not stops)');
   ok(hidden(r0) && r0.fallback && openSet(r0).length === 8, 'no-data day: route windows stay open but Morning is hidden (8 windows)');
   SD._setForTests({ '2027-03-03': busy }, { fetchedAt: Date.now() - 3 * 3600 * 1000 });
   ok(hidden(RW.evaluate(pa, '2027-03-03')), 'stale data: Morning hidden even on a busy day (safe default)');
