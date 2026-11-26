@@ -69,7 +69,7 @@ async function apiTests() {
     const q = await quoteOf([paint({ value: 12000, w: 40, h: 30, d: 2 })]);
     // 1 painting delivery $200 + protection 1.5% of $12,000 = $180
     ok(q.total === 380 && lines(q, DVP).length === 1 && lines(q, DVP)[0].amount === 180, '1 painting 40×30, $12,000: $200 + $180 protection = $380', q.lines);
-    ok(lines(q, DVP)[0].label === 'Declared value protection: 1.5% of $12,000', 'single piece keeps the plain protection label');
+    ok(lines(q, DVP)[0].label === 'Declared value protection', 'single piece keeps the plain protection label');
     const o = await post('/api/orders', await orderBody([paint({ value: 12000, w: 40, h: 30, d: 2, description: 'Solo canvas' })]));
     ok(o.status === 200 && o.j.order.items.length === 1 && !('qty' in o.j.order.items[0]) && /^[\w-]+$/.test(o.j.order.items[0].id), 'order stored with one piece, an id and no qty', o.j);
   }

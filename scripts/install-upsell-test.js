@@ -7,8 +7,12 @@ const { spawn } = require('child_process');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { quote, installUpsell, installUpsellQuestions, roundToNearest5 } = require('../lib/pricing');
+const { quote, installUpsell, installUpsellQuestions, quoteIsNonFirm, hardwareFee, hardwareUnsure } = require('../lib/pricing');
+const money = (n) => Math.round((Number(n) + Number.EPSILON) * 100) / 100;
 const { COLUMNS, rowsForOrder } = require('../lib/schedule');
+const { installVisitFit, isConditionalOnlyStop, MSG: FIT_MSG } = require('../lib/install-visit-fit');
+const PAL = require('../lib/palomas');
+const config = require('../config');
 
 let pass = 0, fail = 0;
 const ok = (c, m, extra) => {
@@ -31,7 +35,7 @@ const order = (service, items, extra = {}) => {
   return {
     service, items, pickup: stop(pickup || {}), dropoff: stop(dropoff || {}),
     contact: { name: 'Jordan Lee', email: 'jordan@example.com', phone: '3105550199', clientType: 'Collector' },
-    schedule: { date: '2026-12-02', deliveryDate: '2026-12-04', timePref: 'none', deliveryTimePref: 'none', ...(schedule || {}) },
+    schedule: { date: '2026-12-02', deliveryDate: '2026-12-02', timePref: 'none', deliveryTimePref: 'none', ...(schedule || {}) },
     ...rest,
   };
 };
@@ -43,7 +47,7 @@ const qPd = quote(pdPaint);
 const qDi = quote(order('delivery_install', [art()]));
 ok(uPaint.show === true, 'upsell shows for a painting on pickup + delivery');
 ok(uPaint.amount === 75, 'X is $75 for one standard-size painting', uPaint);
-ok(uPaint.amount === roundToNearest5(qDi.total - qPd.total), 'X equals the rounded total delta vs pickup + delivery', { amount: uPaint.amount, delta: qDi.total - qPd.total, pd: qPd.total, di: qDi.total });
+ok(uPaint.amount === money(qDi.total - qPd.total), 'X is the difference between the two already-rounded totals (not rounded again)', { amount: uPaint.amount, delta: qDi.total - qPd.total, pd: qPd.total, di: qDi.total });
 ok((quote(order('install_only', [art()])).lines || []).some((l) => /Painting installation/.test(l.label) && l.amount === 75), 'that $75 matches the painting installation line on an install-only quote');
 
 for (const [type, label] of [['photograph', 'print / photograph'], ['wallart', 'other wall art'], ['mirror', 'mirror']]) {
@@ -62,7 +66,10 @@ const two = installUpsell(order('pickup_delivery', [art(), art({ description: 'S
 ok(two.show && two.amount === 150, 'two paintings: X is the two-piece install rate $150', two);
 
 const withHw = { ...pdPaint, items: [art({ hardware: 'needs_zbar', hangHeight: 'standard' })] };
-ok(installUpsell(withHw).amount === 75, 'headline X stays at the base install price (“as little as”), even if a hardware fee could apply later', installUpsell(withHw));
+ok(installUpsell(withHw).amount === 150, 'when paid hardware is already known, X is the real minimum (install $75 + Z-bar hanging labor $75)', installUpsell(withHw));
+ok(installUpsell(withHw).asLittle === true, '“as little as” stays on until a higher hang is confirmed, because they can still raise the price on the step', installUpsell(withHw));
+const firmHigh = installUpsell(order('pickup_delivery', [art({ hardware: 'wire', hangHeight: 'higher', hangWhere: 'high' })]));
+ok(firmHigh.show && firmHigh.asLittle === false, 'headline is a firm price once hardware and a higher hang are already known', firmHigh);
 
 hdr('questions asked vs skipped');
 const qEmpty = installUpsellQuestions(pdPaint);
@@ -112,6 +119,101 @@ ok(hayA.includes('Wire already installed') && hayB.includes('Wire already instal
 ok(hayA.includes('Standard eye level') && hayB.includes('Standard eye level'), 'sheet notes include hanging height for both');
 ok(hayA.includes('Drywall') && hayB.includes('Drywall'), 'sheet notes include wall type for both');
 
+
+hdr('protection label (customers see totals only)');
+const protLine = (quote(pdPaint).lines || []).find((l) => /protection/i.test(l.label));
+ok(protLine && protLine.label === 'Declared value protection', 'price block says Declared value protection, not 1.5% of $X', protLine);
+ok(protLine && protLine.amount === 120, 'protection amount is still $120 on an $8,000 piece', protLine);
+
+hdr('hardware rate card and I’m-not-sure');
+const hw = config.pricing.hangHardware;
+ok(hw.zbar && hw.zbar.fee === 45, 'Z-bar already installed is $45 on the rate card (hanging labor, fee is correct)');
+ok(hw.cleat && hw.cleat.fee === 55, 'French cleat already installed is $55 on the rate card (hanging labor, fee is correct)');
+ok(/hanging labor/i.test(hw.zbar.label) && /Z-bar already installed/i.test(hw.zbar.label), 'Z-bar label says what the charge covers', hw.zbar.label);
+ok(/hanging labor/i.test(hw.cleat.label) && /French cleat already installed/i.test(hw.cleat.label), 'French cleat label says what the charge covers', hw.cleat.label);
+ok(hw.not_sure && hw.not_sure.unsure === true && hw.not_sure.fee === 0, 'I’m not sure is flagged unsure and is not a $0 hardware price', hw.not_sure);
+ok(hardwareUnsure({ hardware: 'not_sure' }) === true, 'hardwareUnsure is true for I’m not sure');
+ok(hardwareFee({ hardware: 'not_sure' }) === 0, 'hardwareFee does not invent a charge for I’m not sure');
+ok(hardwareFee({ hardware: 'zbar' }) === 45 && hardwareFee({ hardware: 'cleat' }) === 55, 'hardwareFee matches the rate card for Z-bar and French cleat');
+
+hdr('hide the card when the price is not firm');
+ok(!installUpsell(order('pickup_delivery', [art()], { rush: true })).show, 'hidden for rush');
+ok(!installUpsell(order('pickup_delivery', [art()], { paymentPlan: 'quote' })).show, 'hidden when the payment plan is a manual / send-to-team quote');
+ok(!installUpsell(order('pickup_delivery', [art()], { quoteOnly: true })).show, 'hidden for quote-only');
+ok(!installUpsell(order('pickup_delivery', [art()], { customDate: true })).show, 'hidden for a custom date request');
+ok(!installUpsell(order('pickup_delivery', [art()], { pickup: { state: 'NY', zip: '10001' }, dropoff: { state: 'NY', zip: '10001' } })).show, 'hidden for out-of-state');
+const heavy = installUpsell(order('pickup_delivery', [art({ weight: 80, weightUnsure: true })]));
+ok(!installUpsell(order('pickup_delivery', [{ type: 'sculpture', weightUnsure: true, value: 2000, description: 'Bronze', w: 20, h: 20, d: 20 }])).show
+  || quoteIsNonFirm(quote(order('pickup_delivery', [{ type: 'sculpture', weightUnsure: true, value: 2000, description: 'Bronze', w: 20, h: 20, d: 20 }])), order('pickup_delivery', [{ type: 'sculpture', weightUnsure: true, value: 2000, description: 'Bronze', w: 20, h: 20, d: 20 }])),
+  'non-firm weight hides a firm upsell (or the quote is already non-firm)');
+ok(!installUpsell(order('pickup_delivery', [art()], { dropoff: { accessMode: 'not_sure' } })).show, 'hidden when access still needs review');
+
+hdr('mixed orders and high / stairwell hangs');
+const mixed = installUpsell(order('pickup_delivery', [art(), { type: 'furniture', furnitureKind: 'Sofa', sizeClass: 'medium', value: 2000, description: 'Sofa' }]));
+ok(mixed.show && mixed.amount === 75, 'mixed wall-art + sofa: X is the painting install only', mixed);
+const qMix = installUpsellQuestions(order('pickup_delivery', [art(), { type: 'furniture', furnitureKind: 'Sofa', sizeClass: 'medium', value: 2000, description: 'Sofa' }]));
+ok(qMix.every((q) => !/sofa/i.test(q.label || q.key || '')), 'questions are only about the pieces being hung', qMix);
+const highQ = quote(order('delivery_install', [art({ hangHeight: 'higher', hangWhere: 'high', hardware: 'wire' })]));
+const stairQ = quote(order('delivery_install', [art({ hangHeight: 'higher', hangWhere: 'stairwell', hardware: 'wire' })]));
+ok(highQ.total > qDi.total, 'a high hang raises the install total', { high: highQ.total, base: qDi.total });
+ok(stairQ.total > qDi.total, 'a stairwell hang raises the install total', { stair: stairQ.total, base: qDi.total });
+
+hdr('visit fit: SF Wed Dec 2 is eligible; Fri Dec 4 is a rejection fixture');
+const fitOrder = (dd) => order('delivery_install', [art({ hardware: 'wire' })], { schedule: { date: '2026-12-02', deliveryDate: dd, timePref: 'none', deliveryTimePref: 'none' } });
+ok(installVisitFit(fitOrder('2026-12-02')).ok === true, 'SF on Wed Dec 2 fits an installation', installVisitFit(fitOrder('2026-12-02')));
+const fri = installVisitFit(fitOrder('2026-12-04'));
+ok(fri.ok === false, 'SF on Fri Dec 4 does not fit (conditional / if-quick stop)', fri);
+ok(fri.message === FIT_MSG && !/call|phone|\d{3}[-.]?\d{3}/i.test(fri.message || ''), 'rejection message is plain and has no phone prompt', fri);
+ok(isConditionalOnlyStop('San Jose → East Bay → Napa → SF/Silicon Valley (late & if quick) → San Jose', { city: 'San Francisco', zip: '94110', state: 'CA' }), 'the old Friday route text is kept as a conditional-only rejection fixture');
+
+hdr('Paloma member install rate, payer rules, and sheet write');
+const palItem = (x = {}) => ({ catalogId: '15', custom: false, qty: 1, value: 395, hardware: '', ...x });
+const palBody = (extra = {}) => ({
+  items: extra.items || [palItem()],
+  pickupLocation: 'showroom',
+  delivery: { street: '1 Main St', city: 'San Francisco', state: 'CA', zip: '94110', name: 'Jordan Lee', email: 'jordan@example.com', phone: '3105550199', wallType: extra.wallType || '' },
+  schedule: { date: '2026-12-02', deliveryDate: '2026-12-02' },
+  payer: extra.payer || 'client', payMode: extra.payMode || 'now',
+  placedBy: { name: 'Heather' },
+  service: extra.service || 'pickup_delivery',
+  customDate: !!extra.customDate,
+});
+const palQ = PAL.partnerQuote(palBody());
+ok(palQ.installUpsell && palQ.installUpsell.amount === 55, 'Paloma upsell X is the member first-piece rate $55', palQ.installUpsell);
+ok((palQ.lines || []).every((l) => !/1\.5%/.test(l.label)), 'Paloma price lines do not show the 1.5% formula', palQ.lines.map((l) => l.label));
+const palTwo = PAL.partnerQuote(palBody({ items: [palItem(), palItem({ catalogId: '315', value: 59 })] }));
+ok(palTwo.installUpsell && palTwo.installUpsell.amount === 110, 'Paloma two-piece member install is $110 ($55 + $55)', palTwo.installUpsell);
+const palInst = PAL.partnerQuote(palBody({ service: 'delivery_install', items: [palItem({ hardware: 'wire', hangHeight: 'standard' })] }));
+ok(palInst.total === money((palQ.total || 0) + 55), 'Paloma live install total is the partnership delivery total plus the $55 add-on, not re-rounded', { base: palQ.total, inst: palInst.total });
+ok((palInst.lines || []).some((l) => /hanging|install/i.test(l.label) && l.amount === 55), 'Paloma install line is $55 member hanging', palInst.lines);
+ok(palInst.payment && palInst.payment.paymentPlan === palQ.payment.paymentPlan, 'adding install keeps Paloma payment timing', { before: palQ.payment, after: palInst.payment });
+const palBigItems = [palItem({ value: 8000 }), palItem({ catalogId: '205', value: 1195 }), palItem({ catalogId: '791', value: 2249 }), palItem({ catalogId: '792', value: 1249 })];
+// enough value / delivery that the total can cross the deposit threshold
+const palBig = PAL.partnerQuote(palBody({ items: palBigItems }));
+const palBigInst = PAL.partnerQuote(palBody({ service: 'delivery_install', items: palBigItems.map((it) => ({ ...it, hardware: 'wire', hangHeight: 'standard' })) }));
+ok(palBigInst.payment && palBig.payment && palBigInst.payment.paymentPlan === palBig.payment.paymentPlan, 'a larger Paloma order keeps the same payment plan after install is added', { before: palBig.payment, after: palBigInst.payment });
+if ((palBigInst.payment || {}).paymentPlan === 'deposit') {
+  ok(/delivery/i.test(palBigInst.payment.balanceWhen || palBigInst.payment.paymentSummary || ''), 'when a balance is collected later, it is still at delivery (Paloma timing unchanged)', palBigInst.payment);
+}
+
+const palEo = PAL.engineOrder(palBody({ service: 'delivery_install', items: [palItem({ hardware: 'wire', hangHeight: 'standard' })], wallType: 'Drywall' }), { member: true });
+ok(palEo.service === 'delivery_install', 'Paloma engine order uses delivery_install after add');
+const palRows = rowsForOrder({
+  ...palEo,
+  id: 'CAD-P1', status: 'confirmed', createdAt: '2026-11-25T12:00:00.000Z',
+  contact: { name: 'Jordan Lee', email: 'jordan@example.com', phone: '3105550199' },
+  partnerOrder: true, quote: palInst,
+});
+const palHay = JSON.stringify(palRows);
+const palTypes = palRows.map((r) => r[col('JOB TYPE')]);
+ok(palTypes.some((t) => t === 'DEL + INST'), 'Paloma schedule write marks the delivery row DEL + INST');
+ok(!palTypes.some((t) => t === 'DEL'), 'DEL + INST is only on the delivery entry, not a second plain DEL row');
+ok(!palTypes.filter((t) => t === 'DEL + INST').length || palTypes.filter((t) => t === 'DEL + INST').length === 1, 'exactly one DEL + INST row');
+const palEoOff = PAL.engineOrder(palBody({ service: 'pickup_delivery', items: [palItem({ hardware: 'wire', hangHeight: 'standard' })] }), { member: true });
+const palRowsOff = rowsForOrder({ ...palEoOff, id: 'CAD-P1', status: 'confirmed', createdAt: '2026-11-25T12:00:00.000Z', contact: palEo.contact || { name: 'Jordan Lee' }, partnerOrder: true, quote: palQ });
+ok(JSON.stringify(palRowsOff).includes('DEL') && !JSON.stringify(palRowsOff).includes('DEL + INST'), 'removing install writes delivery-only (no DEL + INST)');
+
+
 (async () => {
   const pw = require('playwright');
   const PORT = 4700 + Math.floor(Math.random() * 80);
@@ -135,8 +237,8 @@ ok(hayA.includes('Drywall') && hayB.includes('Drywall'), 'sheet notes include wa
 
     const stateOf = (service, items, extra = {}) => {
       const o = order(service, items, extra);
-      o.schedule.date = day;
-      o.schedule.deliveryDate = delDay;
+      o.schedule.date = (extra.schedule && extra.schedule.date) || '2026-12-02';
+      o.schedule.deliveryDate = (extra.schedule && extra.schedule.deliveryDate) || '2026-12-02';
       o.heard = { source: 'google', repeatAnswer: 'no' };
       o.payer = 'me';
       o.rush = false;
@@ -208,7 +310,9 @@ ok(hayA.includes('Drywall') && hayB.includes('Drywall'), 'sheet notes include wa
       const title = card ? await page.locator('[data-upsell] .upsell-title').innerText() : '';
       ok(/Add installation for as little as \$75/.test(title), `${tag}: headline uses the real $75 install price`, title);
       const copy = card ? await page.locator('[data-upsell] .upsell-copy').innerText() : '';
-      ok(/same visit/.test(copy) && /level and secure/.test(copy) && /no second trip/.test(copy), `${tag}: benefit copy is present`, copy);
+      ok(copy.trim() === 'We hang it level and secure on the same visit.', `${tag}: benefit line is the agreed wording (no em dash)`, copy);
+      const may = card ? await page.locator('[data-upsell] .upsell-may').innerText().catch(() => '') : '';
+      ok(/Hardware or special placement may add cost/.test(may), `${tag}: may-add-cost line is present`, may);
       ok(await page.locator('[data-upsell-yes]').count(), `${tag}: Add installation button is present`);
       ok(await page.locator('[data-upsell-no]').count(), `${tag}: No thanks is present`);
       // Card sits above the price / checkout
@@ -219,7 +323,7 @@ ok(hayA.includes('Drywall') && hayB.includes('Drywall'), 'sheet notes include wa
         return card.getBoundingClientRect().top < price.getBoundingClientRect().top;
       });
       ok(orderOk, `${tag}: card is above the Price heading`);
-      await shot(page, `install-upsell-review-${tag}.png`);
+      await shot(page, `install-upsell-v2-review-${tag}.png`);
 
       await page.click('[data-upsell-yes]');
       await page.waitForSelector('[data-panel="install-upsell"]:not([hidden])', { timeout: 10000 });
@@ -234,13 +338,20 @@ ok(hayA.includes('Drywall') && hayB.includes('Drywall'), 'sheet notes include wa
         return !!(el && (el.classList.contains('req-glow') || el.closest('.req-glow')));
       });
       ok(hasGlow, `${tag}: empty required hardware has the pre-Next blue glow`);
-      await shot(page, `install-upsell-step-${tag}.png`);
-
-      const totalBefore = await page.evaluate(() => (document.querySelector('#estTotal') || {}).textContent || (document.querySelector('[data-upsell-live] .amt') || {}).textContent || '');
+      const totalBefore = await page.evaluate(() => (document.querySelector('[data-upsell-status]') || {}).textContent || '');
       await page.click('[data-seg="items.0.hardware"] [data-v="needs_zbar"]');
       await page.waitForTimeout(800);
-      const totalAfterHw = await page.evaluate(() => (document.querySelector('#estTotal') || {}).textContent || (document.querySelector('[data-upsell-live] .amt') || {}).textContent || '');
-      ok(totalAfterHw && totalAfterHw !== totalBefore, `${tag}: total updates when hardware with a fee is chosen`, { totalBefore, totalAfterHw });
+      const totalAfterHw = await page.evaluate(() => (document.querySelector('[data-upsell-status]') || {}).textContent || '');
+      ok(totalAfterHw && totalAfterHw !== totalBefore, `${tag}: status line updates when hardware with a fee is chosen`, { totalBefore, totalAfterHw });
+      ok(/Installation adds/.test(totalAfterHw) && /New order total/.test(totalAfterHw), `${tag}: step shows Installation adds $X · New order total $Y once hardware is firm`, totalAfterHw);
+      await shot(page, `install-upsell-v2-step-${tag}.png`, false);
+      const dockDup = await page.evaluate(() => {
+        const dock = (document.querySelector('#estTotal') || {}).textContent || '';
+        const status = (document.querySelector('[data-upsell-status]') || {}).textContent || '';
+        const big = [...document.querySelectorAll('.card, .price, [data-price]')].filter((el) => /New order total/.test(el.textContent) && !el.closest('[data-upsell-status]'));
+        return { dock, status, extraBig: big.length };
+      });
+      ok(true, `${tag}: dock/status snapshot`, dockDup);
 
       // Next with hardware filled (height already standard) should confirm
       await page.click('#nextBtn', { force: true });
@@ -251,9 +362,16 @@ ok(hayA.includes('Drywall') && hayB.includes('Drywall'), 'sheet notes include wa
         return /Review/.test(h) && (!p || p.dataset.panel === 'review');
       });
       ok(backOnReview, `${tag}: confirming returns to Review`, await page.locator('h1').innerText().catch(() => ''));
-      ok(!(await page.$('[data-upsell]')), `${tag}: upsell card is gone after adding install`);
+      ok(!(await page.$('[data-upsell]')), `${tag}: upsell offer card is gone after adding install`);
+      const added = await page.$('[data-install-added]');
+      ok(!!added, `${tag}: Installation added card is on Review`);
+      ok(await page.locator('[data-upsell-edit]').count(), `${tag}: Edit is on the added card`);
+      ok(await page.locator('[data-upsell-remove]').count(), `${tag}: Remove is on the added card`);
+      const addedText = added ? await page.locator('[data-install-added]').innerText() : '';
+      ok(/Installation added/.test(addedText), `${tag}: card says Installation added`, addedText);
       const priceText = await page.evaluate(() => (document.querySelector('[data-price]') || {}).innerText || '');
       ok(/install/i.test(priceText) || /Hanging/i.test(priceText), `${tag}: Review price includes an install / hanging line`, priceText.slice(0, 400));
+      ok(!/1\.5%/.test(priceText), `${tag}: protection line does not show the 1.5% formula`, priceText.slice(0, 500));
       const svc = await page.evaluate(() => {
         const rows = [...document.querySelectorAll('.sum-row')];
         const s = rows.find((r) => /Service/.test((r.querySelector('span') || {}).textContent || ''));
@@ -263,7 +381,7 @@ ok(hayA.includes('Drywall') && hayB.includes('Drywall'), 'sheet notes include wa
       const draft = await page.evaluate(() => JSON.parse(localStorage.getItem('cad-order') || 'null'));
       ok(draft && draft.service === 'delivery_install', `${tag}: saved order service is delivery_install`);
       ok(draft && draft.items && draft.items[0] && draft.items[0].hardware === 'needs_zbar', `${tag}: hanging hardware is stored on the item`);
-      await shot(page, `install-upsell-after-${tag}.png`);
+      await shot(page, `install-upsell-v2-after-${tag}.png`);
       ok(errors.length === 0, `${tag}: no page errors`, errors);
       await ctx.close();
     };
@@ -296,6 +414,13 @@ ok(hayA.includes('Drywall') && hayB.includes('Drywall'), 'sheet notes include wa
         const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
         const page = await ctx.newPage();
         await openOn(page, stateOf('pickup_delivery', [art()]));
+        const noBox = await page.evaluate(() => {
+          const el = document.querySelector('[data-upsell-no]');
+          if (!el) return null;
+          const r = el.getBoundingClientRect();
+          return { h: r.height, w: r.width };
+        });
+        ok(noBox && noBox.h >= 44, 'No thanks is at least a 44px tap target', noBox);
         await page.click('[data-upsell-no]');
         await page.waitForTimeout(300);
         ok(!(await page.$('[data-upsell]')), 'No thanks collapses the card');
@@ -303,6 +428,142 @@ ok(hayA.includes('Drywall') && hayB.includes('Drywall'), 'sheet notes include wa
         ok(draft && draft.service === 'pickup_delivery', 'No thanks leaves the service as pickup + delivery');
         await ctx.close();
       }
+
+      hdr('UI: $X never sits alone at 390 / 375 / 360, Remove, Friday rejection, tracking');
+      for (const w of [390, 375, 360]) {
+        const ctx = await browser.newContext({ viewport: { width: w, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
+        const page = await ctx.newPage();
+        await openOn(page, stateOf('pickup_delivery', [art()]));
+        await page.waitForSelector('[data-upsell]', { timeout: 8000 }).catch(() => {});
+        const wrap = await page.evaluate(() => {
+          const el = document.querySelector('.upsell-aslittle') || document.querySelector('.upsell-title');
+          if (!el) return { ok: false };
+          const t = el.innerText;
+          const alone = [...el.getClientRects()].some((r) => /^\s*\$\d+\s*$/.test(el.innerText) && r.height < 40);
+          // The nowrap span should be a single box, so "$75" cannot wrap onto its own line.
+          const boxes = el.getClientRects();
+          return { text: t, boxCount: boxes.length, width: el.getBoundingClientRect().width };
+        });
+        ok(wrap && /\$75/.test(wrap.text || '') && wrap.boxCount === 1, `as little as $75 stays on one line at ${w}px`, wrap);
+        await ctx.close();
+      }
+
+      {
+        const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
+        const page = await ctx.newPage();
+        await openOn(page, stateOf('pickup_delivery', [art()]));
+        await page.click('[data-upsell-yes]');
+        await page.waitForSelector('[data-panel="install-upsell"]:not([hidden])', { timeout: 10000 });
+        await page.click('[data-seg="items.0.hardware"] [data-v="wire"]');
+        await page.waitForTimeout(400);
+        await page.click('#nextBtn', { force: true });
+        await page.waitForTimeout(800);
+        const before = await page.evaluate(() => {
+          const d = JSON.parse(localStorage.getItem('cad-order') || 'null');
+          return { service: d && d.service, total: (document.querySelector('#estTotal') || {}).textContent, name: d && d.contact && d.contact.name, items: (d && d.items || []).length };
+        });
+        ok(before.service === 'delivery_install', 'before Remove, service is delivery_install');
+        await page.click('[data-upsell-remove]');
+        await page.waitForTimeout(600);
+        const after = await page.evaluate(() => {
+          const d = JSON.parse(localStorage.getItem('cad-order') || 'null');
+          return { service: d && d.service, total: (document.querySelector('#estTotal') || {}).textContent, name: d && d.contact && d.contact.name, items: (d && d.items || []).length, hasOffer: !!document.querySelector('[data-upsell]'), hasAdded: !!document.querySelector('[data-install-added]') };
+        });
+        ok(after.service === 'pickup_delivery', 'Remove restores pickup + delivery', after);
+        ok(after.hasOffer && !after.hasAdded, 'Remove brings the offer card back and drops Installation added', after);
+        ok(after.name === 'Jordan Lee' && after.items === 1, 'Remove does not lose the rest of the order', after);
+
+        // Friday Dec 4 is rejected
+        await openOn(page, stateOf('pickup_delivery', [art()], { schedule: { date: '2026-12-02', deliveryDate: '2026-12-04' } }));
+        await page.waitForSelector('[data-upsell]', { timeout: 8000 }).catch(() => {});
+        if (await page.$('[data-upsell-yes]')) {
+          await page.click('[data-upsell-yes]');
+          await page.waitForTimeout(900);
+          const msg = await page.evaluate(() => (document.querySelector('.upsell-fit') || document.querySelector('[data-upsell]')) ? (document.querySelector('.upsell-fit') || document.body).innerText : '');
+          const stillPd = await page.evaluate(() => (JSON.parse(localStorage.getItem('cad-order') || 'null') || {}).service);
+          ok(/doesn’t fit this delivery day|doesn't fit this delivery day/.test(msg), 'SF Fri Dec 4 shows a plain visit-fit message', msg.slice(0, 240));
+          ok(!/call|phone/i.test(msg), 'visit-fit message has no phone prompt', msg.slice(0, 240));
+          ok(stillPd === 'pickup_delivery', 'a rejected visit leaves pickup + delivery in place');
+          ok(!(await page.$('[data-panel="install-upsell"]:not([hidden])')), 'the install step does not open when the visit does not fit');
+        } else {
+          ok(false, 'offer card missing for Friday rejection fixture');
+        }
+        await ctx.close();
+      }
+
+      {
+        const ev = await (await fetch(BASE + '/api/events')).json();
+        const names = (ev.events || ev || []).map((e) => e.name || e.event || e.type);
+        const need = ['install_upsell_shown', 'install_upsell_add', 'install_upsell_no_thanks', 'install_upsell_confirm', 'install_upsell_remove'];
+        need.forEach((n) => ok(names.includes(n), `tracking event ${n} was recorded`, names));
+      }
+
+      hdr('UI: Paloma Review card, step, and Remove (390 + desktop)');
+      const openPal = async (page) => {
+        await page.goto(BASE + '/palomas?v=' + Date.now());
+        await page.waitForFunction(() => window.__CAD_PALOMAS__, null, { timeout: 20000 });
+        await page.evaluate(() => {
+          window.__CAD_PALOMAS__.bootReview({
+            placedBy: 'Heather',
+            pickup: 'showroom',
+            items: [{ uid: 1, name: 'Four Caballos', kind: 'Wall Decor', qty: 1, catalogId: '15', custom: false, value: '395', w: '', h: '' }],
+            pickupDate: '2026-12-02',
+            deliveryDate: '2026-12-02',
+            payer: 'client',
+            service: 'pickup_delivery',
+            installUpsell: '',
+            fields: {
+              placedBy: 'Heather',
+              dName: 'Jordan Lee', dPhone: '3105550199', dEmail: 'jordan@example.com',
+              dStreet: '1 Main St', dCity: 'San Francisco', dState: 'CA', dZip: '94110',
+            },
+          });
+        });
+        await page.waitForTimeout(900);
+        await page.waitForFunction(() => !/Updating/.test((document.querySelector('#barTotal') || {}).textContent || ''), null, { timeout: 12000 }).catch(() => {});
+        await page.waitForSelector('[data-upsell]', { timeout: 12000 }).catch(() => {});
+      };
+      const runPal = async (vw, vh, tag, mobile) => {
+        const ctx = await browser.newContext({ viewport: { width: vw, height: vh }, deviceScaleFactor: mobile ? 2 : 1, isMobile: !!mobile, hasTouch: !!mobile });
+        const page = await ctx.newPage();
+        await openPal(page);
+        const card = await page.$('[data-upsell]');
+        ok(!!card, `Paloma ${tag}: upsell card is on Review`);
+        const title = card ? await page.locator('[data-upsell] .upsell-title').innerText() : '';
+        ok(/Add installation for/.test(title) && /as little as \$55/.test(title), `Paloma ${tag}: headline uses the member $55 rate`, title);
+        const copy = card ? await page.locator('[data-upsell] .upsell-copy').innerText() : '';
+        ok(copy.trim() === 'We hang it level and secure on the same visit.', `Paloma ${tag}: same benefit line`, copy);
+        await shot(page, `install-upsell-v2-palomas-review-${tag}.png`);
+        await page.click('[data-upsell-yes]');
+        await page.waitForSelector('[data-install-step]', { timeout: 10000 });
+        await page.waitForTimeout(400);
+        ok(!!(await page.$('[data-hw]')), `Paloma ${tag}: hardware is asked for the hung piece`);
+        const status0 = await page.locator('[data-upsell-status]').innerText();
+        ok(/Estimated total with installation/.test(status0), `Paloma ${tag}: before hardware is picked, status is Estimated total with installation`, status0);
+        await page.click('[data-set="hardware"][data-val="wire"]');
+        await page.waitForTimeout(300);
+        if (await page.$('[data-set="hh"][data-val="standard"]')) await page.click('[data-set="hh"][data-val="standard"]');
+        await page.waitForTimeout(700);
+        const status1 = await page.locator('[data-upsell-status]').innerText();
+        ok(/Installation adds/.test(status1) && /New order total/.test(status1), `Paloma ${tag}: live price line after a firm hardware choice`, status1);
+        await shot(page, `install-upsell-v2-palomas-step-${tag}.png`, false);
+        const nextVisible = await page.$('#nextBtn:not([hidden])');
+        if (nextVisible) await page.click('#nextBtn', { force: true });
+        else await page.evaluate(() => window.__CAD_PALOMAS__ && window.__CAD_PALOMAS__.confirm && window.__CAD_PALOMAS__.confirm());
+        await page.waitForFunction(() => document.querySelector('[data-install-added]') || document.querySelector('[data-upsell-status]'), null, { timeout: 10000 }).catch(() => {});
+        await page.waitForTimeout(400);
+        ok(!!(await page.$('[data-install-added]')), `Paloma ${tag}: Installation added is on Review`);
+        ok(await page.locator('[data-upsell-remove]').count(), `Paloma ${tag}: Remove is available`);
+        const palPrice = await page.evaluate(() => (document.querySelector('#sumBody') || document.body).innerText);
+        ok(!/1\.5%/.test(palPrice), `Paloma ${tag}: protection line has no 1.5% formula`);
+        await shot(page, `install-upsell-v2-palomas-after-${tag}.png`);
+        await page.click('[data-upsell-remove]');
+        await page.waitForTimeout(700);
+        ok(!!(await page.$('[data-upsell]')), `Paloma ${tag}: Remove restores the offer card`);
+        await ctx.close();
+      };
+      await runPal(390, 844, '390', true);
+      await runPal(1280, 900, 'desktop', false);
     }
 
     await browser.close();

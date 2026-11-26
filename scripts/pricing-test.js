@@ -213,7 +213,7 @@ const sc = (value, extra = {}) => q('pickup_delivery', [{ qty: 1, type: 'sculptu
 const at50 = sc(50000), over50 = sc(50001);
 const DVP = /^Declared value protection( — Piece \d+[^:]*)?: 1\.5% of \$/;
 const pl = line(at50, DVP);
-check(pl && pl.label === 'Declared value protection: 1.5% of $50,000' && pl.amount === 750, '$50,000 piece: required protection line, $750', at50.lines);
+check(pl && pl.label === 'Declared value protection' && pl.amount === 750, '$50,000 piece: required protection line, $750', at50.lines);
 check(at50.protection && at50.protection.amount === 750 && at50.protection.eligibleValue === 50000, '$50,000 piece: quote.protection should carry $750 on $50,000 eligible', at50.protection);
 check(!line(at50, /High-value/), '$50,000 piece: no high-value markup', at50.lines);
 check(!line(over50, /declared value protection/i) && !over50.protection && !line(over50, /High-value/) && near(line(over50, /Sculpture/).amount, 775.01) && near(over50.total, 775.01), '$50,001 piece: no protection line or handling label; $400 move + $375.01 built in = $775.01', over50.lines);
@@ -236,7 +236,7 @@ check(!line(onlyHv, /declared value protection/i) && !onlyHv.protection && !line
 const cents = q('pickup_delivery', [{ qty: 3, type: 'sculpture', weight: 120, value: 12345.67, description: 'x' }]);
 check(cents.lines.filter((l) => DVP.test(l.label)).length === 3 && cents.lines.filter((l) => DVP.test(l.label)).every((l) => l.amount === 185.19 && /Piece [123]/.test(l.label)) && sumLines(cents, DVP) === 555.57 && cents.protection.amount === 555.57, '3 pieces × $12,345.67 → 1.5% each = $185.19 (rounded per piece) = $555.57, one labeled line per piece', cents.lines);
 const instP = q('install_only', [{ qty: 1, type: 'painting', framed: 'no', w: 30, h: 30, value: 2000, description: 'p' }]);
-check(line(instP, DVP) && line(instP, DVP).label === 'Declared value protection: 1.5% of $2,000' && line(instP, DVP).amount === 30, 'install only also carries the required protection line', instP.lines);
+check(line(instP, DVP) && line(instP, DVP).label === 'Declared value protection' && line(instP, DVP).amount === 30, 'install only also carries the required protection line', instP.lines);
 for (const r of [at50, over50, mixedDv, instP, onlyHv]) for (const t of [...r.lines.map((l) => l.label), ...(r.notes || [])]) check(!/optional|insur|full coverage|fully covered/i.test(t), 'protection wording must not say optional, insurance or full coverage: ' + t);
 const shipP = q('crating_shipping', [{ qty: 1, type: 'painting', value: 20000, description: 'x' }]);
 check(!line(shipP, /declared value protection/i) && !shipP.protection, 'shipping quotes carry no protection line', shipP.lines);

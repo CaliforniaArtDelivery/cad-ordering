@@ -5,6 +5,7 @@ const path = require('path');
 const crypto = require('crypto');
 const config = require('./config');
 const { quote, isOutOfState, applyApprovedPrice, protectionLabel, SERVICES, OFFERED_SERVICES, displayFrom, FURNITURE_KINDS, DECOR_KINDS, needsStairwellFit, numVal, installUpsell } = require('./lib/pricing');
+const { installVisitFit } = require('./lib/install-visit-fit');
 const sched = require('./lib/scheduling');
 const GEO = require('./lib/geo');
 // A US address in California (state CA or a California ZIP). Unknown or blank addresses are never treated as California.
@@ -153,8 +154,26 @@ app.post('/api/upload', upload.array('photos', 10), (req, res) => res.json({ fil
 app.post('/api/quote', (req, res) => {
   const q = quote(req.body);
   const u = installUpsell(req.body);
-  if (u && u.show) q.installUpsell = { amount: u.amount };
+  if (u && u.show) q.installUpsell = { amount: u.amount, asLittle: !!u.asLittle };
   res.json(q);
+});
+const eventLog = [];
+app.post('/api/events', (req, res) => {
+  const name = String((req.body && req.body.name) || '').slice(0, 80);
+  if (!name) return res.status(400).json({ ok: false });
+  const ev = { name, at: new Date().toISOString() };
+  if (TEST_MODE) ev.meta = (req.body && req.body.meta) || {};
+  eventLog.push(ev);
+  if (eventLog.length > 500) eventLog.shift();
+  res.json({ ok: true });
+});
+app.get('/api/events', (req, res) => {
+  if (!TEST_MODE) return res.status(404).end();
+  res.json({ events: eventLog });
+});
+app.post('/api/install-visit-fit', (req, res) => {
+  try { res.json(installVisitFit(req.body || {})); }
+  catch (e) { res.json({ ok: true }); } // never block the booking on a checker failure
 });
 // The public site has no member rate any more (Chad, Nov 19 2026), so there is no member-code endpoint, and any member flag or code
 // sent with an order is ignored by the pricing engine. Discount codes are checked here, on the server only.
@@ -476,6 +495,10 @@ function scheduleErrors(o) {
   }
   // Route-aware time windows: the chosen windows must still fit the day's planned route (re-checked at submit and again at pay).
   if (!errs.length) errs.push(...require('./lib/route-windows').selectionErrors(o, SERVICES));
+  if (!errs.length && svc.install && !o.rush && !o.dedicated && !o.customDate) {
+    const fit = installVisitFit(o);
+    if (!fit.ok) errs.push('INSTALL_FIT: ' + (fit.message || 'Installation doesn’t fit this delivery day. Your pickup and delivery stay as they are.'));
+  }
   return errs;
 }
 
@@ -500,6 +523,7 @@ app.post('/api/orders', (req, res) => {
   const errs = validate(b);
   if (errs.some((e) => /^FULL:/.test(e))) return res.status(409).json({ error: 'That date just filled up. Please go back and pick another date.', full: [String((b.schedule || {}).date || '')] });
   { const t = errs.find((e) => /^TIME:/.test(e)); if (t) return res.status(409).json({ error: t.replace(/^TIME:\s*/, ''), timeConflict: true }); }
+  { const f = errs.find((e) => /^INSTALL_FIT:/.test(e)); if (f) return res.status(409).json({ error: f.replace(/^INSTALL_FIT:\s*/, ''), installFit: true }); }
   if (errs.length) return res.status(400).json({ error: 'Missing: ' + errs.join(', ') });
   const fp = fingerprint(b);
   const dup = load().find((x) => x.fingerprint === fp && Date.now() - Date.parse(x.createdAt) < DEDUPE_MS);
@@ -655,6 +679,7 @@ app.post('/api/orders/:id/pay', async (req, res) => {
   if (o.quote.paymentPlan === 'quote' || !o.quote.dueNow) return res.status(400).json({ error: 'No amount is due until CAD approves a price.' });
   const pairErrs = scheduleErrors(o);
   { const t = pairErrs.find((e) => /^TIME:/.test(e)); if (t) return res.status(409).json({ error: t.replace(/^TIME:\s*/, ''), timeConflict: true }); }
+  { const f = pairErrs.find((e) => /^INSTALL_FIT:/.test(e)); if (f) return res.status(409).json({ error: f.replace(/^INSTALL_FIT:\s*/, ''), installFit: true }); }
   if (pairErrs.length) return res.status(400).json({ error: 'Please go back and pick dates that work together on the route: ' + pairErrs[0] });
   { const held = holdSlots(o, false); if (!held.ok) return res.status(409).json({ error: 'That date just filled up. Please go back and pick another date.', full: held.full }); }
 
@@ -836,6 +861,7 @@ app.get('/api/palomas/config', (_, res) => res.json({
   },
   access: ACCESS.MODES, flights: ACCESS.FLIGHTS,
   dedicated: DEDICATED.publicRules(), // dates only; the fee rules stay on the server
+  hangHardware: (config.pricing && config.pricing.hangHardware) || {},
 }));
 function palomasPublicQuote(q) {
   if (q.special) return { special: true, shipping: q.shipping, review: q.review || '', quoteNote: q.quoteNote, notes: q.notes };
@@ -903,7 +929,13 @@ app.post('/api/palomas/orders', (req, res) => {
     if (!sc.date || !sc.deliveryDate || sc.deliveryDate < sc.date) errs.push('pickup and delivery days');
     else errs.push(...scheduleErrors(ordForDates));
   }
-  if (errs.length) return res.status(400).json({ error: 'Missing: ' + errs.join(', ') });
+  if (errs.length) {
+    const f = errs.find((e) => /^INSTALL_FIT:/.test(e));
+    if (f) return res.status(409).json({ error: f.replace(/^INSTALL_FIT:\s*/, ''), installFit: true });
+    const t = errs.find((e) => /^TIME:/.test(e));
+    if (t) return res.status(409).json({ error: t.replace(/^TIME:\s*/, ''), timeConflict: true });
+    return res.status(400).json({ error: 'Missing: ' + errs.join(', ') });
+  }
   const fp = fingerprint(b);
   const dup = load().find((x) => x.fingerprint === fp && Date.now() - Date.parse(x.createdAt) < DEDUPE_MS);
   if (dup) return res.json({ id: dup.id, status: dup.status, order: dup, duplicate: true });
@@ -976,8 +1008,9 @@ app.post('/api/palomas/orders', (req, res) => {
     update(order.id, (x) => x.emails.push(sentC));
     return res.json({ id: order.id, status: order.status, quote: { total: q.total, dueNow: 0, review: true, customDate: true }, order: findOrder(order.id) });
   }
+  const palSvc = (b.service === 'delivery_install') ? 'delivery_install' : 'pickup_delivery';
   const order = {
-    ...base, status: 'awaiting_payment', service: 'pickup_delivery', serviceLabel: SERVICES.pickup_delivery.label,
+    ...base, status: 'awaiting_payment', service: palSvc, serviceLabel: SERVICES[palSvc].label,
     schedule: { date: sc.date, deliveryDate: sc.deliveryDate, deliveryLater: sc.deliveryDate > sc.date, region: sched.regionForDate(new Date(sc.date + 'T12:00:00Z')), timePref: 'none', timeNote: '', deliveryTimePref: 'none', deliveryTimeNote: '' },
   };
   const lines = [

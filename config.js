@@ -103,11 +103,12 @@ module.exports = {
     // Hanging hardware already on the back of each hung piece (Chad, Nov 21 2026), per piece, install jobs only.
     hangHardware: {
       wire: { label: 'Wire already installed', fee: 0 },
-      zbar: { label: 'Z-bar already installed', fee: 45 },
-      cleat: { label: 'French cleat already installed', fee: 55 },
+      // $45 / $55 are on the rate card: hanging labor for a piece that already has this hardware, not a charge for the hardware itself.
+      zbar: { label: 'Z-bar already installed (hanging labor)', fee: 45 },
+      cleat: { label: 'French cleat already installed (hanging labor)', fee: 55 },
       needs_wire: { label: 'No hardware, needs D-rings and wire installed', fee: 55 },
       needs_zbar: { label: 'No hardware, needs a Z-bar installed', fee: 75 },
-      not_sure: { label: 'Not sure', fee: 0, note: 'We’ll confirm on site.' },
+      not_sure: { label: 'I’m not sure', fee: 0, unsure: true, note: 'We’ll confirm on the visit. This may add to the total.' },
     },
     // Height/location install surcharge (install jobs only), from the Hanging height question.
     hangInstall: {

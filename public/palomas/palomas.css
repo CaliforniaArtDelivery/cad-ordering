@@ -355,3 +355,26 @@ html{scroll-padding-bottom:96px;scroll-padding-top:12px}
   .later input[type=date],
   .ded-box.in-col .ded-date input[type=date]{font-size:13px;padding:8px 6px;min-height:40px}
 }
+
+/* Install upsell (same release as the main site, Chad t2095u v2). */
+.upsell-card{background:#f4f6f8;border:1px solid var(--line);box-shadow:0 1px 2px rgba(15,27,45,.04);padding:22px 20px 16px;margin:0 0 18px;border-radius:12px}
+.upsell-kicker{margin:0 0 8px;font-size:12px;font-weight:650;letter-spacing:.08em;text-transform:uppercase;color:#3264AE}
+.upsell-title{margin:0 0 8px;font-size:clamp(20px,5.6vw,28px);line-height:1.2;letter-spacing:-.03em;font-weight:650}
+.upsell-aslittle{white-space:nowrap}
+.upsell-copy{margin:0 0 8px;color:var(--muted);font-size:16px;line-height:1.45}
+.upsell-may{margin:0 0 16px;color:var(--muted);font-size:14px;line-height:1.4}
+.upsell-fit{margin:0 0 14px;font-size:15px;line-height:1.4}
+.upsell-status{margin:12px 0 8px;color:var(--muted);font-size:15px;line-height:1.4}
+.upsell-card .btn.primary{width:100%}
+.upsell-no{display:flex;align-items:center;justify-content:center;width:100%;margin-top:4px;min-height:44px;padding:12px 8px;border:0;background:none;color:var(--muted);font:inherit;font-size:15px;cursor:pointer;text-align:center}
+.upsell-no:hover,.upsell-no:focus{color:var(--ink)}
+.install-added{background:#f4f6f8}
+.install-added-head{margin:0 0 6px;font-weight:600}
+.hang-piece{margin:0 0 18px}
+.hang-piece h3{margin:0 0 10px;font-size:17px}
+.hang-seg{display:flex;flex-wrap:wrap;gap:8px;margin-top:6px}
+.hang-seg button{flex:1 1 140px;text-align:left;border:1px solid var(--line);background:#fff;border-radius:10px;padding:10px 12px;font:inherit;font-size:14px;cursor:pointer;min-height:44px}
+.hang-seg button.on{box-shadow:0 0 0 1.5px var(--navy), 0 1px 4px rgba(15,27,45,.08);font-weight:600}
+.hang-seg button .mini{display:block;font-weight:400;color:var(--muted)}
+body.upsell-open #sec-review, body.upsell-open #reviewBody{padding-bottom:calc(96px + 16px + 48px)}
+body.upsell-open{scroll-padding-bottom:160px}

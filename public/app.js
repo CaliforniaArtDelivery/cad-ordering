@@ -617,7 +617,7 @@ const hangFeeFor = (it, v) => {
   return typeof hi[v] === 'number' ? hi[v] : 0;
 };
 const hardwareField = (it, i) => `<div class="field" data-hardware="${i}" style="margin-top:12px"><label class="f">Is hanging hardware already on the back of the piece? — ${esc(pieceTitle0(it, i))}${req}</label>
-  ${seg(`items.${i}.hardware`, HARDWARE_OPTS.filter((v) => hwCfg()[v]).map((v) => [v, esc(hwCfg()[v].label) + (v === 'not_sure' ? ' <span class="fee">we’ll confirm on site</span>' : feeTag(hwCfg()[v].fee))]), 'stack')}</div>`;
+  ${seg(`items.${i}.hardware`, HARDWARE_OPTS.filter((v) => hwCfg()[v]).map((v) => [v, esc(hwCfg()[v].label) + (v === 'not_sure' ? ' <span class="fee">we’ll confirm on the visit; this may add to the total</span>' : feeTag(hwCfg()[v].fee))]), 'stack')}</div>`;
 const hangSummary = (it, i) => {
   const name = pieceName(i);
   if (it.hangHeight === 'higher') {
@@ -653,23 +653,63 @@ const hangPieceBlock = (it, i) => {
   return html;
 };
 const installUpsellAmount = () => (quoteData && quoteData.installUpsell && quoteData.installUpsell.amount) || 0;
-const installUpsellOfferOpen = () => UI.installUpsell !== 'no' && UI.installUpsell !== 'done' && UI.installUpsell !== 'ask' && !hasInstall() && !isShip() && !existing && installUpsellAmount() > 0;
+const installUpsellAsLittle = () => !!(quoteData && quoteData.installUpsell && quoteData.installUpsell.asLittle);
+const installUpsellOfferOpen = () => UI.installUpsell !== 'no' && UI.installUpsell !== 'done' && UI.installUpsell !== 'ask' && !hasInstall() && !isShip() && !existing && !S.rush && installUpsellAmount() > 0;
+let upsellShownTracked = false;
+let installFitMsg = '';
+let installUpsellBaseTotal = 0;
+let installUpsellEditing = false;
+const track = (name, meta) => { try { fetch('/api/events', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, meta: meta || {} }) }); } catch (_) { /* ignore */ } };
 const installUpsellCard = () => {
   if (!installUpsellOfferOpen()) return '';
+  if (!upsellShownTracked) { upsellShownTracked = true; track('install_upsell_shown'); }
   const amt = installUpsellAmount();
+  const asLittle = installUpsellAsLittle();
+  const title = asLittle
+    ? `Add installation for <span class="upsell-aslittle">as little as ${fmt(amt)}</span>`
+    : `Add installation for ${fmt(amt)}`;
   return `<div class="card upsell-card" data-upsell>
       <p class="upsell-kicker">Optional add-on</p>
-      <p class="upsell-title">Add installation for as little as ${fmt(amt)}</p>
-      <p class="upsell-copy">We’ll hang it on the same visit — level and secure, no second trip.</p>
+      <p class="upsell-title">${title}</p>
+      <p class="upsell-copy">We hang it level and secure on the same visit.</p>
+      ${asLittle ? '<p class="upsell-may">Hardware or special placement may add cost.</p>' : ''}
+      ${installFitMsg ? `<p class="upsell-fit" data-upsell-fit role="status">${esc(installFitMsg)}</p>` : ''}
       <button type="button" class="btn primary full" data-upsell-yes>Add installation</button>
       <button type="button" class="upsell-no" data-upsell-no>No thanks</button>
+    </div>`;
+};
+const installAddedCard = () => {
+  if (!(hasInstall() && !isShip() && !existing && S.items.some(isHung))) return '';
+  if (UI.installUpsell === 'ask') return '';
+  const wall = String((S.dropoff && S.dropoff.wallType) || '').trim();
+  const hang = S.items.map((it, i) => {
+    if (!isHung(it)) return '';
+    return `<div class="sum-row"><span>${esc(pieceName(i))}</span><span>${esc(hangSummary(it, i))}${it.hardware ? ' · ' + esc(hardwareText(it.hardware)) : ''}</span></div>`;
+  }).join('');
+  const wallHtml = wall ? `<div class="sum-row"><span>Wall type</span><span>${esc(wall)}</span></div>` : '';
+  return `<div class="card install-added" data-install-added>
+      <div class="sum-row install-added-head"><span>Installation added</span><span><button type="button" class="edit" data-upsell-edit>Edit</button> <button type="button" class="edit" data-upsell-remove>Remove</button></span></div>
+      ${hang}${wallHtml}
     </div>`;
 };
 const installUpsellAccessNeeded = () => {
   if (!accessQuestionsNeeded()) return false;
   return CADAccess.gaps(S.dropoff, S.items).length > 0 || (CADAccess.asksDoorwayAccess(S.items) && !['yes', 'no'].includes((S.dropoff || {}).stdDoorway));
 };
-const startInstallUpsell = () => {
+async function checkInstallFit() {
+  const body = payload();
+  body.service = 'delivery_install';
+  const { ok, j } = await api('/api/install-visit-fit', body);
+  if (ok && j && j.ok === false) return j.message || 'Installation doesn’t fit this delivery day. Your pickup and delivery stay as they are.';
+  return '';
+}
+const startInstallUpsell = async () => {
+  track('install_upsell_add');
+  const msg = await checkInstallFit();
+  if (msg) { installFitMsg = msg; render(); return; }
+  installFitMsg = '';
+  installUpsellBaseTotal = (quoteData && quoteData.total) || 0;
+  installUpsellEditing = false;
   UI.installUpsell = 'ask';
   saveUi();
   sub = 'install-upsell';
@@ -677,21 +717,49 @@ const startInstallUpsell = () => {
   render();
 };
 const dismissInstallUpsell = () => {
+  track('install_upsell_no_thanks');
   UI.installUpsell = 'no';
+  installFitMsg = '';
   saveUi();
   sub = 'review';
   render();
 };
 const cancelInstallUpsell = () => {
-  UI.installUpsell = '';
+  if (installUpsellEditing && hasInstall()) { UI.installUpsell = 'done'; installUpsellEditing = false; saveUi(); sub = 'review'; render(); return; }
+  UI.installUpsell = hasInstall() ? 'done' : '';
+  installUpsellEditing = false;
   saveUi();
   sub = 'review';
   render();
 };
-const confirmInstallUpsell = () => {
+const confirmInstallUpsell = async () => {
+  const msg = await checkInstallFit();
+  if (msg) { installFitMsg = msg; UI.installUpsell = ''; installUpsellEditing = false; S.service = 'pickup_delivery'; persist(); saveUi(); sub = 'review'; render(); return; }
+  installFitMsg = '';
   S.service = 'delivery_install';
   persist();
   UI.installUpsell = 'done';
+  installUpsellEditing = false;
+  saveUi();
+  sub = 'review';
+  track('install_upsell_confirm');
+  render();
+};
+const editInstallUpsell = () => {
+  installUpsellEditing = true;
+  installUpsellBaseTotal = 0;
+  UI.installUpsell = 'ask';
+  saveUi();
+  sub = 'install-upsell';
+  render();
+};
+const removeInstallUpsell = () => {
+  track('install_upsell_remove');
+  S.service = 'pickup_delivery';
+  persist();
+  UI.installUpsell = '';
+  installUpsellEditing = false;
+  installFitMsg = '';
   saveUi();
   sub = 'review';
   render();
@@ -1744,12 +1812,18 @@ const views = {
     const needWall = !String((S.dropoff && S.dropoff.wallType) || '').trim();
     const needAccess = installUpsellAccessNeeded();
     const q = quoteData;
+    const hwKnown = hung.every(({ it }) => HARDWARE_OPTS.includes(it.hardware) && it.hardware !== 'not_sure');
+    const addOn = (q && installUpsellBaseTotal) ? (Number(q.total) - installUpsellBaseTotal) : 0;
+    const status = !hwKnown
+      ? 'Estimated total with installation'
+      : (addOn > 0 && q ? `Installation adds ${fmt(addOn)} · New order total ${fmt(q.total)}` : (q ? `New order total ${fmt(q.total)}` : ''));
     const hwHtml = needHw.map(({ it, i }) => hardwareField(it, i)).join('');
     const hangHtml = hung.map(({ it, i }) => hangPieceBlock(it, i)).join('');
     const wallHtml = needWall ? select('dropoff.wallType', 'Wall type (optional)', ['Not sure', 'Drywall', 'Plaster', 'Concrete / brick', 'Wood', 'Tile / stone', 'Glass'], { placeholder: 'Please choose one' }) : '';
     return panel('install-upsell', `<h1>A few details so we can hang it</h1>
       <p class="sub">These help us hang it level and secure on the same visit.</p>
-      <div class="card upsell-live" data-upsell-live><div class="sum-row"><span>New total with installation</span><span class="amt"><b>${q ? fmt(q.total) : '…'}</b></span></div></div>
+      ${status ? `<p class="upsell-status" data-upsell-status>${esc(status)}</p>` : ''}
+      ${installFitMsg ? `<p class="upsell-fit" data-upsell-fit role="status">${esc(installFitMsg)}</p>` : ''}
       <div class="card">
         ${hwHtml}${hangHtml}
         ${wallHtml}
@@ -1772,7 +1846,7 @@ const views = {
     return (payerShown() ? panel('payer', `<h1>Who’s paying?</h1>${payerCard}`) : '')
       + panel('review', `<h1>${sp ? 'Review your order' : 'Review & pay'}</h1><p class="sub">${sp ? 'Check the details, then send it to our team for pricing.' : 'Your job is booked as soon as payment goes through.'}</p>${valueConfirmCard('review')}
       ${promiseCard(tripLine() || (date && date.routeLabel) || (avail && avail.region ? avail.region + ' route' : 'Route day'), 'margin-top:0', '2:date')}
-      ${installUpsellCard()}
+      ${installUpsellCard()}${installAddedCard()}
       <div class="card">
         <div class="sum-row"><span>Service</span><span>${esc(svc().label)}${S.rush ? ' · rush' : ''}${esc(dedLabel())} ${editBtn('0:service')}</span></div>
         ${reviewPieces()}
@@ -1888,7 +1962,7 @@ const siteReview = (title, a, goto) => {
     a.hours && ['Access hours', esc(a.hours)],
     showAccess && ['Access', accessBits.length ? accessText(a) : 'Not answered yet'],
     a.parkingRestricted && ['Parking / loading', esc(a.parkingNote || 'Restrictions')],
-    a === S.dropoff && hasHanging() && ['Hanging', `${esc(a.wallType || 'Wall type not sure')}${S.items.map((it, i) => isHung(it) ? '<br>' + esc(hangSummary(it, i)) + (it.hardware ? ' · ' + esc(hardwareText(it.hardware)) : '') : '').join('')}`],
+    a === S.dropoff && hasHanging() && ['Hanging', `${a.wallType ? 'Wall type: ' + esc(a.wallType) + '<br>' : ''}${S.items.map((it, i) => isHung(it) ? esc(hangSummary(it, i)) + (it.hardware ? ' · ' + esc(hardwareText(it.hardware)) : '') : '').filter(Boolean).join('<br>')}`],
     a.notes && ['Notes', esc(a.notes)],
   ].filter(Boolean);
   if (!rows.length) return '';
@@ -2199,8 +2273,13 @@ function refreshQuote() {
     if (S.discountCode && j.discount && !j.discount.applied && j.discount.note === 'invalid') { S.discountCode = ''; persist(); discountMsg = { ok: false, text: 'That code is no longer valid.' }; paintDiscount(); }
     if (STEPS[step] === 'Pay' && !isShip()) {
       const pc = document.querySelector('[data-price]'); if (pc) pc.outerHTML = `<div data-price>${priceCard(quoteData, true)}</div>`;
-      const live = document.querySelector('[data-upsell-live] .amt b') || document.querySelector('[data-upsell-live] .amt');
-      if (live && quoteData) live.textContent = fmt(quoteData.total);
+      const st = document.querySelector('[data-upsell-status]');
+      if (st && quoteData && UI.installUpsell === 'ask') {
+        const hung = (S.items || []).filter(isHung);
+        const hwKnown = hung.every((it) => HARDWARE_OPTS.includes(it.hardware) && it.hardware !== 'not_sure');
+        const addOn = installUpsellBaseTotal ? (Number(quoteData.total) - installUpsellBaseTotal) : 0;
+        st.textContent = !hwKnown ? 'Estimated total with installation' : (addOn > 0 ? `Installation adds ${fmt(addOn)} · New order total ${fmt(quoteData.total)}` : `New order total ${fmt(quoteData.total)}`);
+      }
       if (UI.installUpsell !== 'ask') {
         const html = installUpsellCard();
         const card = document.querySelector('[data-upsell]');
@@ -2358,6 +2437,7 @@ function render() {
   const noDock = name === 'Done';
   $('#dock').classList.toggle('hide', noDock);
   app.classList.toggle('no-dock', noDock);
+  app.classList.toggle('upsell-open', UI.installUpsell === 'ask');
   paintButton();
   refreshQuote();
   if (name === 'Where') { checkZipCity('pickup'); checkZipCity('dropoff'); }
@@ -2732,6 +2812,8 @@ app.addEventListener('click', async (e) => {
   }
   if (t.closest && t.closest('[data-upsell-yes]')) { startInstallUpsell(); return; }
   if (t.closest && t.closest('[data-upsell-no]')) { dismissInstallUpsell(); return; }
+  if (t.closest && t.closest('[data-upsell-edit]')) { editInstallUpsell(); return; }
+  if (t.closest && t.closest('[data-upsell-remove]')) { removeInstallUpsell(); return; }
   if (t.dataset.goto != null) {
     // "1:pickup-addr" = Where, Pickup address. From the review screen, the next Next brings them straight back to it.
     const [gs, gp] = String(t.dataset.goto).split(':');
@@ -2851,7 +2933,7 @@ async function placeOrder() {
   const sig = JSON.stringify(payload());
   if (orderId && orderSig === sig) return { ok: true };
   const { ok, j } = await api('/api/orders', payload());
-  if (!ok) return { ok: false, error: j.error || 'Something went wrong. Please try again.', timeConflict: !!j.timeConflict };
+  if (!ok) return { ok: false, error: j.error || 'Something went wrong. Please try again.', timeConflict: !!j.timeConflict, installFit: !!j.installFit };
   orderId = j.id; orderSig = sig; quoteData = j.quote;
   if (j.status === 'pending_approval') return { ok: true, pending: j.order };
   return { ok: true };
@@ -2873,6 +2955,11 @@ async function pay(method) {
     if (!existing) {
       const r = await placeOrder();
       if (!r.ok && r.timeConflict) return backToTimes(r.error);
+      if (!r.ok && r.installFit) {
+        if (hasInstall()) { S.service = 'pickup_delivery'; persist(); UI.installUpsell = ''; saveUi(); }
+        installFitMsg = r.error || 'Installation doesn’t fit this delivery day. Your pickup and delivery stay as they are.';
+        sub = 'review'; render(); return;
+      }
       if (!r.ok) return showErr(r.error);
       if (r.pending) { confirmed = r.pending; sessionStorage.setItem('cad-done', confirmed.id); step = STEPS.indexOf('Done'); render(); return; }
     }
