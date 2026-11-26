@@ -261,7 +261,7 @@ function renderSummary() {
     html += q.lines.map((l) => `<div class="li"><div class="li-l">${esc(l.label)}</div>
       <div class="li-p">${l.standard != null && l.standard !== l.amount ? `<s>${usd(l.standard)}</s> ` : ''}<b>${usd(l.amount)}</b>${l.standard != null && l.standard !== l.amount ? '<small> partnership price</small>' : ''}</div>
       ${extras ? `<div class="li-all"><span>After all discounts${esc(each(l))}</span><b>${usd(l.after)}</b></div>` : ''}</div>`).join('');
-    html += `<div class="sl partner"><span>Paloma's Home Furnishings partnership pricing<small>25% off standard pickup, delivery and placement. Access charges (like stairs) are additional.</small></span><span class="a"><s>${usd(q.standard)}</s>${usd(q.partner)}</span></div>`;
+    html += `<div class="sl partner"><span>Paloma's Home Furnishings partnership pricing<small>25% off standard pickup, delivery and placement. Stairs or tight access may add to the total.</small></span><span class="a"><s>${usd(q.standard)}</s>${usd(q.partner)}</span></div>`;
     if (q.volumeEligible) html += `<div class="sl disc"><span>Additional ${q.rules.volumePct}% off (delivery orders of $${q.rules.volumeThreshold.toLocaleString('en-US')}+ after partnership pricing)</span><span class="a">−${usd(q.volumeOff)}</span></div>`;
     html += `<div class="sum-note">${q.volumeEligible ? '✓ ' : ''}Delivery orders of $${q.rules.volumeThreshold.toLocaleString('en-US')} or more (after partnership pricing) get an additional ${q.rules.volumePct}% off the whole delivery price.</div>`;
     if (q.courtesy) html += `<div class="sl disc"><span>Manager's courtesy</span><span class="a">−${usd(q.courtesyOff)}</span></div>`;
@@ -765,7 +765,7 @@ function palUpsellCard() {
   const title = u.asLittle !== false ? `Add installation for <span class="upsell-aslittle">as little as ${x}</span>` : `Add installation for ${x}`;
   return `<div class="upsell-card" data-upsell>
     <p class="upsell-kicker">Optional add-on</p>
-    <h2 class="upsell-title">${title}</h2>
+    <p class="upsell-title">${title}</p>
     <p class="upsell-copy">We hang it level and secure on the same visit.</p>
     ${u.asLittle !== false ? '<p class="upsell-may">Hardware or special placement may add cost.</p>' : ''}
     ${S.installFitMsg ? `<p class="upsell-fit">${esc(S.installFitMsg)}</p>` : ''}
@@ -893,7 +893,12 @@ function applyPalHangSet(uid, key, val) {
 function renderReview() {
   const d = delivery(), who = S.placedBy === 'Other' ? S.placedOther : S.placedBy;
   const row = (label, html, to) => `<div class="rv"><div class="rv-l">${label}</div><div class="rv-v">${html}</div><button type="button" class="linkbtn rv-e" data-edit="${to}" aria-label="Edit ${esc(label)}">Edit</button></div>`;
-  const day = (arr, v) => (arr.find((x) => x.date === v) || {}).label || v;
+  const day = (arr, v) => {
+    const lab = v && ((arr || []).find((x) => x.date === v) || {}).label;
+    // Prefer a friendly weekday label; never fall back to a raw ISO date on Review.
+    if (lab && !/^\d{4}-\d{2}-\d{2}$/.test(String(lab))) return lab;
+    return shortDate(v) || '';
+  };
   const noDates = outOfState() || (S.quote && S.quote.special);
   const items = S.items.map((i) => `${i.qty} × ${esc(i.name)}${i.custom ? ` <span class="muted">(custom${i.w && i.d && i.h ? `, ${esc(i.w)} × ${esc(i.d)} × ${esc(i.h)} in` : ''})</span>` : ''}`).join('<br>');
   const extra = [d.client2 ? `${esc(d.client2.name)}${d.client2.phone ? ' · ' + esc(d.client2.phone) : ''}${d.client2.email ? ' · ' + esc(d.client2.email) : ''}` : ''].filter(Boolean).join('<br>');

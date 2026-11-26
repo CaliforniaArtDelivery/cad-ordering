@@ -556,6 +556,37 @@ ok(JSON.stringify(palRowsOff).includes('DEL') && !JSON.stringify(palRowsOff).inc
         ok(/Add installation for/.test(title) && /as little as \$55/.test(title), `Paloma ${tag}: headline uses the member $55 rate`, title);
         const copy = card ? await page.locator('[data-upsell] .upsell-copy').innerText() : '';
         ok(copy.trim() === 'We hang it level and secure on the same visit.', `Paloma ${tag}: same benefit line`, copy);
+        const headLayout = await page.evaluate(() => {
+          const el = document.querySelector('[data-upsell] .upsell-title');
+          const little = el && el.querySelector('.upsell-aslittle');
+          if (!el || !little) return { missing: true };
+          const cs = getComputedStyle(el);
+          const t = el.getBoundingClientRect();
+          const l = little.getBoundingClientRect();
+          const flexRow = (cs.display === 'flex' || cs.display === 'inline-flex') && /^row/.test(cs.flexDirection || 'row');
+          const wrapped = l.top - t.top > 8;
+          return {
+            display: cs.display,
+            textAlign: cs.textAlign,
+            flexRow,
+            wrappedLeft: !wrapped || Math.abs(l.left - t.left) <= 8,
+            littleText: (little.textContent || '').replace(/\s+/g, ' ').trim(),
+            titleText: (el.innerText || '').replace(/\s+/g, ' ').trim(),
+          };
+        });
+        ok(headLayout && !headLayout.missing && !headLayout.flexRow, `Paloma ${tag}: headline is one left-aligned block, not two flex columns`, headLayout);
+        ok(headLayout && headLayout.wrappedLeft !== false, `Paloma ${tag}: if the headline wraps, the second line stays left-aligned`, headLayout);
+        ok(headLayout && /as little as \$55/.test(headLayout.littleText || ''), `Paloma ${tag}: $55 stays with “as little as”, never alone on a line`, headLayout);
+        const daysText = await page.evaluate(() => {
+          const rows = [...document.querySelectorAll('.rv')];
+          const r = rows.find((el) => /^\s*Days\s*$/m.test((el.querySelector('.rv-l') || {}).textContent || ''));
+          return r ? r.innerText : '';
+        });
+        ok(/Wed,\s*Dec\s*2/.test(daysText), `Paloma ${tag}: Days row shows a friendly weekday date`, daysText);
+        ok(!/20\d{2}-\d{2}-\d{2}/.test(daysText), `Paloma ${tag}: Days row does not show ISO dates`, daysText);
+        const partnerText = await page.evaluate(() => (document.querySelector('.sl.partner') || {}).innerText || '');
+        ok(!/Access charges/.test(partnerText), `Paloma ${tag}: partnership copy does not say “Access charges”`, partnerText);
+        ok(/Stairs or tight access may add to the total/.test(partnerText), `Paloma ${tag}: partnership copy uses plain access wording`, partnerText);
         await shot(page, `install-upsell-v2-palomas-review-${tag}.png`);
         await page.click('[data-upsell-yes]');
         await page.waitForSelector('[data-install-step]', { timeout: 10000 });
