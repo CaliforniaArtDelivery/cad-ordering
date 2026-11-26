@@ -569,10 +569,20 @@ function clearStepErrors() {
   document.querySelectorAll('[data-stepmsg]').forEach((e) => e.remove());
   document.querySelectorAll('#form .bad').forEach((e) => e.classList.remove('bad'));
 }
+function paintPalInstallHints() {
+  if (S.installUpsell !== 'ask' || S.showInstallErrors) return;
+  installMissingPal().forEach((m) => {
+    const el = $(m.sel);
+    const field = el && el.closest ? el.closest('.field') : null;
+    if (field) field.classList.add('req-glow');
+    else if (el) el.classList.add('req-glow');
+  });
+}
 function paintHints() {
+
   const id = visibleSteps()[stepI];
   document.querySelectorAll('#form .req-glow, #form .need-ok').forEach((e) => e.classList.remove('req-glow', 'need-ok'));
-  if (id === 'review') return;
+  if (id === 'review') { paintPalInstallHints(); return; }
   const errs = problemsFor(id);
   const errSels = new Set(errs.map((e) => e.sel));
   const apply = (el, cls) => {
@@ -805,12 +815,12 @@ function palInstallStep() {
   return `<div class="install-step" data-install-step>
     <h2>Installation details</h2>
     <p class="upsell-copy">Tell us about the pieces being hung.</p>
-    <label class="field"><span class="lbl">Wall type (optional)</span>
-      <select id="palWallType">${WALL_OPTS.map((w) => `<option value="${esc(w)}"${S.wallType === w ? ' selected' : ''}>${esc(w)}</option>`).join('')}</select>
-    </label>
     ${pieces}
     ${missHtml}
     <p class="upsell-status" data-upsell-status>${esc(palInstallStatus())}</p>
+    <label class="field"><span class="lbl">Wall type (optional)</span>
+      <select id="palWallType"><option value="">Please choose one</option>${WALL_OPTS.map((w) => `<option value="${esc(w)}"${S.wallType === w ? ' selected' : ''}>${esc(w)}</option>`).join('')}</select>
+    </label>
   </div>`;
 }
 async function checkPalInstallFit() {
@@ -899,7 +909,7 @@ function renderReview() {
       : S.customDate ? `Custom date request${S.customDateNote ? ': ' + esc(S.customDateNote) : ''}`
       : `Pickup ${esc(day(S.puDays, S.pickupDate) || shortDate(S.pickupDate) || '—')}${S.dedicatedPickup ? ' · dedicated trip' : ''}<br>Delivery ${esc(day(S.deDays, S.deliveryDate) || shortDate(S.deliveryDate) || '—')}${S.dedicatedDelivery ? ' · dedicated trip' : ''}`, 'dates'),
   ].filter(Boolean).join('');
-  if (S.installUpsell === 'ask') $('#reviewBody').innerHTML = palInstallStep();
+  if (S.installUpsell === 'ask') { $('#reviewBody').innerHTML = palInstallStep(); paintPalInstallHints(); }
   else $('#reviewBody').innerHTML = palUpsellCard() + palAddedCard() + $('#reviewBody').innerHTML;
 }
 

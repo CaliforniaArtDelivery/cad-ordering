@@ -246,7 +246,7 @@ async function apiTests() {
     const txt = files.map((f) => fs.readFileSync(path.join(STORAGE, 'outbox', f), 'utf8')).join('\n').replace(/<[^>]*>/g, ' ');
     ok(files.length > 0 && /Piece 1 — Alpha/.test(txt) && /Piece 2 — Beta/.test(txt) && /Piece 3 — Gamma/.test(txt), 'confirmation email lists Piece 1 — Alpha, Piece 2 — Beta, Piece 3 — Gamma', files);
     ok(/Piece 1 — Alpha[^]*Piece 2 — Beta/.test(txt) && /Piece 1 \(Alpha\)|Piece 1 — Alpha: \$45/.test(txt), 'email protection lines are per piece');
-    ok(!/Piece 3 — Gamma: \$[\d,.]+ \(1\.5%/.test(txt) && /Piece 2 — Beta: \$120 \(1\.5% of \$8,000\)/.test(txt), 'piece 3 ($60,000) has no protection line in the email; piece 2 shows $120 (1.5% of $8,000)', txt.match(/Declared value protection[^]{0,300}/));
+    ok(!/1\.5%/.test(txt) && /Piece 2 — Beta: \$120/.test(txt) && !/Piece 3 — Gamma: \$/.test(txt.split('Declared value protection')[1] || ''), 'piece 3 ($60,000) has no protection line in the email; piece 2 shows $120 with no 1.5% formula', txt.match(/Declared value protection[^]{0,300}/));
     const st = orders().find((x) => x.id === id);
     ok(st.quote.protection.pieces.map((p) => p.piece).join() === '1,2', 'order record: protection on pieces 1 and 2 only');
   }

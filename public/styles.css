@@ -235,7 +235,7 @@ input:focus,select:focus,textarea:focus{border-color:var(--navy);background:#fff
 .install-added-head{font-weight:600;display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px}
 .install-added-head .edit{flex:0 0 auto}
 .seg.stack button{white-space:normal;text-align:left}
-.seg.stack button .fee{display:block;font-weight:400;margin-top:2px}
+.seg.stack button .fee{display:block;font-weight:400;margin-top:2px;white-space:normal;margin-left:0;overflow-wrap:anywhere}
 .app.upsell-open{padding-bottom:calc(var(--dock-h) + var(--kb-h, 0px) + 56px)}
 /* Paid hang / hardware choices: a clear selected state, not just a typographic change. */
 .seg button.on{background:#fff;color:var(--ink);box-shadow:0 0 0 1.5px var(--navy), 0 1px 4px rgba(15,27,45,.08);font-weight:600}
@@ -543,3 +543,11 @@ details.handling .handling-body .toggle{padding-bottom:0}
 .ded-toggle .sw{width:44px;height:27px}
 .ded-toggle .sw i:before{width:23px;height:23px}
 .ded-toggle .sw input:checked+i:before{transform:translateX(17px)}
+
+/* Install-upsell step: no horizontal scroll at 360–390px. */
+[data-panel="install-upsell"], [data-panel="install-upsell"] .card, [data-panel="install-upsell"] .field,
+[data-panel="install-upsell"] .seg, [data-panel="install-upsell"] select{
+  min-width:0;max-width:100%;box-sizing:border-box;
+}
+[data-panel="install-upsell"] .seg, [data-panel="install-upsell"] .seg button{min-width:0;max-width:100%;overflow-wrap:anywhere}
+[data-panel="install-upsell"] .seg button .fee{white-space:normal;overflow-wrap:anywhere}

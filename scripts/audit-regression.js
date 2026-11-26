@@ -310,7 +310,7 @@ async function run(BASE, errors, { dataRoot = process.env.STORAGE_DIR || ROOT, a
     await no('80" sculpture up stairs without the fit answers', order({ type: 'sculpture', weight: 200, w: 20, h: 80, d: 20, value: '20000' }, { accessMode: 'stairs', stairFlights: '2', stairDir: 'up', fits: '' }), /tight turns|fit/);
     if (h600 && h600.j.id) {
       const m = text(mails(h600.j.id, 'confirmation')[0] || '');
-      if (!m.includes('Declared value protection: $300 (1.5% of $20,000 in eligible pieces).')) errors.push('decision 1: confirmation email should carry the required protection line ($300 on $20,000)');
+      if (!m.includes('Declared value protection: $300') || /1\.5%/.test(m)) errors.push('decision 1: confirmation email should carry Declared value protection: $300 with no 1.5% formula');
       if (/\btax/i.test(m) || /insur|optional/i.test(m)) errors.push('decisions 1/3: confirmation email must not mention tax, insured or optional');
       const qq = h600.j.quote;
       if (!qq.protection || qq.protection.amount !== 300 || qq.protection.eligibleValue !== 20000) errors.push('decision 1: order quote should record protection $300 on $20,000');

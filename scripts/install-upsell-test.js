@@ -287,6 +287,30 @@ ok(JSON.stringify(palRowsOff).includes('DEL') && !JSON.stringify(palRowsOff).inc
       await ctx.close();
     }
 
+
+    const stepLayout = async (page, tag) => {
+      const info = await page.evaluate(() => {
+        const root = document.querySelector('[data-install-step], [data-panel="install-upsell"]:not([hidden])');
+        const wall = root && (root.querySelector('#palWallType') || root.querySelector('[data-path="dropoff.wallType"]'));
+        const hw = root && (root.querySelector('[data-hw], [data-hardware]'));
+        const overflowing = [...(root ? root.querySelectorAll('*') : []), root].filter(Boolean)
+          .filter((el) => el.getBoundingClientRect().right > document.documentElement.clientWidth + 1)
+          .map((el) => (el.tagName + '.' + (el.className || '')).slice(0, 80)).slice(0, 8);
+        return {
+          scrollW: document.documentElement.scrollWidth,
+          clientW: document.documentElement.clientWidth,
+          bodyW: document.body.scrollWidth,
+          wallAfterHw: !!(hw && wall && (hw.compareDocumentPosition(wall) & Node.DOCUMENT_POSITION_FOLLOWING)),
+          glow: !!document.querySelector('.field.req-glow, [data-hardware="0"].req-glow, [data-hardware="0"].field.req-glow, .req-glow .hang-seg, .req-glow[data-hardware]'),
+          overflowing,
+        };
+      });
+      ok(info.scrollW <= info.clientW + 1, `${tag}: no horizontal scroll on the install step`, info);
+      ok(!info.overflowing.length, `${tag}: no element overflows the viewport on the right`, info);
+      ok(info.wallAfterHw, `${tag}: optional wall type sits below required hardware and height`, info);
+      ok(info.glow, `${tag}: empty required fields show the soft blue glow`, info);
+    };
+
     const runFlow = async (vw, vh, tag, mobile) => {
       const ctx = await browser.newContext({ viewport: { width: vw, height: vh }, deviceScaleFactor: mobile ? 2 : 1, isMobile: !!mobile, hasTouch: !!mobile });
       const page = await ctx.newPage();
@@ -331,20 +355,14 @@ ok(JSON.stringify(palRowsOff).includes('DEL') && !JSON.stringify(palRowsOff).inc
       ok(await page.$('[data-hardware="0"]'), `${tag}: hardware is asked (not yet collected)`);
       ok(await page.$('[data-seg="items.0.hangPick"]'), `${tag}: hanging height is asked`);
       ok(await page.$('[data-path="dropoff.wallType"]'), `${tag}: optional wall type is asked because it was empty`);
-      const glow = await page.evaluate(() => !!document.querySelector('[data-hardware="0"].req-glow, .field.req-glow[data-hardware="0"], [data-hardware="0"]'));
-      ok(!!(await page.$('[data-hardware="0"]')), `${tag}: hardware field is on the step`);
-      const hasGlow = await page.evaluate(() => {
-        const el = document.querySelector('[data-hardware="0"]');
-        return !!(el && (el.classList.contains('req-glow') || el.closest('.req-glow')));
-      });
-      ok(hasGlow, `${tag}: empty required hardware has the pre-Next blue glow`);
+      await stepLayout(page, tag);
+      await shot(page, `install-upsell-v2-step-${tag}.png`, true);
       const totalBefore = await page.evaluate(() => (document.querySelector('[data-upsell-status]') || {}).textContent || '');
       await page.click('[data-seg="items.0.hardware"] [data-v="needs_zbar"]');
       await page.waitForTimeout(800);
       const totalAfterHw = await page.evaluate(() => (document.querySelector('[data-upsell-status]') || {}).textContent || '');
       ok(totalAfterHw && totalAfterHw !== totalBefore, `${tag}: status line updates when hardware with a fee is chosen`, { totalBefore, totalAfterHw });
       ok(/Installation adds/.test(totalAfterHw) && /New order total/.test(totalAfterHw), `${tag}: step shows Installation adds $X · New order total $Y once hardware is firm`, totalAfterHw);
-      await shot(page, `install-upsell-v2-step-${tag}.png`, false);
       const dockDup = await page.evaluate(() => {
         const dock = (document.querySelector('#estTotal') || {}).textContent || '';
         const status = (document.querySelector('[data-upsell-status]') || {}).textContent || '';
@@ -388,6 +406,7 @@ ok(JSON.stringify(palRowsOff).includes('DEL') && !JSON.stringify(palRowsOff).inc
 
     if (day) {
       await runFlow(390, 844, '390', true);
+      await runFlow(360, 800, '360', true);
       await runFlow(1280, 900, 'desktop', false);
 
       // Skip already-known questions
@@ -445,6 +464,10 @@ ok(JSON.stringify(palRowsOff).includes('DEL') && !JSON.stringify(palRowsOff).inc
           return { text: t, boxCount: boxes.length, width: el.getBoundingClientRect().width };
         });
         ok(wrap && /\$75/.test(wrap.text || '') && wrap.boxCount === 1, `as little as $75 stays on one line at ${w}px`, wrap);
+        await page.click('[data-upsell-yes]');
+        await page.waitForSelector('[data-panel="install-upsell"]:not([hidden])', { timeout: 10000 });
+        await page.waitForTimeout(300);
+        await stepLayout(page, `main step ${w}px`);
         await ctx.close();
       }
 
@@ -540,13 +563,14 @@ ok(JSON.stringify(palRowsOff).includes('DEL') && !JSON.stringify(palRowsOff).inc
         ok(!!(await page.$('[data-hw]')), `Paloma ${tag}: hardware is asked for the hung piece`);
         const status0 = await page.locator('[data-upsell-status]').innerText();
         ok(/Estimated total with installation/.test(status0), `Paloma ${tag}: before hardware is picked, status is Estimated total with installation`, status0);
+        await stepLayout(page, 'Paloma ' + tag);
+        await shot(page, `install-upsell-v2-palomas-step-${tag}.png`, true);
         await page.click('[data-set="hardware"][data-val="wire"]');
         await page.waitForTimeout(300);
         if (await page.$('[data-set="hh"][data-val="standard"]')) await page.click('[data-set="hh"][data-val="standard"]');
         await page.waitForTimeout(700);
         const status1 = await page.locator('[data-upsell-status]').innerText();
         ok(/Installation adds/.test(status1) && /New order total/.test(status1), `Paloma ${tag}: live price line after a firm hardware choice`, status1);
-        await shot(page, `install-upsell-v2-palomas-step-${tag}.png`, false);
         const nextVisible = await page.$('#nextBtn:not([hidden])');
         if (nextVisible) await page.click('#nextBtn', { force: true });
         else await page.evaluate(() => window.__CAD_PALOMAS__ && window.__CAD_PALOMAS__.confirm && window.__CAD_PALOMAS__.confirm());
@@ -563,6 +587,7 @@ ok(JSON.stringify(palRowsOff).includes('DEL') && !JSON.stringify(palRowsOff).inc
         await ctx.close();
       };
       await runPal(390, 844, '390', true);
+      await runPal(360, 800, '360', true);
       await runPal(1280, 900, 'desktop', false);
     }
 
