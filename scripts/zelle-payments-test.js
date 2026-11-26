@@ -102,6 +102,20 @@ const paint = (d, v, o = {}) => ({ type: 'painting', framed: 'no', w: 30, h: 40,
     const a = await post('/api/orders', { ...base, contact: { ...base.contact, email: 'ach.tester@example.com' }, items: [paint('Big canvas', 9000)], schedule: { date: D, deliveryDate: D, timePref: 'none', deliveryTimePref: 'none' } });
     const ap = await post(`/api/orders/${a.j.id}/pay`, { method: 'ach', routing: '110000000', account: '000123456789' });
     ok(ap.j && ap.j.order && ap.j.order.payment.status === 'ach_processing', 'bank payment books the job and shows "processing", not paid');
+    await sleep(1500);
+    const aid = a.j.id, achRows = () => rows.cells.filter((r) => String(r[9] || '').includes(aid)), payLeg = () => achRows().find((r) => r[31] !== '...');
+    { const r = payLeg(); ok(r && r[31] === 'Payment Requested' && Number(r[30]) > 0 && (r[32] === '' || r[32] == null) && /ACH processing \(not yet cleared\)/.test(r[34]) && !/Paid in full/.test(r[34]), `sheet: ACH processing keeps the amount in Amount Due, Amount Paid empty, no "Paid in full" (AE ${r && r[30]}, AF ${r && r[31]}, AG ${r && r[32]})`); }
+    const settle = await post(`/api/orders/${aid}/mock-payment-update`, { result: 'paid' });
+    ok(settle.j && settle.j.order && settle.j.order.payment.status === 'paid', 'Stripe confirms the bank payment => paid');
+    await sleep(1500);
+    { const r = payLeg(); ok(r && r[31] === 'PAID' && Number(r[30]) === 0 && Number(String(r[32]).replace(/[$,]/g, '')) > 0, `sheet after the payment update: PAID, Amount Due 0, Amount Paid set (AE ${r && r[30]}, AG ${r && r[32]})`); }
+    { const before = bridge.mails.length; bridge.run('verifyAll'); ok(!bridge.mails.slice(before).some((m) => m.body.includes(aid)), 'verifier: Amount Due going to 0 by the site\'s own payment update is not reported as CHANGED'); }
+    // A hand repair of Amount Due IS reported; rebaselineTestOrders (run by hand in the editor) stops the repeats for TEST orders.
+    { const r = payLeg(); r[30] = 123; const before = bridge.mails.length; bridge.run('verifyAll');
+      ok(bridge.mails.slice(before).some((m) => m.body.includes(aid) && /Amount Due CHANGED/.test(m.body)), 'a hand edit of Amount Due is still reported by the verifier');
+    }
+    { const out = bridge.runWith('rebaselineTestOrders', [[aid]]); ok(Array.isArray(out) && /re-baselined/.test(out[0]), `rebaselineTestOrders: ${out && out[0]}`);
+      const before = bridge.mails.length; bridge.run('verifyAll'); ok(!bridge.mails.slice(before).some((m) => m.body.includes(aid)), 'after rebaselineTestOrders the verifier stops reporting it'); }
     const src = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
     ok(/bankFirst\(q\)/.test(src) && /Pay by bank/.test(src) && /Recommended for larger orders/.test(src), 'larger orders open on "Pay by bank" with a "Recommended for larger orders" note');
   } finally { child.kill('SIGKILL'); await bridge.close(); }

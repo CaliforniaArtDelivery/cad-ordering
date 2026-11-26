@@ -539,6 +539,27 @@ function verifyAll() {
   if (problems.length) alertMail_('ALERT: online-order check found ' + problems.length + ' problem(s) on the schedule', problems.join('\n\n') + '\n\nCHANGED means a team member edited the row after booking. If a client date or address changed on purpose, make sure the client was told.');
   return { checked: checked, problems: problems.length };
 }
+// One-off maintenance, run by hand from the Apps Script editor (no redeploy needed; touches no sheet cells):
+// re-baseline the verifier's saved booking signature for TEST orders whose rows were repaired by hand, so verifyAll stops
+// re-reporting "Amount Due CHANGED after booking". Refuses non-TEST orders. Reads the target tab; writes only script properties.
+function rebaselineTestOrders(ids) {
+  ids = ids && ids.length ? ids : ['CAD-WRWJ6G', 'CAD-WRL9RD', 'CAD-WRL91G'];
+  var ss = ss_(), sh = main_(ss), snap = snapshot_(sh), tz = ss.getSpreadsheetTimeZone(), out = [];
+  var vstate = {}; try { vstate = JSON.parse(props_().getProperty('VERIFY_STATE2') || '{}'); } catch (x) { vstate = {}; }
+  ids.forEach(function (id) {
+    var st = getState_(id);
+    if (!st) { out.push(id + ': no saved state'); return; }
+    if (!st.t) { out.push(id + ': NOT a test order, skipped'); return; }
+    var rows = findOrderRows_(snap, id).filter(function (p) { return !p.pending; }).map(function (p) { return p.row; });
+    if (rows.length !== st.n) { out.push(id + ': has ' + rows.length + ' rows, expected ' + st.n + ', skipped'); return; }
+    st.s = rows.map(function (r) { return rowSig_(rowAt_(snap, r), tz); }); st.rows = rows; st.rebaselinedAt = Date.now();
+    setState_(id, st); delete vstate[id];
+    out.push(id + ': re-baselined rows ' + rows.join(', '));
+  });
+  props_().setProperty('VERIFY_STATE2', JSON.stringify(vstate));
+  Logger.log(out.join('\n'));
+  return out;
+}
 function installTriggers() {
   ScriptApp.getProjectTriggers().forEach(function (t) { if (t.getHandlerFunction() === 'verifyAll') ScriptApp.deleteTrigger(t); });
   ScriptApp.newTrigger('verifyAll').timeBased().everyMinutes(30).create();

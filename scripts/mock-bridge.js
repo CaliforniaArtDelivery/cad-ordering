@@ -57,6 +57,7 @@ function startBridge({ seed, secret = 'test-secret-0123456789abcdef', port = 0 }
     LockService: { getScriptLock: () => ({ waitLock() {}, releaseLock() {} }) },
     PropertiesService: { getScriptProperties: () => ({ getProperty: (k) => (k in props ? props[k] : null), setProperty: (k, v) => { props[k] = v; }, deleteProperty: (k) => { delete props[k]; }, getProperties: () => ({ ...props }) }) },
     ContentService: { MimeType: { JSON: 'json' }, createTextOutput: (t) => ({ _t: t, setMimeType() { return this; }, getContent() { return this._t; } }) },
+    Logger: { log() {} },
     MailApp: { sendEmail: (to, subject, body) => { mails.push({ to, subject, body }); } },
     Utilities: { formatDate: (d, tz, f) => { const p = new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' }).format(d); return p; } },
     ScriptApp: { getProjectTriggers: () => [], newTrigger: () => ({ timeBased: () => ({ everyMinutes: () => ({ create() {} }) }) }), deleteTrigger() {} },
@@ -84,7 +85,8 @@ function startBridge({ seed, secret = 'test-secret-0123456789abcdef', port = 0 }
     url: `http://127.0.0.1:${server.address().port}/exec`, secret, book, mails, log, props,
     setFault: (f) => { fault = { ...f }; }, close: () => new Promise((r) => server.close(r)),
     sheet: (n) => book.getSheetByName(n),
-    run: (fn) => sandbox[fn](), // call a Code.gs function directly (e.g. the verifyAll time trigger)
+    run: (fn) => sandbox[fn](),
+    runWith: (fn, args) => sandbox[fn](...(args || [])), // call a Code.gs function directly (e.g. the verifyAll time trigger)
   })));
 }
 module.exports = { startBridge, makeBook };
