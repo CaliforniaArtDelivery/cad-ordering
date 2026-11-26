@@ -324,9 +324,12 @@ async function sectionLabelsAndUi() {
     ok((await panelOf(page)) === 'p0c', 'sculpture lands on Value and care');
     const care = await page.textContent('[data-panel="p0c"]');
     ok(/Pick a weight or Not sure; it affects the price/.test(care), 'sculpture/other weight helper is shown');
-    ok(/Only for pieces outside normal handling/.test(care) && /ceramics and solid sculpture/.test(care), 'special handling rarity copy is on the step');
+    ok(await page.isVisible('details.handling summary'), 'special handling starts collapsed');
+    await page.click('details.handling summary'); await page.waitForTimeout(150);
+    const careOpen = await page.textContent('[data-panel="p0c"]');
+    ok(/Only for extremely fragile or awkward pieces, ones that can’t stand upright, or ones that may need custom crating/.test(careOpen), 'special handling copy is on the step once expanded');
     const wrap = await page.evaluate(() => {
-      const p = [...document.querySelectorAll('[data-panel="p0c"] .mini')].find((el) => /Only for pieces outside normal handling/.test(el.textContent));
+      const p = [...document.querySelectorAll('[data-panel="p0c"] .mini')].find((el) => /Only for extremely fragile or awkward pieces/.test(el.textContent));
       if (!p) return { ok: false };
       const r = p.getBoundingClientRect();
       return { ok: p.scrollWidth <= p.clientWidth + 1 && r.right <= innerWidth + 1, sw: p.scrollWidth, cw: p.clientWidth, right: r.right, vw: innerWidth };

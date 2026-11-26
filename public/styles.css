@@ -409,6 +409,16 @@ details.access-extras[open]>summary::after{content:"–"}
 details.access-extras>summary .opt{font-weight:500;color:var(--muted)}
 details.access-extras>summary .mini{margin:0;font-weight:400}
 details.access-extras .extras-body{padding:0 18px 18px}
+
+/* Special handling (Chad, Nov 26 2026): a collapsed disclosure with a chevron; thin dividers above and below. */
+details.handling{margin:4px 0 14px;border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+details.handling>summary{cursor:pointer;list-style:none;display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:48px;padding:11px 0;font-size:16px}
+details.handling>summary::-webkit-details-marker{display:none}
+details.handling>summary::after{content:"";width:8px;height:8px;border-right:1.5px solid var(--navy);border-bottom:1.5px solid var(--navy);transform:rotate(45deg);margin-right:4px;flex:none;transition:transform .2s var(--ease)}
+details.handling[open]>summary::after{transform:rotate(225deg);margin-top:4px}
+details.handling .handling-body{padding:0 0 12px}
+details.handling .handling-body .mini{margin:0 0 8px}
+details.handling .handling-body .toggle{padding-bottom:0}
 .seg .fee{font-weight:500;color:var(--muted);white-space:nowrap;margin-left:4px}
 .seg button.on .fee{color:var(--ink)}
 .heavy-block{display:flex;flex-direction:column;gap:8px;background:#fbf3f1;border:1px solid #f0d6d1;border-radius:var(--r);padding:14px;margin:8px 0 4px;font-size:15px;line-height:1.4}

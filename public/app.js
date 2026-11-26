@@ -46,7 +46,7 @@ const emptyItem = () => ({ id: newPieceId(), checkValue: false, type: 'painting'
 let CFG = null;
 let step = 0;
 const emptyHeard = () => ({
-  repeatClient: false, source: '', sourceOther: '', sourceDetail: '',
+  repeatAnswer: '', repeatClient: false, source: '', sourceOther: '', sourceDetail: '',
   referrerKind: '', referrerName: '', referrerPhone: '', referrerEmail: '', businessName: '',
 });
 const fresh = () => ({
@@ -116,6 +116,11 @@ S.dropoff = migrateAddr(S.dropoff);
 S.contact = { ...fresh().contact, ...(S.contact || {}) };
 S.partner = { ...fresh().partner, ...(S.partner || {}) };
 S.heard = { ...emptyHeard(), ...(S.heard || {}) };
+if (!S.heard.repeatAnswer) {
+  if (S.heard.repeatClient) S.heard.repeatAnswer = 'yes';
+  else if (S.heard.source) S.heard.repeatAnswer = 'no';
+}
+S.heard.repeatClient = S.heard.repeatAnswer === 'yes';
 if (!S.heard.source && S.referral) {
   S.heard.source = 'referral';
   const typeMap = { 'Gallery': 'gallery', 'Furniture showroom': 'showroom', 'Interior designer': 'designer', 'Auction house': 'auction' };
@@ -155,7 +160,7 @@ const UI = { showContact: [], showPayer: false, showList: false };
 const payerShown = () => UI.showPayer || !['pickup', 'dropoff'].includes(S.payer);
 let returnToReview = false; // set by Edit on the review screen: the next Next goes straight back to review
 const saveUi = () => { try { draftStore.setItem('cad-ui', JSON.stringify({ ...UI, rtr: !!returnToReview })); } catch (_) { /* ignore */ } };
-const persist = () => { if (STEPS[step] === 'Done') return; draftStore.setItem('cad-order', JSON.stringify(S)); draftStore.setItem('cad-step', String(step)); saveUi(); };
+const persist = () => { if (STEPS[step] === 'Done') return; (S.items || []).forEach(tidyItemWeight); syncHeardFlag(S.heard); draftStore.setItem('cad-order', JSON.stringify(S)); draftStore.setItem('cad-step', String(step)); saveUi(); };
 // What actually gets priced / booked: drop fields that don't apply to the chosen service.
 const payload = () => {
   applySameAsMe('pickup'); applySameAsMe('dropoff'); applySamePickup(); syncDoorway('pickup'); syncDoorway('dropoff'); // default on-site contact = the booker
@@ -197,7 +202,7 @@ const payload = () => {
   if (intlDest(o.dropoff)) o.dropoff.state = '';
   if (isShipState()) { o.schedule = { date: '', window: '', timePref: 'none', timeNote: '', deliveryLater: false, deliveryDate: '', deliveryTimePref: 'none', deliveryTimeNote: '' }; o.rush = false; o.dedicated = false; o.crating = false; clearInstall(o.dropoff); if (!intlDest(o.dropoff)) o.shipping.customs = { name: '', phone: '', email: '' }; }
   else delete o.shipping;
-  o.items.forEach((it) => { cleanFraming(it); delete it.framedGlass; if (it.weightUnsure) it.weight = ''; else it.weightUnsure = false; });
+  o.items.forEach((it) => { cleanFraming(it); delete it.framedGlass; tidyItemWeight(it); });
   syncHeardPayload(o);
   // No member rate (Chad, Nov 19 2026). Protection is included unless the customer explicitly removed it; the discount code is the applied one only.
   ['member', 'memberCode', 'memberVerified', 'memberCompany', 'memberError', 'discountInput', 'discountMsg'].forEach((k) => delete o[k]);
@@ -496,8 +501,15 @@ function syncDoorway(k) {
   if (a.stdDoorway === 'yes') { if (a.fits !== 'yes') { a.fits = 'yes'; a.fitsAuto = true; } if (a.doorway === 'not_sure') a.doorway = ''; }
   else if (a.stdDoorway === 'no' && a.fitsAuto) { a.fits = ''; a.fitsAuto = false; }
 }
+const syncHeardFlag = (h) => {
+  if (!h) return h;
+  if (h.repeatAnswer === 'yes') h.repeatClient = true;
+  else if (h.repeatAnswer === 'no') h.repeatClient = false;
+  else h.repeatClient = !!h.repeatClient;
+  return h;
+};
 const syncHeardPayload = (o) => {
-  const h = { ...emptyHeard(), ...(o.heard || {}) };
+  const h = syncHeardFlag({ ...emptyHeard(), ...(o.heard || {}) });
   if (h.repeatClient || !HEARD_DETAIL[h.source]) h.sourceDetail = '';
   if (h.repeatClient || h.source !== 'referral') { h.referrerKind = ''; h.referrerName = ''; h.referrerPhone = ''; h.referrerEmail = ''; h.businessName = ''; }
   if (h.repeatClient || h.source !== 'other') h.sourceOther = '';
@@ -980,17 +992,28 @@ const protectionNote = (q) => (q && q.protection && q.protection.amount > 0
   : '');
 const PROTECTION_DOCK = 'Includes declared value protection';
 const weightRequired = (it) => shipService() || it.type === 'sculpture' || it.type === 'other';
-// Weight (Chad, Nov 25 2026): optional and skippable, and only asked where it matters: sculptures, furniture, mirrors, and large or
-// wood-panel pieces. A regular framed painting doesn't ask (size and framing tell us enough). Already-answered weights stay visible.
-const WEIGHT_LARGE_IN = 48;
+// Weight (Chad, Nov 25–26 2026): for paintings, photographs and other wall art, only ask when the largest side is over 72 in,
+// or the piece is framed and the largest side is over 60 in. A 48×60 unframed painting with no glass is not asked.
+// Sculptures, “other”, furniture, mirrors, and shipping still ask (those are priced or planned by weight). Hidden
+// weights are sent blank (not asked) so they never affect pricing, validation, the sheet or emails.
+const WEIGHT_ASK_OVER_IN = 72;
+const WEIGHT_FRAMED_ASK_OVER_IN = 60;
+const largestDim = (it) => Math.max(num(it && it.w), num(it && it.h), num(it && it.d));
 const askWeight = (it) => {
   if (!it) return false;
   if (shipService() || weightRequired(it)) return true;
-  if (it.weightUnsure || num(it.weight) > 0) return true;
   const t = it.type || 'painting';
   if (t === 'furniture' || CADAccess.pieceType(it) === 'mirror') return true;
-  if (CADAccess.needsWeightHint(it)) return true; // works on panel
-  return Math.max(num(it.w), num(it.h), num(it.d)) >= WEIGHT_LARGE_IN;
+  const max = largestDim(it);
+  if (max > WEIGHT_ASK_OVER_IN) return true;
+  if (it.framed === 'yes' && max > WEIGHT_FRAMED_ASK_OVER_IN) return true;
+  return false;
+};
+const tidyItemWeight = (it) => {
+  if (!it) return;
+  if (!askWeight(it)) { it.weight = ''; it.weightUnsure = false; }
+  else if (it.weightUnsure) it.weight = '';
+  else it.weightUnsure = false;
 };
 const weightOk = (it) => !weightRequired(it) || !!it.weightUnsure || num(it.weight) > 0;
 function updateItemHints(i) {
@@ -1026,8 +1049,18 @@ const syncFrameType = (i) => {
   else if (!show && has) wrap.innerHTML = '';
   updateNext();
 };
-const handlingBlock = (item, i) => `${toggle(`items.${i}.fragile`, 'Special handling needed', '', true)}
-    <p class="mini" style="margin:-6px 0 10px">Only for very fragile or awkward pieces, ones that can’t stand upright, or ones that need custom crating.</p>`;
+const openHandling = new Set(); // Value and care: which pieces have Special handling expanded (UI only)
+const HANDLING_HINT = 'Only for extremely fragile or awkward pieces, ones that can’t stand upright, or ones that may need custom crating.';
+const handlingBlock = (item, i) => {
+  const open = !!item.fragile || openHandling.has(item.id);
+  return `<details class="handling" data-handling="${i}" ${open ? 'open' : ''}>
+    <summary>Special handling needed</summary>
+    <div class="handling-body">
+      <p class="mini">${esc(HANDLING_HINT)}</p>
+      ${toggle(`items.${i}.fragile`, 'Special handling needed', '', true, 'first')}
+    </div>
+  </details>`;
+};
 // Heavy wall pieces (Chad, Nov 21 2026): surcharge on pickup & delivery by weight; over the limit = custom quote, no booking.
 const WALL_WEIGHT_TYPES = () => (((CFG && CFG.pricing && CFG.pricing.wallArtWeight) || {}).types || ['painting', 'photograph', 'mirror', 'wallart']);
 const wallWeightCfg = () => ((CFG && CFG.pricing && CFG.pricing.wallArtWeight) || { tiers: [], maxLb: 400 });
@@ -1430,8 +1463,9 @@ const views = {
     out.push(panel('about', `<h1>A little about you</h1><div class="card">
         <div class="row">${input('contact.company', 'Company (optional)')}${select('contact.clientType', 'I am a…', ['Collector', 'Gallery', 'Furniture showroom', 'Interior designer', 'Auction house', 'Artist', 'Other'], { req: true, placeholder: 'Please choose one' })}</div>
       </div><h2>How did you find us?</h2><div class="card">
-        ${toggle('heard.repeatClient', 'I’ve ordered with CAD before', 'Welcome back.', true)}
-        ${!S.heard.repeatClient ? `${select('heard.source', 'How did you hear about us?', HEARD_SOURCES, { req: true, placeholder: 'Please choose one', rerender: true })}
+        <div class="field" data-reqblock="repeatAnswer" style="margin:0 0 12px"><label class="f">I’ve ordered with CAD before?${req}</label>${seg('heard.repeatAnswer', [['yes', 'Yes'], ['no', 'No']])}
+        ${S.heard.repeatAnswer === 'yes' ? '<p class="mini" style="margin:6px 0 0">Welcome back.</p>' : ''}</div>
+        ${S.heard.repeatAnswer === 'no' ? `${select('heard.source', 'How did you hear about us?', HEARD_SOURCES, { req: true, placeholder: 'Please choose one', rerender: true })}
         ${S.heard.source === 'referral' ? `${select('heard.referrerKind', 'Who referred you?', REFERRER_KINDS, { req: true, placeholder: 'Please choose one', rerender: true })}
         ${input('heard.referrerName', 'Referrer name (optional)', { ph: 'Name' })}
         <div class="row keep">${input('heard.referrerPhone', 'Referrer mobile (optional)', { type: 'tel', ph: '(415) 555-0123', attrs: 'autocomplete="off"' })}${input('heard.referrerEmail', 'Referrer email (optional)', { type: 'email', attrs: 'autocapitalize="off" autocomplete="off"' })}</div>
@@ -1713,8 +1747,9 @@ function missingFields(name = STEPS[step]) {
     { const em = V.emailProblem(S.contact.email); if (em) add('#f-contact.email', 'Email', em); }
     if (String(S.contact.phone || '').replace(/\D/g, '').length < 7) add('#f-contact.phone', 'Mobile', 'Please enter a mobile number.');
     if (!String(S.contact.clientType || '').trim()) add('#f-contact.clientType', 'I am a…', 'Please choose one.');
-    if (!(S.heard && S.heard.repeatClient)) {
-      if (!S.heard || !S.heard.source) add('#f-heard.source', 'How did you hear about us?', 'Please tell us how you heard about CAD.');
+    if (!S.heard || !['yes', 'no'].includes(S.heard.repeatAnswer)) add('[data-seg="heard.repeatAnswer"]', 'I’ve ordered with CAD before?', 'Please tell us if you’ve ordered with CAD before.');
+    else if (S.heard.repeatAnswer !== 'yes') {
+      if (!S.heard.source) add('#f-heard.source', 'How did you hear about us?', 'Please tell us how you heard about CAD.');
       else if (S.heard.source === 'other' && !String(S.heard.sourceOther || '').trim()) add('#f-heard.sourceOther', 'Tell us where', 'Please tell us where you heard about us.');
       else if (S.heard.source === 'referral' && !S.heard.referrerKind) add('#f-heard.referrerKind', 'Who referred you?', 'Please tell us who referred you.');
     }
@@ -2482,7 +2517,18 @@ app.addEventListener('click', async (e) => {
   if (t.id === 'newOrder') { sessionStorage.clear(); draftStore.clear(); location.href = '/'; }
 });
 
-app.addEventListener('toggle', (e) => { const d = e.target; if (d && d.dataset && d.dataset.extras) { if (d.open) openExtras.add(d.dataset.extras); else openExtras.delete(d.dataset.extras); } }, true);
+app.addEventListener('toggle', (e) => {
+  const d = e.target;
+  if (!d || !d.dataset) return;
+  if (d.dataset.extras) { if (d.open) openExtras.add(d.dataset.extras); else openExtras.delete(d.dataset.extras); }
+  if (d.dataset.handling != null) {
+    const it = S.items[+d.dataset.handling];
+    if (!it) return;
+    if (d.open) openHandling.add(it.id);
+    else if (it.fragile) d.open = true;
+    else openHandling.delete(it.id);
+  }
+}, true);
 // Photo uploads: never fail silently (a dropped HEIC or a network error used to just do nothing).
 const uploadToast = (msg) => {
   let t = document.getElementById('uploadToast');

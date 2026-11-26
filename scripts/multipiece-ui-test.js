@@ -39,7 +39,14 @@ exports.uiTests = async (H) => {
     if (s.value !== undefined) await fill(`items.${i}.value`, s.value);
     if (s.unsure) await page.click(`[data-weightunsure="${i}"]`);
     else if (s.weight !== undefined) await fill(`items.${i}.weight`, s.weight);
-    if (s.fragile) await page.click(`label.toggle:has([data-path="items.${i}.fragile"])`);
+    if (s.fragile) {
+      const disc = page.locator(`[data-panel]:not([hidden]) details[data-handling="${i}"]`);
+      if (await disc.count()) {
+        if (!(await disc.evaluate((el) => el.open))) await disc.locator('summary').click();
+        await page.waitForTimeout(150);
+      }
+      await page.click(`label.toggle:has([data-path="items.${i}.fragile"])`);
+    }
     if (s.photo) { await page.setInputFiles(`[data-upload="${i}"]`, PHOTO); await page.waitForFunction((n) => JSON.parse(localStorage.getItem('cad-order')).items[n].photos.length > 0, i, { timeout: 8000 }); await page.waitForTimeout(300); }
     if (s.fragile && !s.photo) { await page.click('#nextBtn', { force: true }); await page.waitForTimeout(350); } // blocked on purpose: special handling needs a photo
     else await next();
@@ -63,11 +70,12 @@ exports.uiTests = async (H) => {
     await next(); // list -> Where
     for (let n = 0; n < 40 && (await panel()) !== 'review'; n++) {
       if (onPanel) await onPanel(await panel());
+      if (await page.$('[data-panel]:not([hidden]) [data-seg="heard.repeatAnswer"]') && !(await page.$('[data-seg="heard.repeatAnswer"] button.on'))) { await page.click('[data-seg="heard.repeatAnswer"] [data-v="no"]'); await page.waitForTimeout(200); }
       const v = await page.evaluate(() => { const p = [...document.querySelectorAll('[data-panel]')].find((x) => !x.hidden); return [...p.querySelectorAll('input,select,textarea,[data-seg]')].filter((e) => e.offsetParent).map((e) => ({ k: e.dataset.path || e.dataset.seg || e.id, t: e.tagName, v: e.value, opts: e.tagName === 'SELECT' ? [...e.options].map((o) => o.value) : undefined })); });
       for (const f of v) {
         if (VAL[f.k] !== undefined && f.t === 'INPUT' && !f.v) await page.fill(`[data-path="${f.k}"]`, VAL[f.k]);
         else if (f.t === 'SELECT' && !f.v && f.opts) await page.selectOption(`[data-path="${f.k}"]`, f.k === 'heard.source' ? 'google' : f.opts[1]);
-        else if (f.t === 'DIV' && /^(pickup|dropoff)\./.test(f.k) && !(await page.$(`[data-seg="${f.k}"] button.on`))) { await page.click(`[data-seg="${f.k}"] button >> nth=0`); await page.waitForTimeout(120); }
+        else if (f.t === 'DIV' && /^(pickup|dropoff)\./.test(f.k) && !(await page.$(`[data-seg="${f.k}"] button.on`))) { const btn = page.locator(`[data-seg="${f.k}"] button`).first(); if (await btn.isVisible()) { await btn.click(); await page.waitForTimeout(120); } }
       }
       if (await page.locator('[data-reqblock="date"] .day:not(.rush):visible').count()) { await page.click('[data-reqblock="date"] .day:not(.rush):visible >> nth=0'); await page.waitForTimeout(250); }
       if (await page.locator('[data-deldate]:not([data-off]):visible').count()) { await page.click('[data-deldate]:not([data-off]):visible >> nth=0'); await page.waitForTimeout(250); }
@@ -228,7 +236,8 @@ exports.uiTests = async (H) => {
     // mobile-friendly: inputs inside are at least 40px tall and inside the viewport width
     const geo = await page.$eval('#q-items\\.6\\.value', (e) => { const r = e.getBoundingClientRect(); return { w: r.width, h: r.height, right: r.right }; });
     ok(geo.h >= 40 && geo.right <= 390 && geo.w > 120, 'Quick edit inputs are finger-sized and fit the 390px width', geo);
-    // weight "Not sure" and special handling from Quick edit
+    // weight "Not sure" and special handling from Quick edit (72×60 unframed hides weight; framed + over 60 in shows it)
+    await page.click('details[data-qpiece][open] [data-seg="items.6.framed"] [data-v="yes"]'); await page.waitForTimeout(250);
     await page.click('details[data-qpiece][open] [data-weightunsure]'); await page.waitForTimeout(250);
     ok((await state()).items[6].weightUnsure === true && (await state()).items[5].weightUnsure === false, 'Not sure (weight) toggles on Piece 7 only');
     ok((await page.$$eval('details[data-qpiece][open]', (e) => e.length)) === 1, 'the open row stays open after a change');
@@ -287,13 +296,16 @@ exports.uiTests = async (H) => {
   {
     await freshStart();
     await fill(`items.0.description`, 'Care test'); await next();
-    // Nov 25 2026: weight is asked only for large (48 in.+), panel, mirror, sculpture and furniture pieces; a 50 in. canvas asks.
-    await fill(`items.0.w`, 50); await fill(`items.0.h`, 40); await fill(`items.0.d`, 2);
+    // Nov 26 2026: weight is asked only when the largest side is over 72 in, or the piece is framed and over 60 in. An 80 in. unframed canvas asks.
+    await fill(`items.0.w`, 80); await fill(`items.0.h`, 40); await fill(`items.0.d`, 2);
     await page.click('[data-seg="items.0.framed"] [data-v="no"]'); if (await page.$(`[data-seg="items.0.glazing"]`)) await page.click(`[data-seg="items.0.glazing"] [data-v="no"]`); await next();
     ok((await panel()) === 'p0c', 'landed on Value and care');
     ok(await page.isVisible('[data-path="items.0.materialNotes"]'), 'Material or notes (optional) is on the Value and care step');
     ok(/e\.g\. ceramic vase, glass top/.test(await page.getAttribute('[data-path="items.0.materialNotes"]', 'placeholder')), 'material placeholder');
-    ok(/Only for pieces outside normal handling/.test(await page.textContent('[data-panel="p0c"]')), 'special handling copy says it is rare');
+    ok(await page.isVisible('details.handling summary'), 'special handling starts as a collapsed disclosure');
+    ok(!(await page.isVisible('details.handling .handling-body')), 'helper and toggle are hidden until the disclosure is opened');
+    await page.click('details.handling summary'); await page.waitForTimeout(150);
+    ok(/Only for extremely fragile or awkward pieces, ones that can’t stand upright, or ones that may need custom crating/.test(await page.textContent('[data-panel="p0c"]')), 'special handling copy (expanded)');
     ok(!/We’ll confirm the weight|Add a photo so we can plan for the weight/.test(await page.textContent('[data-panel="p0c"]')), 'old weight-confirm / weight-photo copy is gone');
     await fill(`items.0.value`, 5000);
     await settle();
@@ -321,7 +333,7 @@ exports.uiTests = async (H) => {
     await next();
     ok((await panel()) === 'you', 'one piece continues straight to Where (no list screen)', await panel());
     await addPiece();
-    await fillPiece(1, { desc: 'Second, not sure', value: 8000, unsure: true });
+    await fillPiece(1, { desc: 'Second, not sure', value: 8000, w: 80, h: 40, unsure: true });
     ok((await panel()) === 'pieces-more', 'second piece with Not sure and no photo is complete');
     ok((await state()).items[0].fragile === true && (await state()).items[1].weightUnsure === true && (await state()).items[1].photos.length === 0, 'mixed order: piece 1 special handling + photo, piece 2 Not sure and no photo');
   }
@@ -332,7 +344,7 @@ exports.uiTests = async (H) => {
   await fillPiece(0, { desc: 'Under', value: 49999 });
   await addPiece();
   ok((await panel()) === 'p1a' && /Piece 2: what is it\?/.test(await page.textContent('[data-panel="p1a"] h1')), 'Add another piece opens "Piece 2: what is it?"');
-  await fillPiece(1, { desc: 'Exactly', value: 50000, unsure: true });
+  await fillPiece(1, { desc: 'Exactly', value: 50000, w: 80, h: 40, unsure: true });
   ok((await panel()) === 'pieces-more', 'Not sure weight does not require a photo; Next continues to the list', await panel());
   await addPiece();
   await fillPiece(2, { desc: 'Over', value: 50001 });

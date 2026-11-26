@@ -42,11 +42,12 @@ const hdr = (t) => console.log('\n[' + t + ']');
   async function walkTo(stopAt, valOver = {}) {
     const V = { ...VAL, ...valOver };
     for (let n = 0; n < 40 && (await panel()) !== stopAt; n++) {
+      if (await page.$('[data-panel]:not([hidden]) [data-seg="heard.repeatAnswer"]') && !(await page.$('[data-seg="heard.repeatAnswer"] button.on'))) { await page.click('[data-seg="heard.repeatAnswer"] [data-v="no"]'); await page.waitForTimeout(200); }
       const v = await page.evaluate(() => { const p = [...document.querySelectorAll('[data-panel]')].find((x) => !x.hidden); return p ? [...p.querySelectorAll('input,select,textarea,[data-seg]')].filter((e) => e.offsetParent).map((e) => ({ k: e.dataset.path || e.dataset.seg || e.id, t: e.tagName, v: e.value, ty: e.type, opts: e.tagName === 'SELECT' ? [...e.options].map((o) => o.value) : undefined })) : []; });
       for (const f of v) {
         if (V[f.k] !== undefined && f.t === 'INPUT' && !f.v) await page.fill(`[data-path="${f.k}"]`, V[f.k]);
         else if (f.t === 'SELECT' && !f.v && f.opts) await page.selectOption(`[data-path="${f.k}"]`, f.k === 'heard.source' ? 'google' : f.opts[1]);
-        else if (f.t === 'DIV' && /^(pickup|dropoff)\./.test(f.k) && !(await page.$(`[data-seg="${f.k}"] button.on`))) { await page.click(`[data-seg="${f.k}"] button >> nth=0`); await page.waitForTimeout(120); }
+        else if (f.t === 'DIV' && /^(pickup|dropoff)\./.test(f.k) && !(await page.$(`[data-seg="${f.k}"] button.on`))) { const btn = page.locator(`[data-seg="${f.k}"] button`).first(); if (await btn.isVisible()) { await btn.click(); await page.waitForTimeout(120); } }
       }
       if (await page.locator('[data-reqblock="date"] .day:not(.rush):visible').count()) { await page.click('[data-reqblock="date"] .day:not(.rush):visible >> nth=0'); await page.waitForTimeout(250); }
       if (await page.locator('[data-deldate]:not([data-off]):visible').count()) { await page.click('[data-deldate]:not([data-off]):visible >> nth=0'); await page.waitForTimeout(250); }

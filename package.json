@@ -11,7 +11,7 @@
     "e2e": "node scripts/multipiece-test.js",
     "test:atlas": "node scripts/atlas-review-test.js",
     "smoke": "node scripts/smoke-test.js",
-    "test:all": "node scripts/pricing-test.js && node scripts/multipiece-test.js && node scripts/smoke-test.js && node scripts/date-guard-rules-test.js && node scripts/bridge-test.js && node scripts/atlas-review-test.js && node scripts/fixes-nov19-test.js && node scripts/endpoint-test.js && node scripts/ui-nov19-test.js && node scripts/palomas-stacking-test.js && node scripts/chad-nov21-test.js && node scripts/qa-nov22-test.js && node scripts/route-windows-test.js && node scripts/zelle-payments-test.js",
+    "test:all": "node scripts/pricing-test.js && node scripts/multipiece-test.js && node scripts/smoke-test.js && node scripts/date-guard-rules-test.js && node scripts/bridge-test.js && node scripts/atlas-review-test.js && node scripts/fixes-nov19-test.js && node scripts/endpoint-test.js && node scripts/ui-nov19-test.js && node scripts/palomas-stacking-test.js && node scripts/chad-nov21-test.js && node scripts/qa-nov22-test.js && node scripts/route-windows-test.js && node scripts/zelle-payments-test.js && node scripts/weight-conditional-test.js",
     "test:fixes": "node scripts/fixes-nov19-test.js",
     "test:endpoints": "node scripts/endpoint-test.js",
     "test:ui19": "node scripts/ui-nov19-test.js",
@@ -20,7 +20,8 @@
     "test:nov21": "node scripts/chad-nov21-test.js",
     "test:qa22": "node scripts/qa-nov22-test.js",
     "test:timeslots": "node scripts/route-windows-test.js",
-    "test:payments": "node scripts/zelle-payments-test.js"
+    "test:payments": "node scripts/zelle-payments-test.js",
+    "test:weight": "node scripts/weight-conditional-test.js"
   },
   "keywords": [],
   "author": "",

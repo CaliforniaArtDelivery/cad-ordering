@@ -178,7 +178,7 @@ async function inStepToggleKeepsScroll(page, selector, label, problems) {
     await inStepToggleKeepsScroll(page, '[data-seg="dropoff.stairFlights"] button[data-v="2"]', L('2 Where'), problems);
     await inStepToggleKeepsScroll(page, '[data-seg="dropoff.stairDir"] button[data-v="up"]', L('2 Where'), problems);
     await inStepToggleKeepsScroll(page, '[data-seg="pickup.accessMode"] button[data-v="ground"]', L('2 Where'), problems);
-    await inStepToggleKeepsScroll(page, 'label.toggle:has([data-path="heard.repeatClient"])', L('2 Where'), problems);
+    await inStepToggleKeepsScroll(page, '[data-seg="heard.repeatAnswer"] [data-v="no"]', L('2 Where'), problems);
     await inStepToggleKeepsScroll(page, 'label.toggle:has([data-path="pickup.parkingRestricted"])', L('2 Where'), problems);
     await inStepToggleKeepsScroll(page, '[data-seg="dropoff.fits"] button[data-v="not_sure"]', L('2 Where'), problems);
     await checkStep(page, L('2 Where'), problems);
