@@ -380,6 +380,53 @@ const it = (kind, size, value, qty = 1, name = kind) => ({ name, kind, size, val
   const cfgj = (await get('/api/palomas/config')); const cj = JSON.parse(cfgj.t);
   ok(cj.pay && 'stripe' in cj.pay, `config reports Stripe on/off (stripe: ${cj.pay && cj.pay.stripe}); with no key the mock card flow is used in test mode`);
 
+  console.log('\n4e. Main-flow parity: access gates, weight, dedicated trips');
+  const lampItem = it('Table Lamp', 'small', 995);
+  const sofaItem = it('Sofa', 'medium', 3000);
+  ok(!PAL.needsAccess([lampItem]) && !PAL.needsPathAccess([lampItem]) && !PAL.needsDoorwayAccess([lampItem]), 'a typical lamp skips path and doorway access questions');
+  ok(PAL.needsPathAccess([sofaItem]) && PAL.needsDoorwayAccess([sofaItem]) && PAL.needsAccess([sofaItem]), 'a sofa still gets path and doorway access questions');
+  ok(!PAL.validate(base([lampItem], { access: {} })).some((e) => /how we get in/.test(e)), 'a lamp order validates without a delivery access answer');
+  ok(PAL.validate(base([sofaItem], { access: {} })).some((e) => /how we get in/.test(e)), 'a sofa order still requires how we get in at delivery');
+  ok(PAL.engineOrder(base([lampItem], { access: { mode: 'stairs', flights: '3' } }), { member: true }).dropoff.accessMode === 'ground', 'leftover stairs answers are ignored when access is skipped, so no stairs fee applies');
+  const customSofa = { name: 'Custom sofa', kind: 'Sofa', custom: true, w: 84, d: 36, h: 32, qty: 1, value: 2000 };
+  ok(PAL.asksWeight(customSofa) && PAL.validate(base([customSofa])).some((e) => /weight/.test(e)), 'custom furniture still requires weight');
+  const DED = require('../lib/dedicated-fee');
+  const w = DED.window();
+  const pickDow = (dow) => {
+    for (let t = Date.parse(w.min + 'T12:00:00Z'); t <= Date.parse(w.max + 'T12:00:00Z'); t += 864e5) {
+      const iso = new Date(t).toISOString().slice(0, 10);
+      if (new Date(iso + 'T12:00:00Z').getUTCDay() === dow && !DED.dateProblem(iso)) return iso;
+    }
+    return '';
+  };
+  const thu = pickDow(4), fri = pickDow(5), sat = pickDow(6);
+  ok(!!thu && !!fri, 'found bookable dedicated weekdays in the window');
+  const plainLamp = PAL.partnerQuote(base([lampItem]));
+  const dedLampBody = base([lampItem], { dedicatedPickup: true, dedicatedDelivery: true, schedule: { date: thu, deliveryDate: fri } });
+  const dedLamp = PAL.partnerQuote(dedLampBody);
+  const dedFee = PAL.dedicatedFeeFor(dedLampBody);
+  ok(dedFee > 0 && dedLamp.includesDedicated && dedLamp.total > plainLamp.total, `dedicated trip is paid in the total (fee $${dedFee}, total $${dedLamp.total} vs $${plainLamp.total})`);
+  ok(!Object.keys(dedLamp).some((k) => /ratePerHour|hub|hours/.test(k)) && !JSON.stringify(dedLamp.lines).includes('ratePerHour') && !/\/hr|per hour/i.test(JSON.stringify(dedLamp.lines)), 'partner quote has a single total with no fee/rate/hours/hub breakdown');
+  ok(Math.abs((dedLamp.delivery - plainLamp.delivery) - dedFee) < 5.01, 'dedicated fee is added after partnership extras and folded into the delivery total');
+  const pubDed = await post('/api/palomas/quote', dedLampBody);
+  ok(pubDed.s === 200 && pubDed.j.includesDedicated && !('engine' in pubDed.j) && !('ratePerHour' in (pubDed.j || {})) && !/ratePerHour|per hour/i.test(JSON.stringify(pubDed.j)), 'public dedicated quote strips engine and rate details');
+  ok(PAL.dedicatedFeeFor({ ...dedLampBody, customDate: true }) === 0, 'a custom date request does not add a dedicated fee');
+  if (sat) {
+    const bothW = base([lampItem], { dedicatedPickup: true, dedicatedDelivery: true, schedule: { date: sat, deliveryDate: sat } });
+    const bothInfo = DED.fees(PAL.engineOrder(bothW, { member: true }));
+    const cfg = require('../config').dedicatedTrip;
+    const step = cfg.roundTo || 5;
+    const expected = Math.round((DED.feeForHours(bothInfo.hours) + cfg.weekendFee) / step) * step;
+    ok(bothInfo.sides.length === 2 && bothInfo.weekend && bothInfo.fee === expected, `weekend dedicated fee is charged once ($${cfg.weekendFee}) even if both sides fall on a weekend`);
+  }
+  ok(cj.dedicated && cj.dedicated.min && cj.dedicated.max && !('ratePerHour' in cj.dedicated), 'Paloma config exposes dedicated date rules only, never the rate');
+  const customReq = await post('/api/palomas/orders', base([lampItem], { customDate: true, schedule: { date: '', deliveryDate: '', customDateNote: 'Any weekday the week of Dec 14 ' + RUN }, delivery: { ...base([]).delivery, notes: 'custom-date ' + RUN, email: 'custom-date@example.com' } }));
+  ok(customReq.s === 200 && customReq.j.status === 'pending_approval' && customReq.j.quote && customReq.j.quote.dueNow === 0 && customReq.j.order.customDate && /CUSTOM DATE REQUEST/.test(customReq.j.order.notes), 'custom date request is unpaid and goes to the team for confirmation');
+  const dedOrd = await post('/api/palomas/orders', base([lampItem], { dedicatedPickup: true, dedicatedDelivery: true, schedule: { date: thu, deliveryDate: fri }, payMode: 'link', delivery: { ...base([]).delivery, notes: 'ded-trip ' + RUN, email: 'ded-trip@example.com' } }));
+  ok(dedOrd.s === 200 && dedOrd.j.order.dedicatedPickup && dedOrd.j.order.dedicatedDelivery && dedOrd.j.order.status === 'awaiting_payment' && dedOrd.j.quote.total > plainLamp.total, 'a bookable dedicated trip is paid online at booking, with the fee in the total');
+  const noNote = await post('/api/palomas/orders', base([lampItem], { customDate: true, schedule: { customDateNote: '' }, delivery: { ...base([]).delivery, notes: 'no-note ' + RUN, email: 'no-note@example.com' } }));
+  ok(noNote.s === 400 && /which dates would work/i.test(noNote.j.error || ''), 'custom date request requires a note');
+
   console.log('\n5. Out of state → Shipping quote');
   r = await post('/api/palomas/orders', base([it('Sofa', 'medium', 3000)], { delivery: { ...base([]).delivery, city: 'Phoenix', state: 'AZ', zip: '85001' } }));
   ok(r.s === 200 && r.j.status === 'pending_approval' && r.j.order.service === 'crating_shipping', 'out-of-state delivery becomes a Shipping quote request, no price shown');

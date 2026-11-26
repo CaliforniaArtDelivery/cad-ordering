@@ -830,6 +830,7 @@ app.get('/api/palomas/config', (_, res) => res.json({
     accents: config.pricing.furniture.accents.kinds,
   },
   access: ACCESS.MODES, flights: ACCESS.FLIGHTS,
+  dedicated: DEDICATED.publicRules(), // dates only; the fee rules stay on the server
 }));
 function palomasPublicQuote(q) {
   if (q.special) return { special: true, shipping: q.shipping, review: q.review || '', quoteNote: q.quoteNote, notes: q.notes };
@@ -872,13 +873,14 @@ app.post('/api/palomas/availability', (req, res) => {
   const dateOk = /^\d{4}-\d{2}-\d{2}$/.test(String(b.pickupDate || ''));
   const COUNT = 14; // next 14 available days; "Later date" asks for days from a chosen date (same scheduling rules)
   const laterOk = /^\d{4}-\d{2}-\d{2}$/.test(String(b.from || '')) && b.from >= sched.ptYmd();
+  const dedicatedBlocked = { pickup: DEDICATED.blockedFor(o.pickup), delivery: DEDICATED.blockedFor(o.dropoff) };
   if (b.leg === 'dropoff' && dateOk) {
     const start = laterOk && b.from > b.pickupDate ? b.from : b.pickupDate;
-    return res.json({ days: sched.availableDeliveryDays(o.dropoff, o.pickup, start, o, COUNT) });
+    return res.json({ days: sched.availableDeliveryDays(o.dropoff, o.pickup, start, o, COUNT), dedicatedBlocked });
   }
   const earliest = sched.availablePickupDays(o.pickup, o.dropoff, { order: o, count: COUNT });
-  if (laterOk && earliest.length && b.from > earliest[0].date) return res.json({ days: sched.availablePickupDays(o.pickup, o.dropoff, { from: new Date(b.from + 'T12:00:00Z'), count: COUNT, order: o, leadTime: 0 }), earliest: earliest[0].date });
-  res.json({ days: earliest, earliest: (earliest[0] || {}).date });
+  if (laterOk && earliest.length && b.from > earliest[0].date) return res.json({ days: sched.availablePickupDays(o.pickup, o.dropoff, { from: new Date(b.from + 'T12:00:00Z'), count: COUNT, order: o, leadTime: 0 }), earliest: earliest[0].date, dedicatedBlocked });
+  res.json({ days: earliest, earliest: (earliest[0] || {}).date, dedicatedBlocked });
 });
 app.post('/api/palomas/orders', (req, res) => {
   const b = req.body || {};
@@ -888,9 +890,11 @@ app.post('/api/palomas/orders', (req, res) => {
   const errs = PAL.validate(b);
   const eo = PAL.engineOrder(b, { member: true });
   const q = errs.length ? null : PAL.partnerQuote(b);
-  if (!errs.length && !q.special) {
-    const sc = b.schedule || {};
-    const ordForDates = { ...eo, schedule: { date: sc.date, deliveryDate: sc.deliveryDate } };
+  const sc = b.schedule || {};
+  const customDate = !!b.customDate;
+  if (!errs.length && customDate && !String(sc.customDateNote || '').trim()) errs.push('which dates would work (custom date request)');
+  if (!errs.length && !q.special && !customDate) {
+    const ordForDates = { ...eo, schedule: { date: sc.date, deliveryDate: sc.deliveryDate, customDateNote: sc.customDateNote || '' } };
     if (!sc.date || !sc.deliveryDate || sc.deliveryDate < sc.date) errs.push('pickup and delivery days');
     else errs.push(...scheduleErrors(ordForDates));
   }
@@ -911,7 +915,11 @@ app.post('/api/palomas/orders', (req, res) => {
   };
   const base = {
     id: newOrderId(load()), createdAt: new Date().toISOString(), fingerprint: fp,
-    crating: false, rush: false, dedicated: false,
+    crating: false, rush: false,
+    dedicated: !customDate && !!(b.dedicatedPickup || b.dedicatedDelivery),
+    dedicatedPickup: !customDate && !!b.dedicatedPickup,
+    dedicatedDelivery: !customDate && !!b.dedicatedDelivery,
+    customDate: customDate ? { note: String(sc.customDateNote || '').trim().slice(0, 500) } : false,
     // "Not sure": CAD confirms access with the client before the job. Stairs are priced up front (per flight, large pieces).
     accessReview: dropoff.accessMode === 'not_sure' || ACCESS_PAL.needsReview(dropoff) || PAL.accessUnsure(b.access),
     member: true, memberCode: PAL.PARTNER_CODE, memberCompany: PAL.PARTNER_NAME, heard: { repeatClient: true }, referral: false,
@@ -929,7 +937,7 @@ app.post('/api/palomas/orders', (req, res) => {
     const order = {
       ...base, status: 'pending_approval', service: 'crating_shipping', serviceLabel: q.review === 'heavy' ? 'Heavy-item review (pickup + delivery)' : SERVICES.crating_shipping.label, requestedService: 'pickup_delivery', outOfState: q.review !== 'heavy',
       ...(q.review === 'heavy' ? { reviewReason: 'heavy', notes: `TEAM REVIEW: a piece over ${PAL.HEAVY_REVIEW_LB} lb (weight given or stated in the item name). Confirm weight, dimensions, crew and price before quoting. ` + base.notes } : {}),
-      shipping: { flexible: true, notes: 'Partner order from the Paloma’s flow; Samantha to confirm destination service level and dates.' },
+      shipping: { flexible: true, notes: 'Partner order from the Paloma’s flow; confirm destination service level and dates.' },
       schedule: { date: '', region: 'Shipping', deliveryLater: false, deliveryDate: '', timePref: 'none', timeNote: '', deliveryTimePref: 'none', deliveryTimeNote: '' },
     };
     order.quote = quote({ ...order, memberCode: PAL.PARTNER_CODE });
@@ -939,7 +947,30 @@ app.post('/api/palomas/orders', (req, res) => {
     update(order.id, (x) => x.emails.push(sent));
     return res.json({ id: order.id, status: order.status, quote: { special: true }, order: findOrder(order.id) });
   }
-  const sc = b.schedule;
+  if (customDate) {
+    const note = String((sc.customDateNote || '')).trim().slice(0, 500);
+    const order = {
+      ...base, status: 'pending_approval', service: 'pickup_delivery', serviceLabel: SERVICES.pickup_delivery.label,
+      schedule: { date: sc.date || '', deliveryDate: sc.deliveryDate || '', deliveryLater: !!(sc.deliveryDate && sc.date && sc.deliveryDate > sc.date), region: sc.date ? (sched.regionForDate(new Date(sc.date + 'T12:00:00Z')) || '') : '', timePref: 'none', timeNote: '', deliveryTimePref: 'none', deliveryTimeNote: '', customDateNote: note },
+      notes: `CUSTOM DATE REQUEST: ${note}. Nothing is charged until we confirm the date. ` + base.notes,
+    };
+    const lines = [
+      ...q.lines.map(({ label, amount }) => ({ label, amount })),
+      ...(q.volumeOff ? [{ label: `Partnership volume discount: additional ${PAL.RULES.volumePct}% off (delivery orders of $${PAL.RULES.volumeThreshold.toLocaleString('en-US')}+ after partnership pricing)`, amount: -q.volumeOff }] : []),
+      ...(q.courtesyOff ? [{ label: "Manager's courtesy", amount: -q.courtesyOff }] : []),
+    ];
+    order.quote = {
+      ...q.engine, notes: (q.engine.notes || []).filter((n) => n !== ACCESS_PAL.PRICE_NOTE), accessFeeNote: q.accessFeeNote, accessReview: !!q.accessReview, totalLabel: q.totalLabel, lines, total: q.total, regularTotal: q.total, protection: q.protection, protectionAmount: q.protectionAmount || 0, member: true, memberCompany: PAL.PARTNER_NAME,
+      ...q.payment,
+      partnerPricing: { standard: q.standard, partnerPrice: q.partner, partnerSavings: q.partnerSavings, volumeOff: q.volumeOff, courtesyOff: q.courtesyOff, delivery: q.delivery, items: q.lines.map(({ label, standard, amount, after, qty }) => ({ label, standard, partner: amount, allIn: after, qty })) },
+      reviewOnly: true, quoteNote: 'We’ll schedule it and confirm the date with you before anything is charged.',
+    };
+    const allC = load(); allC.unshift(order); save(allC);
+    sheetSync.enqueue(order.id, 'quote_request');
+    const sentC = email.send('quote_received', order);
+    update(order.id, (x) => x.emails.push(sentC));
+    return res.json({ id: order.id, status: order.status, quote: { total: q.total, dueNow: 0, review: true, customDate: true }, order: findOrder(order.id) });
+  }
   const order = {
     ...base, status: 'awaiting_payment', service: 'pickup_delivery', serviceLabel: SERVICES.pickup_delivery.label,
     schedule: { date: sc.date, deliveryDate: sc.deliveryDate, deliveryLater: sc.deliveryDate > sc.date, region: sched.regionForDate(new Date(sc.date + 'T12:00:00Z')), timePref: 'none', timeNote: '', deliveryTimePref: 'none', deliveryTimeNote: '' },

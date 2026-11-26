@@ -7,7 +7,7 @@
 <meta name="robots" content="noindex">
 <title>Paloma's Home Furnishings × California Art Delivery · Place a delivery order</title>
 <link rel="icon" type="image/png" href="/cad-logo.jpg">
-<link rel="stylesheet" href="/palomas/palomas.css?v=18">
+<link rel="stylesheet" href="/palomas/palomas.css?v=19">
 </head>
 <body>
 <noscript><div style="padding:24px;max-width:560px;margin:24px auto;font:16px/1.5 system-ui,sans-serif;border:1px solid #d9d5cb;border-radius:12px;background:#fff"><b>JavaScript is turned off.</b><br>Online booking needs it. Please turn it on in your browser settings, or reach us through our <a href="https://californiaartdelivery.com/pages/contact">Contact Us page</a> at californiaartdelivery.com/pages/contact.</div></noscript>
@@ -38,7 +38,7 @@
   <form id="form" class="form" novalidate autocomplete="off">
 
     <section class="card step" data-step="start" id="sec-who">
-      <h2>Who's placing this order?</h2>
+      <h2>Who’s placing this order?</h2>
       <div class="grid2">
         <label class="field">
           <span class="lbl">Your name</span>
@@ -85,7 +85,7 @@
               <label class="field"><span class="lbl">Width (in)</span><input id="cW" type="text" inputmode="decimal" maxlength="5" placeholder="e.g. 36"></label>
               <label class="field"><span class="lbl">Height (in)</span><input id="cH" type="text" inputmode="decimal" maxlength="5" placeholder="e.g. 32"></label>
             </div>
-            <div class="grid2">
+            <div class="grid2" id="cWtRow">
               <label class="field"><span class="lbl">Approx. weight (lb)</span><input id="cWt" type="text" inputmode="decimal" maxlength="5" placeholder="e.g. 150"></label>
               <label class="check-sm" id="cWtUnsureWrap"><input type="checkbox" id="cWtUnsure"><span>Not sure of the weight</span></label>
             </div>
@@ -130,6 +130,11 @@
         <label class="field"><span class="lbl">State</span><input id="dState" type="text" maxlength="2" value="CA" style="text-transform:uppercase"></label>
         <label class="field"><span class="lbl">ZIP</span><input id="dZip" type="text" inputmode="numeric" maxlength="10"></label>
       </div>
+      <div class="grid1" id="aMoreWrap">
+        <label class="field"><span class="lbl">Building access hours or restrictions <small>(optional)</small></span><input id="aHours" type="text" maxlength="200" placeholder="e.g. Weekdays 9am–4pm, check in at the front desk"></label>
+      </div>
+      <label class="field"><span class="lbl">Notes &amp; special instructions <small>(optional)</small></span>
+        <textarea id="dNotes" rows="3" maxlength="800" placeholder="Gate code, parking, where it goes in the home, anything tight like narrow hallways or doorways"></textarea></label>
     </section>
 
     <section class="card step" data-step="access" id="sec-access">
@@ -151,25 +156,10 @@
       </div>
     </section>
 
-    <section class="card step" data-step="notes" id="sec-notes">
-      <h2>Anything we should know?</h2>
-      <div class="grid1" id="aMoreWrap" hidden>
-        <label class="field"><span class="lbl">Building access hours or restrictions <small>(optional)</small></span><input id="aHours" type="text" maxlength="200" placeholder="e.g. Weekdays 9am–4pm, check in at the front desk"></label>
-      </div>
-      <label class="field"><span class="lbl">Notes &amp; special instructions <small>(optional)</small></span>
-        <textarea id="dNotes" rows="3" maxlength="800" placeholder="Gate code, parking, who to call on arrival, where it goes in the home, anything tight like narrow hallways or doorways"></textarea></label>
-    </section>
-
     <section class="card step" data-step="dates" id="sec-dates">
       <h2>Pick your days</h2>
-      <p class="sub" id="datesSub">Enter the delivery ZIP on the address step and the available days appear here. We pre-select the earliest.</p>
-      <div id="datesBox" hidden>
-        <div class="lbl">Pickup day</div>
-        <div class="days" id="puDays"></div><div class="dayctl" id="puCtl"></div>
-        <div class="lbl" style="margin-top:14px">Delivery day</div>
-        <div class="days" id="deDays"></div><div class="dayctl" id="deCtl"></div>
-        <p class="mini" id="dateSummary"></p>
-      </div>
+      <p class="sub" id="datesSub">Choose a pickup day and a delivery day. Days that don’t work together stay grayed out.</p>
+      <div id="datesPair"></div>
     </section>
 
     <section class="card step" data-step="review" id="sec-review">
@@ -197,6 +187,6 @@
 <script src="/access.js?v=34"></script>
 <script src="/zones.js?v=1"></script>
 <script src="/validate.js?v=5"></script>
-<script src="/palomas/palomas.js?v=20"></script>
+<script src="/palomas/palomas.js?v=21"></script>
 </body>
 </html>

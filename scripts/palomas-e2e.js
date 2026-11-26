@@ -148,6 +148,9 @@ const nextTo = async (page, id) => {
     ok((await page.locator('#dStreet').count()) === 1 && (await page.locator('#c2Street, [id^=c2][id*=City]').count()) === 0, 'one delivery address only');
     await nextTo(page, 'address');
     await page.fill('#dStreet', '100 Ocean Ave'); await page.fill('#dCity', 'Carmel-by-the-Sea'); await page.fill('#dZip', '93921');
+    ok(await page.locator('#aMoreWrap').isVisible() && await page.locator('#dNotes').isVisible(), 'optional hours and notes live on the address step');
+    ok(/anything tight like narrow hallways or doorways/.test(await page.locator('#dNotes').getAttribute('placeholder')) && /gate code, parking, where it goes in the home/i.test(await page.locator('#dNotes').getAttribute('placeholder')) && !/who to call/i.test(await page.locator('#dNotes').getAttribute('placeholder')), 'one notes field on the address step; placeholder covers gate code, parking, where it goes and anything tight, with no phone prompt');
+    await page.fill('#aHours', 'Weekdays 9am-4pm');
     await nextTo(page, 'access');
     await page.selectOption('#aMode', 'stairs');
     ok(await page.locator('#aFlightsWrap').isVisible(), 'stairs asks how many flights');
@@ -170,24 +173,22 @@ const nextTo = async (page, id) => {
       await page.selectOption('#aTight', 'no');
     }
     ok(!/stairs can add a fee|we confirm it/i.test(await page.locator('#sec-delivery').evaluate((e) => e.textContent || '')), 'no "stairs can add a fee…" text under the access questions');
-    await nextTo(page, 'notes');
-    ok(await page.locator('#aMoreWrap').isVisible(), 'optional access-hours field appears on the notes step once access is chosen');
-    await page.fill('#aHours', 'Weekdays 9am-4pm');
-    ok(/anything tight like narrow hallways or doorways/.test(await page.locator('#dNotes').getAttribute('placeholder')) && /gate code, parking, who to call on arrival, where it goes in the home/i.test(await page.locator('#dNotes').getAttribute('placeholder')), 'one notes field; its placeholder covers gate code, parking, who to call, where it goes and anything tight');
     await nextTo(page, 'dates');
-    await page.waitForSelector('#datesBox:not([hidden])');
-    await page.waitForSelector('#deDays .day'); await page.waitForSelector('#puCtl [data-later]'); await page.waitForSelector('#deCtl [data-later]'); // live latency: the delivery leg loads after the pickup leg
-    ok((await page.locator('#puDays .day').count()) > 0 && (await page.locator('#deDays .day').count()) > 0, 'pickup and delivery days appear, earliest pre-selected');
-    ok((await page.locator('#puDays .day').count()) <= 6 && (await page.locator('#deDays .day').count()) <= 6, 'the date lists are short: first 6 days only');
-    ok((await page.locator('#puCtl [data-later]').count()) === 1 && (await page.locator('#deCtl [data-later]').count()) === 1, 'each list has a "Later date" option');
-    if (await page.locator('#puCtl [data-more]').count()) { await page.locator('#puCtl [data-more]').click(); ok((await page.locator('#puDays .day').count()) > 6 && (await page.locator('#puDays .day').count()) <= 14, 'Show more dates shows up to 14'); }
-    const lastPu = await page.locator('#puDays .day').last().getAttribute('data-pu');
+    await page.waitForSelector('#datesPair .date-pair');
+    await page.waitForSelector('[data-col=del] .col-days .day, [data-col=del] .ded-box'); await page.waitForSelector('[data-col=pu] [data-later], [data-col=pu] .ded-box');
+    ok((await page.locator('[data-col=pu] .ded-box').count()) === 1 && (await page.locator('[data-col=del] .ded-box').count()) === 1, 'dedicated trip boxes sit in the pickup and delivery columns');
+    ok(/None of these dates work for you\?/.test(await page.locator('[data-col=pu] .ded-q').innerText()) && /Select a dedicated trip/.test(await page.locator('[data-col=pu] .ded-lab').innerText()) && /A van and crew just for your job/.test(await page.locator('[data-col=pu] .ded-help').innerText()), 'dedicated box copy matches the main flow');
+    ok((await page.locator('[data-col=pu] [data-pu]').count()) > 0 && (await page.locator('[data-col=del] [data-de]').count()) > 0, 'pickup and delivery days appear, earliest pre-selected');
+    ok((await page.locator('[data-col=pu] [data-pu]').count()) <= 6 && (await page.locator('[data-col=del] [data-de]').count()) <= 6, 'the date lists are short: first few days only');
+    ok((await page.locator('[data-col=pu] [data-later]').count()) === 1 && (await page.locator('[data-col=del] [data-later]').count()) === 1, 'each list has a "Later date" option');
+    if (await page.locator('[data-col=pu] [data-more]').count()) { await page.locator('[data-col=pu] [data-more]').click(); ok((await page.locator('[data-col=pu] [data-pu]').count()) > 3 && (await page.locator('[data-col=pu] [data-pu]').count()) <= 14, 'Show more dates shows up to 14'); }
+    const lastPu = await page.locator('[data-col=pu] [data-pu]').last().getAttribute('data-pu');
     const laterDate = new Date(Date.parse(lastPu + 'T12:00:00Z') + 21 * 864e5).toISOString().slice(0, 10);
-    await page.locator('#puCtl [data-later]').fill(laterDate);
-    await page.waitForFunction((d) => { const b = document.querySelector('#puDays .day'); return b && b.dataset.pu >= d; }, laterDate);
+    await page.locator('[data-col=pu] [data-later]').fill(laterDate);
+    await page.waitForFunction((d) => { const b = document.querySelector('[data-col="pu"] [data-pu]'); return b && b.dataset.pu >= d; }, laterDate);
     ok(true, `"Later date" ${laterDate} loads days from that date`);
-    await page.locator('#puCtl [data-back]').click();
-    await page.waitForFunction((d) => { const b = document.querySelector('#puDays .day'); return b && b.dataset.pu < d; }, laterDate);
+    await page.locator('[data-col=pu] [data-back]').click();
+    await page.waitForFunction((d) => { const b = document.querySelector('[data-col="pu"] [data-pu]'); return b && b.dataset.pu < d; }, laterDate);
     ok(true, 'Back to earliest dates returns to the short list');
     await page.waitForTimeout(500);
     await page.locator('#sec-dates').screenshot({ path: `${OUT}/palomas-${name}-client.png` });
@@ -336,12 +337,11 @@ const nextTo = async (page, id) => {
       await page.fill('#dName', 'Lee Buyer'); await page.fill('#dPhone', '8315550188'); await page.fill('#dEmail', 'lee@example.com');
       await nextTo(page, 'address');
       await page.fill('#dStreet', '5 Dolores St'); await page.fill('#dCity', 'Carmel-by-the-Sea'); await page.fill('#dZip', '93921');
+      await page.fill('#dNotes', name + ' ' + Date.now() + Math.random());
       await nextTo(page, 'access');
       await page.selectOption('#aMode', 'ground');
-      await nextTo(page, 'notes');
-      await page.fill('#dNotes', name + ' ' + Date.now() + Math.random());
       await nextTo(page, 'dates');
-      await page.waitForSelector('#datesBox:not([hidden])');
+      await page.waitForSelector('#datesPair .date-pair');
       await nextTo(page, 'review');
       await page.waitForFunction(() => /Due today/.test((document.querySelector('#sumBody') || {}).textContent || ''));
     };

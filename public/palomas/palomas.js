@@ -10,6 +10,7 @@ const S = {
   placedBy: '', placedOther: '', pickup: 'salinas', items: [], courtesy: false, staffOpen: false, payOpen: false, unlocked: false, pin: '', pinFor: '', pinVal: '', puMore: false, deMore: false, undo: null, staffMsg: '', staffVal: '', puFrom: '', deFrom: '',
   payer: 'client', card: '', exp: '', cvc: '', payError: '', quoteBusy: false,
   pickupDate: '', deliveryDate: '', puDays: [], deDays: [], quote: null, submitting: false, errors: [], showErrors: false,
+  dedicatedPickup: false, dedicatedDelivery: false, customDate: false, customDateNote: '', dedicatedBlocked: null,
 };
 let uid = 1, cat = 'All', quoteTok = 0, availTok = 0, qTimer = 0, aTimer = 0, availPending = false;
 
@@ -30,7 +31,9 @@ const payload = (payMode = 'now') => ({
   payer: S.payer, payMode,
   placedBy: { name: S.placedBy, other: S.placedOther }, pickupLocation: S.pickup, courtesy: S.courtesy, ...(S.unlocked ? { pin: S.pin } : {}),
   items: S.items.map((i) => ({ name: i.name, kind: i.kind, qty: i.qty, catalogId: i.catalogId, custom: !!i.custom, w: i.w, h: i.h, value: i.value, ...(i.custom ? { d: i.d, weight: i.weight, weightUnsure: !!i.weightUnsure, photos: i.photos || [], photoLater: !!i.photoLater } : {}) })),
-  delivery: delivery(), access: access(), schedule: { date: S.pickupDate, deliveryDate: S.deliveryDate },
+  delivery: delivery(), access: needsDeliveryAccess() ? access() : { mode: 'ground', hours: ($('#aHours') && $('#aHours').value.trim()) || '' },
+  dedicatedPickup: !!S.dedicatedPickup, dedicatedDelivery: !!S.dedicatedDelivery, customDate: !!S.customDate,
+  schedule: { date: S.pickupDate, deliveryDate: S.deliveryDate, customDateNote: S.customDateNote },
 });
 async function api(url, body) {
   const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
@@ -88,6 +91,7 @@ function renderItems() {
 function itemsChanged(rerenderRows) {
   if (rerenderRows) renderItems();
   renderCatalog();
+  tidyAccessIfSkipped();
   scheduleQuote(); scheduleAvail();
 }
 
@@ -123,16 +127,32 @@ function problems() {
   if (!d.city) add('City', '#dCity', 'Please enter the city.');
   if (!/^\d{5}(-\d{4})?$/.test(d.zip)) add('ZIP code', '#dZip', 'Please enter a 5-digit ZIP code.');
   if (window.CADZones && d.city && d.zip) { const c = CADZones.routeConflict({ city: d.city, state: d.state || 'CA', zip: d.zip }); if (c) add('City and ZIP', '#dZip', c.message); }
-  const a = access();
-  if (!a.mode) add('How we get in at delivery', '#aMode', 'Please tell us how we get in.');
-  if (a.mode === 'stairs' && !a.flights) add('Flights of stairs', '#aFlights', 'Please choose how many flights of stairs.');
-  if (a.mode === 'stairs' && a.flights === '4plus' && !(parseInt(a.flightsCount, 10) >= 4)) add('How many flights (4 or more)', '#aFlightsN', 'Please enter the number of flights (4 or more).');
-  if (a.mode === 'stairs' && a.flights && S.quote && S.quote.stairsFollowUp) { if (!a.shape) add('Are the stairs straight or do they turn', '#aShape', 'Please tell us if the stairs are straight or turn.'); if (!a.tight) add('Any tight turns or narrow doorways', '#aTight', 'Please tell us about tight turns or narrow doorways.'); }
-  if (a.mode === 'elevator' && !a.floor) add('Elevator floor', '#aFloor', 'Please enter the floor.');
-  if (a.mode === 'elevator' && !a.elevatorType) add('Which elevator (freight or passenger)', '#aElevType', 'Please choose which elevator.');
-  if (a.mode === 'elevator' && !a.elevSteps) add('Any steps before or after the elevator', '#aElevSteps', 'Please tell us if there are steps before or after the elevator.');
-  if (a.mode === 'elevator' && a.elevSteps === 'yes' && !(parseInt(a.elevStepsN, 10) >= 1)) add('How many steps', '#aElevStepsN', 'Please enter how many steps.');
-  if (!q.special && !outOfState() && /^\d{5}/.test(d.zip) && (!S.pickupDate || !S.deliveryDate)) add('Pickup and delivery days', '#sec-dates', 'Please pick a pickup day and a delivery day.');
+  if (needsDeliveryAccess()) {
+    const a = access();
+    if (needsPathAccess() && !a.mode) add('How we get in at delivery', '#aMode', 'Please tell us how we get in.');
+    if (a.mode === 'stairs' && !a.flights) add('Flights of stairs', '#aFlights', 'Please choose how many flights of stairs.');
+    if (a.mode === 'stairs' && a.flights === '4plus' && !(parseInt(a.flightsCount, 10) >= 4)) add('How many flights (4 or more)', '#aFlightsN', 'Please enter the number of flights (4 or more).');
+    if (a.mode === 'stairs' && a.flights && needsDoorwayAccess()) { if (!a.shape) add('Are the stairs straight or do they turn', '#aShape', 'Please tell us if the stairs are straight or turn.'); if (!a.tight) add('Any tight turns or narrow doorways', '#aTight', 'Please tell us about tight turns or narrow doorways.'); }
+    if (a.mode === 'elevator' && !a.floor) add('Elevator floor', '#aFloor', 'Please enter the floor.');
+    if (a.mode === 'elevator' && !a.elevatorType) add('Which elevator (freight or passenger)', '#aElevType', 'Please choose which elevator.');
+    if (a.mode === 'elevator' && !a.elevSteps) add('Any steps before or after the elevator', '#aElevSteps', 'Please tell us if there are steps before or after the elevator.');
+    if (a.mode === 'elevator' && a.elevSteps === 'yes' && !(parseInt(a.elevStepsN, 10) >= 1)) add('How many steps', '#aElevStepsN', 'Please enter how many steps.');
+  }
+  if (!q.special && !outOfState() && /^\d{5}/.test(d.zip)) {
+    if (S.customDate) {
+      if (!String(S.customDateNote || '').trim()) add('Which dates would work', '#customDateNote', 'Please tell us which dates would work.');
+    } else {
+      const puErr = S.dedicatedPickup ? dedDateProblem(S.pickupDate, 'pickup') : '';
+      const deErr = S.dedicatedDelivery ? dedDateProblem(S.deliveryDate, 'delivery') : '';
+      if (S.dedicatedPickup && !S.pickupDate) add('Dedicated pickup date', '#ded-pu-date', 'Please pick a pickup date for the dedicated trip.');
+      else if (puErr) add(puErr, '#ded-pu-date', puErr);
+      else if (!S.dedicatedPickup && !S.pickupDate) add('Pickup day', '#sec-dates', 'Please pick a pickup day.');
+      if (S.dedicatedDelivery && !S.deliveryDate) add('Dedicated delivery date', '#ded-de-date', 'Please pick a delivery date for the dedicated trip.');
+      else if (deErr) add(deErr, '#ded-de-date', deErr);
+      else if (!S.dedicatedDelivery && !S.deliveryDate) add('Delivery day', '#sec-dates', 'Please pick a delivery day.');
+      if (S.pickupDate && S.deliveryDate && S.deliveryDate < S.pickupDate) add('Delivery on or after pickup', '#sec-dates', 'Please pick a delivery day on or after the pickup day.');
+    }
+  }
   return out;
 }
 
@@ -187,7 +207,8 @@ const payerInfo = () => (S.payer === 'palomas' ? { name: "Paloma's Home Furnishi
 function payerLineHtml() { const p = payerInfo(); return p.name || p.email ? `Payer: <b>${esc(p.name || '—')}</b>${p.email ? ' · ' + esc(p.email) : ''}` : 'Payer: fill in the client name and email above.'; }
 const isHeavyReview = () => !!(S.quote && S.quote.special && S.quote.review === 'heavy');
 function shippingButton() {
-  return `<button type="button" class="btn primary wide" id="place" ${S.submitting ? 'disabled' : ''}>${S.submitting ? 'Sending…' : isHeavyReview() ? 'Send for team review' : 'Request shipping quote'}</button><p class="billing">No payment is taken online.</p>`;
+  const custom = !!S.customDate;
+  return `<button type="button" class="btn primary wide" id="place" ${S.submitting ? 'disabled' : ''}>${S.submitting ? 'Sending…' : isHeavyReview() ? 'Send for team review' : custom ? 'Send date request' : 'Request shipping quote'}</button><p class="billing">${custom ? 'We’ll confirm the date with you before anything is charged.' : 'No payment is taken online.'}</p>`;
 }
 function payBlock(q) {
   const pay = q.payment || {}; const deposit = pay.paymentPlan === 'deposit';
@@ -228,7 +249,7 @@ function renderSummary() {
     html = isHeavyReview()
       ? `<div class="special"><b>A piece over 500 lb needs a quick team review.</b><br>${esc(q.quoteNote || 'Our team will email your quote. Nothing is charged until you authorize payment.')}</div>`
       : `<div class="special"><b>Delivery outside California is quoted as Shipping.</b><br>${esc('Our team will email your shipping quote. Nothing is charged until you authorize payment.')}</div>`;
-    barTotal.textContent = 'Quote'; 
+    barTotal.textContent = 'Quote';
   } else {
     const extras = q.volumeOff > 0 || q.courtesyOff > 0;
     const each = (l) => (l.qty > 1 ? ` · ${Math.round(l.after * 100) % l.qty === 0 ? '' : 'about '}${usd(l.each)} each` : '');
@@ -247,26 +268,114 @@ function renderSummary() {
   $('#barTot').hidden = false;
   const errs = S.showErrors ? problems() : [];
   if (errs.length) html += `<div class="errs" role="alert"><b>Still needed:</b>${errs.map((e) => esc(e.msg)).join(' · ')}</div>`;
-  html += q.special ? shippingButton() : payBlock(q);
+  if (q.includesDedicated && !S.customDate) html += `<p class="mini">Includes a dedicated trip.</p>`;
+  html += (q.special || S.customDate) ? shippingButton() : payBlock(q);
   box.innerHTML = html;
 }
 
-/* ---------- dates ---------- */
+/* ---------- access + weight gates (parity with the main flow) ---------- */
+function localNeedsPath(it) {
+  const kind = String((it && it.kind) || '');
+  if (/sofa|loveseat|sectional|bed|dresser|armoire|wardrobe|cabinet|credenza|sideboard|buffet|bookcase|dining table|piano|desk|hutch|chest|recliner/i.test(kind)) return true;
+  if (/^(large|heavy|xl)$/i.test(String((it && it.size) || ''))) return true;
+  const dim = Math.max(num(it && it.w), num(it && it.h), num(it && it.d), ...((String((it && it.dims) || '').match(/\d+(?:\.\d+)?/g) || []).map(Number)));
+  if (kind === 'Mirror') return Math.max(num(it && it.w), num(it && it.h)) >= 60 || num(it && it.weight) > 150;
+  if (dim > 72) return true;
+  if (num(it && it.weight) >= 100 && /sculpt|statue|bust|urn/i.test(kind)) return true;
+  return false;
+}
+function localNeedsDoorway(it) {
+  const kind = String((it && it.kind) || '');
+  if (/sofa|loveseat|sectional|dining table/i.test(kind)) return true;
+  const dim = Math.max(num(it && it.w), num(it && it.h), num(it && it.d), ...((String((it && it.dims) || '').match(/\d+(?:\.\d+)?/g) || []).map(Number)));
+  return dim >= 96;
+}
+function needsPathAccess() {
+  if (S.quote && !S.quote.special && typeof S.quote.needsPathAccess === 'boolean') return S.quote.needsPathAccess;
+  return (S.items || []).some(localNeedsPath);
+}
+function needsDoorwayAccess() {
+  if (S.quote && !S.quote.special && typeof S.quote.needsDoorwayAccess === 'boolean') return S.quote.needsDoorwayAccess;
+  return (S.items || []).some(localNeedsDoorway);
+}
+function needsDeliveryAccess() { return needsPathAccess() || needsDoorwayAccess(); }
+function tidyAccessIfSkipped() {
+  if (needsDeliveryAccess()) return;
+  ['aMode', 'aFlights', 'aFlightsN', 'aFloor', 'aElevType', 'aElevSteps', 'aElevStepsN', 'aShape', 'aTight'].forEach((id) => { const el = $('#' + id); if (el) { el.value = ''; el.classList.remove('bad'); } });
+  const res = $('#aElevRes'); if (res) res.checked = false;
+}
+function asksWeightDraft() {
+  const kind = ($('#cKind') && $('#cKind').value) || '';
+  if (!/^(painting|photograph|print|drawing|canvas|poster|wall art)/i.test(kind)) return true;
+  const max = Math.max(num($('#cL') && $('#cL').value), num($('#cW') && $('#cW').value), num($('#cH') && $('#cH').value));
+  return max > 72;
+}
+function syncCustomWeight() {
+  const row = $('#cWtRow'); if (!row) return;
+  const ask = asksWeightDraft();
+  row.hidden = !ask;
+  if (!ask) { $('#cWt').value = ''; $('#cWtUnsure').checked = false; $('#cWt').disabled = false; }
+}
+
+/* ---------- dates (split-screen + dedicated boxes, parity with main 483cf68) ---------- */
+const dedOn = (side) => !!(side === 'pickup' ? S.dedicatedPickup : S.dedicatedDelivery);
+function shortDate(iso) {
+  if (!iso) return '';
+  const d = new Date(iso + 'T12:00:00');
+  return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+}
+function dedMin(side) {
+  const R = (CFG && CFG.dedicated) || {};
+  const floor = R.min || '';
+  if (side === 'delivery' && S.pickupDate && S.pickupDate > floor) return S.pickupDate;
+  return floor;
+}
+function dedDateProblem(iso, side) {
+  const R = (CFG && CFG.dedicated) || {};
+  if (!iso) return '';
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(iso))) return 'Please pick a date.';
+  const min = dedMin(side);
+  if (min && iso < min) return side === 'delivery' && S.pickupDate && min === S.pickupDate ? 'Please pick a delivery date on or after your pickup date.' : `Please pick ${shortDate(min)} or later.`;
+  if (R.max && iso > R.max) return `Please pick ${shortDate(R.max)} or earlier.`;
+  if (!R.allowSundays && new Date(iso + 'T12:00:00Z').getUTCDay() === 0) return 'Please pick a day other than Sunday.';
+  if ((R.blocked || []).includes(iso)) return 'We’re closed that day. Please pick another date.';
+  const full = (S.dedicatedBlocked && S.dedicatedBlocked[side === 'pickup' ? 'pickup' : 'delivery']) || [];
+  if (full.includes(iso)) return 'That date is fully booked. Please pick another date, or request a custom date below.';
+  return '';
+}
+const lastDedSide = () => (dedOn('delivery') ? 'delivery' : 'pickup');
+const customDateBlock = (side) => `<div class="ded-custom">
+    <label class="chk"><input type="checkbox" data-customdate="1" ${S.customDate ? 'checked' : ''}> Request a custom date</label>
+    ${S.customDate && side === lastDedSide() ? `<label class="field"><span class="lbl">Which dates would work?</span><input id="customDateNote" type="text" value="${esc(S.customDateNote)}" placeholder="For example: any weekday the week of Dec 14" maxlength="500"><p class="mini">We’ll schedule it and confirm the date with you before anything is charged.</p></label>` : ''}
+  </div>`;
+function dedBox(side) {
+  const on = dedOn(side), R = (CFG && CFG.dedicated) || {};
+  const v = side === 'pickup' ? S.pickupDate : S.deliveryDate;
+  const prob = on && v && !S.customDate ? dedDateProblem(v, side) : '';
+  const id = side === 'pickup' ? 'ded-pu-date' : 'ded-de-date';
+  const lab = side === 'pickup' ? 'Pickup' : 'Delivery';
+  return `<div class="ded-box${on ? ' on' : ''} in-col" data-ded="${side}">
+    <p class="ded-q">None of these dates work for you?</p>
+    <label class="ded-toggle"><span class="ded-lab">Select a dedicated trip</span><span class="sw"><input type="checkbox" data-dedtoggle="${side}" ${on ? 'checked' : ''} aria-label="Select a dedicated trip for the ${lab.toLowerCase()}"><i></i></span></label>
+    <p class="ded-help">A van and crew just for your job, on a date that works for you.</p>
+    ${on && !S.customDate ? `<div class="ded-date"><label class="field"><span class="lbl">${lab} date</span><input id="${id}" type="date" data-deddate="${side}" min="${esc(dedMin(side))}" max="${esc(R.max || '')}" value="${esc(v || '')}"></label>
+      ${prob ? `<p class="mini ded-err" role="alert">${esc(prob)}</p>` : ''}</div>` : ''}
+    ${on ? customDateBlock(side) : ''}
+  </div>`;
+}
 function renderDatesVisibility() {
   const d = delivery();
-  const ok = /^\d{5}/.test(d.zip) && !outOfState() && !(S.quote && S.quote.special);
-  $('#datesBox').hidden = !ok || !S.puDays.length;
-  $('#datesSub').textContent = isHeavyReview() ? 'This order goes to our team for review first, so no days are needed yet. We will email the quote.' : outOfState() || (S.quote && S.quote.special)
+  const el = $('#datesSub'); if (!el) return;
+  el.textContent = isHeavyReview() ? 'This order goes to our team for review first, so no days are needed yet. We will email the quote.' : outOfState() || (S.quote && S.quote.special)
     ? 'Delivery outside California is quoted as Shipping, so no dates are needed. We will email the quote.'
-    : /^\d{5}/.test(d.zip) ? 'Pick a pickup day, then a delivery day. We pre-selected the earliest.' : 'Enter the delivery ZIP on the address step and the available days appear here. We pre-select the earliest.';
+    : /^\d{5}/.test(d.zip) ? (S.customDate ? 'Request a date that works for you. We’ll confirm it before anything is charged.' : 'Start with either side. We’ll gray out the days that don’t work together.') : 'Enter the delivery ZIP on the address step and the available days appear here.';
 }
-const dayCard = (d, on, i, kind) => { const [w, m, n] = String(d.label).replace(',', '').split(' '); return `<button type="button" class="day ${on ? 'on' : ''} ${i === 0 ? 'early' : ''}" data-${kind}="${d.date}"><div class="dw">${esc(w)}</div><div class="dd">${esc(m)} ${esc(n)}</div><div class="rg">${esc(d.shortLabel || d.region || '')}</div></button>`; };
-const SHOW_FIRST = 3; // the next 3 days, then "Show more dates" (up to 14) and "Later date"
-function dayList(days, sel, kind, more) {
-  const selIdx = days.findIndex((d) => d.date === sel);
-  const all = more || selIdx >= SHOW_FIRST;
-  return (all ? days : days.slice(0, SHOW_FIRST)).map((d, i) => dayCard(d, d.date === sel, i, kind)).join('');
-}
+const SHOW_FIRST = 3;
+const pairCard = (d, kind, st, i) => {
+  const [w, m, n] = String(d.label).replace(',', '').split(' ');
+  const why = st === 'off' ? (kind === 'pu' ? 'Too late for the delivery day you picked' : 'Doesn’t work with the pickup day you picked') : '';
+  return `<button type="button" class="day ${st} ${i === 0 ? 'early' : ''}" data-${kind}="${d.date}" ${st === 'off' ? `aria-disabled="true" data-off="1" title="${why}"` : ''} aria-pressed="${st === 'on'}"><div class="dw">${esc(w)}</div><div class="dd">${esc(m)} ${esc(n)}</div><div class="rg">${esc(d.shortLabel || d.region || '')}</div></button>`;
+};
 function dayCtl(days, sel, kind) {
   const more = kind === 'pu' ? S.puMore : S.deMore, from = kind === 'pu' ? S.puFrom : S.deFrom;
   const selIdx = days.findIndex((d) => d.date === sel);
@@ -276,32 +385,92 @@ function dayCtl(days, sel, kind) {
     <label class="later">Later date <input type="date" data-later="${kind}" min="${esc(from ? '' : min)}" value="${esc(from)}" aria-label="Choose a later ${kind === 'pu' ? 'pickup' : 'delivery'} date"></label>
     ${from ? `<button type="button" class="linkbtn" data-back="${kind}">Back to earliest dates</button>` : ''}`;
 }
+function puState(d) {
+  const sel = S.pickupDate, del = S.deliveryDate;
+  if (sel === d.date) return 'on';
+  if (del && dedOn('delivery')) return d.date > del ? 'off' : (sel ? 'dim' : '');
+  if (del && d.date > del) return 'off';
+  return sel ? 'dim' : '';
+}
+function delState(d) {
+  const sel = S.deliveryDate, pu = S.pickupDate;
+  if (sel === d.date) return 'on';
+  if (dedOn('pickup')) return pu && d.date < pu ? 'off' : (sel ? 'dim' : '');
+  if (pu && d.date < pu) return 'off';
+  return sel ? 'dim' : '';
+}
+function shownDays(days, stateOf, more, sel) {
+  const selIdx = days.findIndex((d) => d.date === sel);
+  const all = more || selIdx >= SHOW_FIRST;
+  return all ? days : days.slice(0, SHOW_FIRST);
+}
 function renderDays() {
-  $('#puDays').innerHTML = dayList(S.puDays, S.pickupDate, 'pu', S.puMore);
-  $('#deDays').innerHTML = dayList(S.deDays, S.deliveryDate, 'de', S.deMore);
-  $('#puCtl').innerHTML = S.puDays.length ? dayCtl(S.puDays, S.pickupDate, 'pu') : '';
-  $('#deCtl').innerHTML = S.deDays.length ? dayCtl(S.deDays, S.deliveryDate, 'de') : '';
-  const lab = (arr, v) => (arr.find((x) => x.date === v) || {}).label;
-  $('#dateSummary').textContent = S.pickupDate && S.deliveryDate ? `Pickup ${lab(S.puDays, S.pickupDate) || S.pickupDate} · Delivery ${lab(S.deDays, S.deliveryDate) || S.deliveryDate}` : '';
+  const box = $('#datesPair'); if (!box) return;
+  const d = delivery();
+  const quoteHold = isHeavyReview() || outOfState() || (S.quote && S.quote.special);
+  if (quoteHold) { box.innerHTML = ''; renderDatesVisibility(); return; }
+  const hint = dedOn('pickup') && dedOn('delivery') ? 'Dedicated trip on both sides: pick the pickup and delivery dates that work for you.'
+    : S.pickupDate && S.deliveryDate ? 'Both dates are set. Tap Clear on either one to change it.'
+    : S.pickupDate ? 'Now pick a delivery day. Grayed-out days don’t work with that pickup.'
+    : S.deliveryDate ? 'Now pick a pickup day. Grayed-out days are too late for that delivery.'
+    : 'Start with either one. We’ll gray out the days that don’t work together.';
+  const head = (label, iso, key) => `<div class="col-head"><span class="col-t">${label}</span>${iso ? `<span class="col-sel"><b>${esc(shortDate(iso))}</b><button type="button" class="linkbtn" data-clear="${key}" aria-label="Clear ${label.toLowerCase()} date">Clear</button></span>` : '<span class="col-sel mini">Not picked</span>'}</div>`;
+  const puList = shownDays(S.puDays, puState, S.puMore, S.pickupDate);
+  const deList = shownDays(S.deDays, delState, S.deMore, S.deliveryDate);
+  const zipOk = /^\d{5}/.test(d.zip);
+  box.innerHTML = `${zipOk ? `<p class="pair-hint mini">${hint}</p>` : '<p class="pair-hint mini">Enter the delivery ZIP on the address step and the available days appear here.</p>'}
+    <div class="date-pair">
+      <div class="date-col" data-col="pu">${head('Pickup', S.pickupDate, 'pu')}
+        ${dedOn('pickup') ? '' : `${S.puDays.length ? `<div class="region">● Pickup route</div><div class="days col-days">${puList.map((x, i) => pairCard(x, 'pu', puState(x), i)).join('')}</div>${dayCtl(S.puDays, S.pickupDate, 'pu')}` : (zipOk ? '<p class="mini">No route days are open right now. Select a dedicated trip below, or request a custom date once the trip is on.</p>' : '<p class="mini">Available pickup days appear after the delivery ZIP is entered.</p>')}`}
+        ${dedBox('pickup')}
+      </div>
+      <div class="date-col" data-col="del">${head('Delivery', S.deliveryDate, 'del')}
+        ${dedOn('delivery') ? '' : `${S.deDays.length ? `<div class="region">● Delivery route</div><div class="days col-days">${deList.map((x, i) => pairCard(x, 'de', delState(x), i)).join('')}</div>${dayCtl(S.deDays, S.deliveryDate, 'de')}` : (zipOk ? '<p class="mini">No route days are open right now. Select a dedicated trip below, or request a custom date once the trip is on.</p>' : '<p class="mini">Available delivery days appear after the delivery ZIP is entered.</p>')}`}
+        ${dedBox('delivery')}
+      </div>
+    </div>`;
   renderDatesVisibility();
 }
 function scheduleAvail() { availPending = true; clearTimeout(aTimer); aTimer = setTimeout(refreshDates, 250); }
 async function refreshDates() {
   const tok = ++availTok; const d = delivery();
-  if (!/^\d{5}/.test(d.zip) || outOfState()) { S.puDays = []; S.deDays = []; S.pickupDate = ''; S.deliveryDate = ''; renderDays(); availPending = false; return; }
+  if (!/^\d{5}/.test(d.zip) || outOfState()) {
+    S.puDays = []; S.deDays = [];
+    if (!dedOn('pickup')) S.pickupDate = '';
+    if (!dedOn('delivery')) S.deliveryDate = '';
+    renderDays(); availPending = false; return;
+  }
   const { ok, j } = await api('/api/palomas/availability', { ...payload(), leg: 'pickup', from: S.puFrom });
   if (tok !== availTok) return;
+  if (ok && j.dedicatedBlocked) S.dedicatedBlocked = j.dedicatedBlocked;
   S.puDays = ok ? (j.days || []) : [];
-  if (!S.puDays.some((x) => x.date === S.pickupDate)) S.pickupDate = (S.puDays[0] || {}).date || '';
+  if (!dedOn('pickup') && !S.puDays.some((x) => x.date === S.pickupDate)) S.pickupDate = (S.puDays[0] || {}).date || '';
   await refreshDelivery(tok);
 }
 async function refreshDelivery(tok = availTok) {
-  if (!S.pickupDate) { S.deDays = []; S.deliveryDate = ''; renderDays(); availPending = false; return; }
-  const { ok, j } = await api('/api/palomas/availability', { ...payload(), leg: 'dropoff', pickupDate: S.pickupDate, from: S.deFrom });
+  const d = delivery();
+  if (!/^\d{5}/.test(d.zip)) { if (!dedOn('delivery')) { S.deDays = []; if (!dedOn('delivery')) S.deliveryDate = ''; } renderDays(); availPending = false; return; }
+  const puForDel = S.pickupDate || (S.puDays[0] || {}).date || '';
+  if (!puForDel && !dedOn('delivery')) { S.deDays = []; if (!dedOn('delivery')) S.deliveryDate = ''; renderDays(); availPending = false; return; }
+  const { ok, j } = await api('/api/palomas/availability', { ...payload(), leg: 'dropoff', pickupDate: puForDel || S.pickupDate, from: S.deFrom });
   if (tok !== availTok) return;
+  if (ok && j.dedicatedBlocked) S.dedicatedBlocked = j.dedicatedBlocked;
   S.deDays = ok ? (j.days || []) : [];
-  if (!S.deDays.some((x) => x.date === S.deliveryDate)) S.deliveryDate = (S.deDays[0] || {}).date || '';
+  if (!dedOn('delivery') && !S.deDays.some((x) => x.date === S.deliveryDate)) S.deliveryDate = (S.deDays[0] || {}).date || '';
   renderDays(); renderSummary(); availPending = false;
+}
+function toggleDedicated(side, on) {
+  if (side === 'pickup') S.dedicatedPickup = on; else S.dedicatedDelivery = on;
+  if (!S.dedicatedPickup && !S.dedicatedDelivery) { S.customDate = false; S.customDateNote = ''; }
+  if (on) {
+    if (side === 'pickup' && S.puDays.some((x) => x.date === S.pickupDate)) S.pickupDate = '';
+    if (side === 'delivery' && S.deDays.some((x) => x.date === S.deliveryDate)) S.deliveryDate = '';
+  } else if (!S.customDate) {
+    if (side === 'pickup' && !S.puDays.some((x) => x.date === S.pickupDate)) S.pickupDate = (S.puDays[0] || {}).date || '';
+    if (side === 'delivery' && !S.deDays.some((x) => x.date === S.deliveryDate)) S.deliveryDate = (S.deDays[0] || {}).date || '';
+  }
+  scheduleQuote();
+  if (side === 'pickup' && !on) refreshDelivery(); else { renderDays(); renderSummary(); }
 }
 
 /* ---------- submit ---------- */
@@ -312,11 +481,11 @@ async function place(mode = 'now', wallet = '') {
   if (errs.length) {
     renderSummary(); renderItems();
     const sid = stepOfSel(errs[0].sel);
-    if (sid !== STEP_IDS[stepI]) showStep(STEP_IDS.indexOf(sid));
-    showStepErrors(problemsFor(STEP_IDS[stepI]));
+    if (sid !== visibleSteps()[stepI]) showStep(visibleSteps().indexOf(sid));
+    showStepErrors(problemsFor(visibleSteps()[stepI]));
     markBad(errs); return;
   }
-  const special = !!(S.quote && S.quote.special);
+  const special = !!(S.quote && S.quote.special) || !!S.customDate;
   const card = S.card.replace(/\s/g, '');
   if (!special && mode === 'now' && !wallet && !CFG.pay.stripe && CFG.pay.testMode && !/^\d{15,16}$/.test(card)) { S.payError = 'Enter a card number (test: 4242 4242 4242 4242), or use Apple Pay / Google Pay.'; renderSummary(); return; }
   S.submitting = true; renderSummary();
@@ -324,7 +493,7 @@ async function place(mode = 'now', wallet = '') {
   const created = await api('/api/palomas/orders', payload(special ? 'now' : mode));
   if (!created.ok) return fail(created.j.error, "We couldn't place that order.");
   const j = created.j;
-  if (special) { S.submitting = false; return showDone(j); }
+  if (special) { S.submitting = false; return showDone(j, S.customDate ? 'custom' : undefined); }
   if (j.order && j.order.status === 'pending_approval') { S.submitting = false; return showDone(j, 'review'); }
   if (mode === 'link') { S.submitting = false; return showDone(j, 'link'); }
   if (j.order && j.order.status === 'confirmed') { S.submitting = false; return showDone(j, 'paid'); }
@@ -337,8 +506,9 @@ function markBad(errs) { document.querySelectorAll('.bad').forEach((e) => e.clas
 function showDone(j, how) {
   clearTimeout(draftTimer); try { sessionStorage.removeItem(DRAFT_KEY); } catch (_) { /* ignore */ }
   const o = j.order || {}; const q = j.quote || {}; const d = delivery();
-  const reviewHold = o.status === 'pending_approval' && !!(o.review && o.review.needed);
-  const shipping = o.status === 'pending_approval' && !reviewHold;
+  const customReq = how === 'custom' || !!(o.customDate) || !!S.customDate;
+  const reviewHold = o.status === 'pending_approval' && !!(o.review && o.review.needed) && !customReq;
+  const shipping = o.status === 'pending_approval' && !reviewHold && !customReq;
   const heavy = o.reviewReason === 'heavy';
   const paySt = (o.payment || {}).status;
   const reallyPaid = how === 'paid' && paySt === 'paid';
@@ -346,7 +516,9 @@ function showDone(j, how) {
   const hasInvoice = !!(o.invoice && (o.invoice.issuedAt || o.invoice.number || o.invoice.id));
   const palomasPending = (S.payer === 'palomas' || (o.partnerInfo && o.partnerInfo.payer === 'palomas')) && !reallyPaid && !processing && how !== 'link' && !shipping && !reviewHold;
   const day = (s) => (s ? new Date(s + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' }) : '');
-  const sub = reviewHold
+  const sub = customReq
+    ? ` · We’ll schedule it and confirm the date with you before anything is charged. We’ll email ${esc(d.email)}.`
+    : reviewHold
     ? ` · ${esc((o.quote || {}).quoteNote || 'Our team confirms the date within 1 business day.')} We’ll email ${esc(d.email)} a payment link once confirmed. No charge until then.`
     : shipping ? (heavy ? ' · Our team reviews the heavy piece and will email your quote within 1 business day. Nothing is charged until you authorize payment.' : ' · Our team will email your shipping quote within 1 business day. Nothing is charged until you authorize payment.')
     : how === 'link' ? ` · we emailed ${esc(d.email)} a payment link. <b>Awaiting payment — not scheduled until paid.</b> We'll send a reminder each day until it's paid.`
@@ -355,7 +527,7 @@ function showDone(j, how) {
     : hasInvoice ? ' · invoiced. Payment is still pending.'
     : ' · booked, payment pending.';
   $('#main').innerHTML = `<div class="done"><div class="ck">✓</div>
-    <h2>${reviewHold ? 'Date held, team confirming' : shipping ? (heavy ? 'Sent for team review' : 'Shipping quote requested') : how === 'link' ? 'Payment link sent' : reallyPaid ? 'Delivery locked in' : processing ? 'Payment processing' : hasInvoice ? 'Invoiced' : 'Booked, payment pending'}</h2>
+    <h2>${customReq ? 'Custom date requested' : reviewHold ? 'Date held, team confirming' : shipping ? (heavy ? 'Sent for team review' : 'Shipping quote requested') : how === 'link' ? 'Payment link sent' : reallyPaid ? 'Delivery locked in' : processing ? 'Payment processing' : hasInvoice ? 'Invoiced' : 'Booked, payment pending'}</h2>
     <p class="sub">Order <b>${esc(o.id || j.id)}</b>${sub}</p>
     <div class="box">
       <p><b>Placed by</b> ${esc(S.placedBy === 'Other' ? S.placedOther : S.placedBy)}</p>
@@ -363,7 +535,7 @@ function showDone(j, how) {
       <p><b>Deliver to</b> ${esc(d.name)} · ${esc(d.street)}${d.unit ? ', ' + esc(d.unit) : ''}, ${esc(d.city)} ${esc(d.state)} ${esc(d.zip)}${S.deliveryDate && !shipping ? ' · ' + esc(day(S.deliveryDate)) : ''}</p>
       <p><b>Items</b> ${S.items.map((i) => `${i.qty} × ${esc(i.name)}`).join('; ')}</p>
       ${shipping ? '' : (((j.order || {}).quote || {}).lines || []).filter((l) => l.label === "Manager's courtesy").map((l) => `<p><b>Manager's courtesy</b> −${usd(Math.abs(l.amount))}</p>`).join('')}
-      ${shipping ? '' : `<p><b>${reviewHold ? 'Estimated total' : 'Total'}</b> ${usd(q.total)}${S.courtesy ? " (Manager's courtesy)" : ''}</p>`}
+      ${shipping ? '' : `<p><b>${reviewHold || customReq ? 'Estimated total' : 'Total'}</b> ${usd(q.total)}${S.courtesy ? " (Manager's courtesy)" : ''}</p>`}
       ${shipping ? '' : `<p class="mini">${esc(q.accessFeeNote || (j.order && j.order.quote && j.order.quote.accessFeeNote) || '')}</p>`}
       ${shipping || reviewHold || how === 'link' ? '' : (reallyPaid ? `<p><b>Paid</b> ${usd((o.payment && o.payment.amount) || q.dueNow || q.total)}${o.quote && o.quote.balanceDue ? ' · balance ' + usd(o.quote.balanceDue) + ' due ' + esc(o.quote.balanceWhen || '') : ''} · by ${S.payer === 'palomas' ? "Paloma's Home Furnishings" : esc(d.name)}</p>` : processing ? `<p><b>Payment processing</b> ${usd((o.payment && o.payment.amount) || q.dueNow || q.total)}</p>` : `<p><b>${hasInvoice ? 'Invoiced' : 'Booked, payment pending'}</b> ${usd(q.dueNow || q.total)}</p>`)}
     </div>
@@ -373,11 +545,12 @@ function showDone(j, how) {
 }
 
 /* ---------- small steps (a few questions per screen, Next / Back) ---------- */
-const STEP_IDS = ['start', 'items', 'client', 'address', 'access', 'notes', 'dates', 'review'];
+const ALL_STEPS = ['start', 'items', 'client', 'address', 'access', 'dates', 'review'];
+const visibleSteps = () => ALL_STEPS.filter((id) => id !== 'access' || needsDeliveryAccess());
 let stepI = 0, returnToReview = false, stepReady = false;
 const stepOfSel = (sel) => { const el = $(sel); const st = el && el.closest ? el.closest('[data-step]') : null; return st ? st.dataset.step : 'review'; };
 const problemsFor = (id) => problems().filter((p) => stepOfSel(p.sel) === id);
-const firstProblemStep = () => { const ps = problems(); if (!ps.length) return STEP_IDS.length - 1; return Math.min(...ps.map((p) => STEP_IDS.indexOf(stepOfSel(p.sel)))); };
+const firstProblemStep = () => { const vis = visibleSteps(); const ps = problems(); if (!ps.length) return vis.length - 1; const idxs = ps.map((p) => vis.indexOf(stepOfSel(p.sel))).filter((i) => i >= 0); return idxs.length ? Math.min(...idxs) : vis.length - 1; };
 function clearStepErrors() {
   document.querySelectorAll('[data-stepmsg]').forEach((e) => e.remove());
   document.querySelectorAll('#form .bad').forEach((e) => e.classList.remove('bad'));
@@ -395,7 +568,7 @@ function showStepErrors(errs, { quiet = false } = {}) {
     } else general.push(e.ask);
   });
   if (general.length) {
-    const secs = [...document.querySelectorAll(`#form [data-step="${STEP_IDS[stepI]}"]`)]; const last = secs[secs.length - 1];
+    const secs = [...document.querySelectorAll(`#form [data-step="${visibleSteps()[stepI]}"]`)]; const last = secs[secs.length - 1];
     if (last) last.insertAdjacentHTML('beforeend', `<div class="errs" role="alert" data-stepmsg>${general.map(esc).join('<br>')}</div>`);
   }
   if (quiet) return;
@@ -404,7 +577,7 @@ function showStepErrors(errs, { quiet = false } = {}) {
   if (target && target.scrollIntoView) target.scrollIntoView({ behavior: 'smooth', block: 'center' });
   if (fel && fel.focus && /^(INPUT|SELECT|TEXTAREA)$/.test(fel.tagName)) fel.focus({ preventScroll: true });
 }
-function refreshStepErrors() { if (document.querySelector('[data-stepmsg]')) showStepErrors(problemsFor(STEP_IDS[stepI]), { quiet: true }); }
+function refreshStepErrors() { if (document.querySelector('[data-stepmsg]')) showStepErrors(problemsFor(visibleSteps()[stepI]), { quiet: true }); }
 function frontLoadedPct(index, total, atEnd) {
   if (atEnd || total <= 1) return 100;
   const i = Math.max(0, Math.min(index, total - 1));
@@ -416,16 +589,16 @@ function frontLoadedPct(index, total, atEnd) {
 }
 let palProgressHigh = 0, palLastIndex = -1;
 function showStep(i, { push = true } = {}) {
-  i = Math.max(0, Math.min(STEP_IDS.length - 1, i));
+  i = Math.max(0, Math.min(visibleSteps().length - 1, i));
   const first = !stepReady, changed = first || i !== stepI;
   const goingBack = palLastIndex >= 0 && i < palLastIndex;
   stepI = i; stepReady = true;
-  const id = STEP_IDS[i], isLast = id === 'review';
+  const id = visibleSteps()[i], isLast = id === 'review';
   document.querySelectorAll('[data-step]').forEach((el) => { el.hidden = el.dataset.step !== id; });
   $('#main').classList.toggle('single', !isLast);
   document.body.classList.toggle('compact', i > 0);
   $('#backBtn').hidden = i === 0; $('#nextBtn').hidden = isLast;
-  let pct = frontLoadedPct(i, STEP_IDS.length, isLast);
+  let pct = frontLoadedPct(i, visibleSteps().length, isLast);
   if (goingBack) palProgressHigh = pct;
   else { pct = Math.max(pct, palProgressHigh); palProgressHigh = pct; }
   palLastIndex = i;
@@ -436,30 +609,33 @@ function showStep(i, { push = true } = {}) {
     try { if (push) history.pushState({ palStep: i }, ''); else history.replaceState({ palStep: i }, ''); } catch (_) { /* ignore */ }
     if (!first) window.scrollTo({ top: Math.max(0, $('#main').offsetTop - 12), behavior: 'auto' });
   }
+  if (id === 'dates') renderDays();
+  tidyAccessIfSkipped();
   saveDraft();
 }
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 async function waitSettled() { for (let t = 0; t < 4000 && (S.quoteBusy || availPending); t += 60) await sleep(60); }
-const customPending = () => !$('#customForm').hidden && ['#cName', '#cL', '#cW', '#cH', '#cWt'].some((id) => $(id).value.trim());
+const customPending = () => !$('#customForm').hidden && ['#cName', '#cL', '#cW', '#cH'].concat(asksWeightDraft() ? ['#cWt'] : []).some((id) => $(id).value.trim());
 async function goNext() {
   if (S.submitting) return;
-  const id = STEP_IDS[stepI]; if (id === 'review') return;
+  const id = visibleSteps()[stepI]; if (id === 'review') return;
   await waitSettled();
   if (id === 'items' && customPending()) {
     const err = $('#cErr'); err.hidden = false; err.textContent = 'You started a custom item. Tap “Add item” to include it, or clear the form.'; $('#cAdd').focus({ preventScroll: false }); return;
   }
   const errs = problemsFor(id);
   if (errs.length) { showStepErrors(errs); return; }
-  if (returnToReview || stepI + 1 === STEP_IDS.length - 1) {
+  if (returnToReview || stepI + 1 === visibleSteps().length - 1) {
     // Going to the review screen: make sure every screen is complete first.
     const all = problems();
-    if (all.length) { const sid = stepOfSel(all[0].sel); showStep(STEP_IDS.indexOf(sid)); showStepErrors(problemsFor(sid)); return; }
-    showStep(STEP_IDS.length - 1); return;
+    if (all.length) { const sid = stepOfSel(all[0].sel); showStep(visibleSteps().indexOf(sid)); showStepErrors(problemsFor(sid)); return; }
+    showStep(visibleSteps().length - 1); return;
   }
   showStep(stepI + 1);
 }
 function goBack() { if (stepI > 0) showStep(stepI - 1); }
 function accessSummary() {
+  if (!needsDeliveryAccess()) return 'No stairs or doorway questions needed for these pieces.';
   const a = access(); const lab = (list, k) => ((list || []).find(([v]) => v === k) || [k, k])[1];
   const parts = [lab(CFG.access, a.mode) || 'Not answered'];
   if (a.mode === 'stairs') {
@@ -488,10 +664,12 @@ function renderReview() {
     row('Items', items || '—', 'items'),
     row('Client', `${esc(d.name)}<br><span class="muted">${esc(d.phone)} · ${esc(d.email)}</span>${extra ? `<br><span class="muted">Second client: ${extra}</span>` : ''}`, 'client'),
     row('Address', `${esc(d.street)}${d.unit ? ', ' + esc(d.unit) : ''}<br>${esc(d.city)}, ${esc(d.state)} ${esc(d.zip)}`, 'address'),
-    row('Access', esc(accessSummary()) + (((S.quote && S.quote.accessReview) || (a => a.mode === 'not_sure' || (a.mode === 'elevator' && (a.elevatorType === 'not_sure' || a.elevSteps === 'not_sure')))(access())) ? '<br><span class="muted">Access still needs confirmation by our team. We’ll get your approval before charging any extra fee.</span>' : ''), 'access'),
-    row('Notes', d.notes || a.hours ? `${a.hours ? 'Access hours: ' + esc(a.hours) + (d.notes ? '<br>' : '') : ''}${esc(d.notes)}` : '<span class="muted">None</span>', 'notes'),
-    row('Days', noDates ? `<span class="muted">${isHeavyReview() ? 'Team review first, no days to pick yet' : 'Quoted as shipping, no days to pick'}</span>` : `Pickup ${esc(day(S.puDays, S.pickupDate) || '—')}<br>Delivery ${esc(day(S.deDays, S.deliveryDate) || '—')}`, 'dates'),
-  ].join('');
+    needsDeliveryAccess() ? row('Access', esc(accessSummary()) + (((S.quote && S.quote.accessReview) || (a => a.mode === 'not_sure' || (a.mode === 'elevator' && (a.elevatorType === 'not_sure' || a.elevSteps === 'not_sure')))(access())) ? '<br><span class="muted">Access still needs confirmation by our team. We’ll get your approval before charging any extra fee.</span>' : ''), 'access') : '',
+    row('Notes', d.notes || a.hours ? `${a.hours ? 'Access hours: ' + esc(a.hours) + (d.notes ? '<br>' : '') : ''}${esc(d.notes)}` : '<span class="muted">None</span>', 'address'),
+    row('Days', noDates ? `<span class="muted">${isHeavyReview() ? 'Team review first, no days to pick yet' : 'Quoted as shipping, no days to pick'}</span>`
+      : S.customDate ? `Custom date request${S.customDateNote ? ': ' + esc(S.customDateNote) : ''}`
+      : `Pickup ${esc(day(S.puDays, S.pickupDate) || shortDate(S.pickupDate) || '—')}${S.dedicatedPickup ? ' · dedicated trip' : ''}<br>Delivery ${esc(day(S.deDays, S.deliveryDate) || shortDate(S.deliveryDate) || '—')}${S.dedicatedDelivery ? ' · dedicated trip' : ''}`, 'dates'),
+  ].filter(Boolean).join('');
 }
 
 /* ---------- wiring ---------- */
@@ -516,19 +694,21 @@ function bind() {
   kind.innerHTML = `<optgroup label="Furniture">${CFG.kinds.furniture.map((k) => `<option>${esc(k)}</option>`).join('')}</optgroup>` +
     CFG.kinds.groups.map((g) => `<optgroup label="${esc(g.label === 'Wall' ? 'Wall décor & mirrors' : g.label === 'Lighting' ? 'Lighting' : 'Accents & objects')}">${g.items.map((k) => `<option>${esc(k)}</option>`).join('')}</optgroup>`).join('');
   const cNum = (id) => num($(id).value);
-  const cHeavy = () => cNum('#cWt') > 500 || $('#cWtUnsure').checked;
+  const cHeavy = () => asksWeightDraft() && (cNum('#cWt') > 500 || $('#cWtUnsure').checked);
   const syncCustomPhoto = () => {
     const heavy = cHeavy(); $('#cLaterWrap').hidden = false;
     $('#cPhotoReq').textContent = heavy ? '(required: over 500 lb or weight not sure. Add one, or tick “I’ll send a photo”)' : '(optional)';
   };
   ['#cWt', '#cWtUnsure'].forEach((id) => $(id).addEventListener('input', syncCustomPhoto));
   $('#cWtUnsure').addEventListener('change', () => { $('#cWt').disabled = $('#cWtUnsure').checked; if ($('#cWtUnsure').checked) $('#cWt').value = ''; syncCustomPhoto(); });
-  syncCustomPhoto();
+  ['#cKind', '#cL', '#cW', '#cH'].forEach((id) => $(id).addEventListener('input', () => { syncCustomWeight(); syncCustomPhoto(); }));
+  $('#cKind').addEventListener('change', () => { syncCustomWeight(); syncCustomPhoto(); });
+  syncCustomWeight(); syncCustomPhoto();
   $('#cAdd').addEventListener('click', async () => {
     const n = $('#cName').value.trim(); const err = $('#cErr'); const bad = [];
     const mark = (id, isBad) => { $(id).classList.toggle('bad', isBad); if (isBad) bad.push(id); };
     mark('#cName', !n); ['#cL', '#cW', '#cH'].forEach((id) => mark(id, !(cNum(id) > 0)));
-    mark('#cWt', !$('#cWtUnsure').checked && !(cNum('#cWt') > 0));
+    mark('#cWt', asksWeightDraft() && !$('#cWtUnsure').checked && !(cNum('#cWt') > 0));
     const files = [...($('#cPhoto').files || [])];
     const needPhoto = cHeavy() && !files.length && !$('#cLater').checked;
     if (needPhoto) bad.push('#cPhoto');
@@ -549,7 +729,7 @@ function bind() {
     S.undo = null;
     S.items.push({ uid: uid++, name: n, kind: kind.value, qty: 1, catalogId: 'custom-' + uid, custom: true, thumb: '', dims: '', w: String(cNum('#cL')), d: String(cNum('#cW')), h: String(cNum('#cH')), weight: $('#cWtUnsure').checked ? '' : String(cNum('#cWt')), weightUnsure: $('#cWtUnsure').checked, photos, photoLater: $('#cLater').checked && !photos.length });
     ['#cName', '#cL', '#cW', '#cH', '#cWt', '#cPhoto'].forEach((id) => { $(id).value = ''; $(id).classList.remove('bad'); });
-    $('#cWtUnsure').checked = false; $('#cWt').disabled = false; $('#cLater').checked = false; syncCustomPhoto();
+    $('#cWtUnsure').checked = false; $('#cWt').disabled = false; $('#cLater').checked = false; syncCustomWeight(); syncCustomPhoto();
     itemsChanged(true);
   });
   // item rows
@@ -590,7 +770,7 @@ function bind() {
   const syncAccess = () => {
     const m = am.value; const fl = $('#aFlights').value;
     $('#aFlightsWrap').hidden = m !== 'stairs'; $('#aFlightsNWrap').hidden = !(m === 'stairs' && fl === '4plus'); $('#aFloorWrap').hidden = m !== 'elevator';
-    $('#aElevTypeWrap').hidden = m !== 'elevator'; $('#aElevResWrap').hidden = m !== 'elevator'; $('#aMoreWrap').hidden = !m;
+    $('#aElevTypeWrap').hidden = m !== 'elevator'; $('#aElevResWrap').hidden = m !== 'elevator';
     $('#aElevStepsWrap').hidden = m !== 'elevator'; $('#aElevStepsNWrap').hidden = !(m === 'elevator' && $('#aElevSteps').value === 'yes');
     syncStairsQ(); scheduleQuote();
   };
@@ -603,21 +783,38 @@ function bind() {
   // second client (optional)
   $('#addClient').addEventListener('click', () => { $('#client2').hidden = false; $('#addClient').hidden = true; $('#c2Name').focus(); });
   $('#c2Remove').addEventListener('click', () => { ['c2Name', 'c2Phone', 'c2Email'].forEach((id) => { $('#' + id).value = ''; $('#' + id).classList.remove('bad'); }); $('#client2').hidden = true; $('#addClient').hidden = false; scheduleQuote(); });
-  // dates
-  $('#puDays').addEventListener('click', (e) => { const b = e.target.closest('[data-pu]'); if (!b) return; S.pickupDate = b.dataset.pu; S.deliveryDate = ''; S.deFrom = ''; S.deMore = false; renderDays(); refreshDelivery(); });
-  $('#deDays').addEventListener('click', (e) => { const b = e.target.closest('[data-de]'); if (!b) return; S.deliveryDate = b.dataset.de; renderDays(); });
-  // date list controls: more dates / later date / back
-  ['pu', 'de'].forEach((k) => {
-    const ctl = $('#' + k + 'Ctl');
-    ctl.addEventListener('click', (e) => {
-      if (e.target.closest('[data-more]')) { S[k + 'More'] = true; renderDays(); }
-      else if (e.target.closest('[data-back]')) { S[k + 'From'] = ''; S[k + 'More'] = false; if (k === 'pu') { S.pickupDate = ''; refreshDates(); } else { S.deliveryDate = ''; refreshDelivery(); } }
-    });
-    ctl.addEventListener('change', (e) => {
-      if (!e.target.matches('[data-later]') || !e.target.value) return;
-      S[k + 'From'] = e.target.value; S[k + 'More'] = false;
-      if (k === 'pu') { S.pickupDate = ''; S.deliveryDate = ''; S.deFrom = ''; refreshDates(); } else { S.deliveryDate = ''; refreshDelivery(); }
-    });
+  // dates + dedicated boxes (event delegation on the split-screen pair)
+  const datesRoot = $('#sec-dates');
+  datesRoot.addEventListener('click', (e) => {
+    if (e.target.closest('[data-off]')) { e.preventDefault(); return; }
+    const pu = e.target.closest('[data-pu]');
+    if (pu) { S.pickupDate = pu.dataset.pu; if (S.deliveryDate && S.deliveryDate < S.pickupDate) { S.deliveryDate = ''; S.deFrom = ''; S.deMore = false; } renderDays(); refreshDelivery(); scheduleQuote(); return; }
+    const de = e.target.closest('[data-de]');
+    if (de) { S.deliveryDate = de.dataset.de; renderDays(); scheduleQuote(); return; }
+    const more = e.target.closest('[data-more]');
+    if (more) { S[more.dataset.more + 'More'] = true; renderDays(); return; }
+    const back = e.target.closest('[data-back]');
+    if (back) { const k = back.dataset.back; S[k + 'From'] = ''; S[k + 'More'] = false; if (k === 'pu') { if (!dedOn('pickup')) S.pickupDate = ''; refreshDates(); } else { if (!dedOn('delivery')) S.deliveryDate = ''; refreshDelivery(); } return; }
+    const clr = e.target.closest('[data-clear]');
+    if (clr) { const k = clr.dataset.clear; if (k === 'pu') S.pickupDate = ''; else S.deliveryDate = ''; renderDays(); scheduleQuote(); if (k === 'pu' && !dedOn('delivery')) refreshDelivery(); return; }
+  });
+  datesRoot.addEventListener('change', (e) => {
+    const t = e.target;
+    if (t.matches('[data-later]') && t.value) {
+      const k = t.getAttribute('data-later'); S[k + 'From'] = t.value; S[k + 'More'] = false;
+      if (k === 'pu') { if (!dedOn('pickup')) S.pickupDate = ''; if (!dedOn('delivery')) { S.deliveryDate = ''; S.deFrom = ''; } refreshDates(); } else { if (!dedOn('delivery')) S.deliveryDate = ''; refreshDelivery(); }
+      return;
+    }
+    if (t.matches('[data-dedtoggle]')) { toggleDedicated(t.getAttribute('data-dedtoggle'), t.checked); return; }
+    if (t.matches('[data-deddate]')) {
+      const side = t.getAttribute('data-deddate');
+      if (side === 'pickup') S.pickupDate = t.value; else S.deliveryDate = t.value;
+      scheduleQuote(); renderDays(); renderSummary(); return;
+    }
+    if (t.matches('[data-customdate]')) { S.customDate = t.checked; if (!S.customDate) S.customDateNote = ''; scheduleQuote(); renderDays(); renderSummary(); return; }
+  });
+  datesRoot.addEventListener('input', (e) => {
+    if (e.target.id === 'customDateNote') { S.customDateNote = e.target.value; e.target.classList.remove('bad'); }
   });
   // summary
   $('#sumBody').addEventListener('change', (e) => { if (e.target.id === 'mc') { S.courtesy = e.target.checked; runQuote(); } });
@@ -648,13 +845,13 @@ function bind() {
     if (!t || t.tagName !== 'INPUT' || /^(checkbox|radio|file|button)$/.test(t.type)) return;
     e.preventDefault();
     if (t.closest('#customForm')) { $('#cAdd').click(); return; }
-    if (t.id === 'search' || STEP_IDS[stepI] === 'review') return;
+    if (t.id === 'search' || visibleSteps()[stepI] === 'review') return;
     goNext();
   });
   $('#nextBtn').addEventListener('click', goNext);
   $('#backBtn').addEventListener('click', goBack);
-  $('#skipLink').addEventListener('click', (e) => { e.preventDefault(); showStep(STEP_IDS.indexOf('client')); });
-  $('#reviewBody').addEventListener('click', (e) => { const b = e.target.closest('[data-edit]'); if (!b) return; returnToReview = true; showStep(STEP_IDS.indexOf(b.dataset.edit)); });
+  $('#skipLink').addEventListener('click', (e) => { e.preventDefault(); showStep(visibleSteps().indexOf('client')); });
+  $('#reviewBody').addEventListener('click', (e) => { const b = e.target.closest('[data-edit]'); if (!b) return; returnToReview = true; showStep(visibleSteps().indexOf(b.dataset.edit)); });
   window.addEventListener('popstate', (e) => {
     const n = e.state && e.state.palStep; if (n == null || S.submitting) return;
     showStep(Math.min(n, firstProblemStep()), { push: false });
@@ -688,7 +885,12 @@ function restoreDraft() {
   $('#aMode').dispatchEvent(new Event('change')); if ($('#aFlights').value) $('#aFlights').dispatchEvent(new Event('change'));
   ['aElevSteps'].forEach((id) => { if ($('#' + id).value) $('#' + id).dispatchEvent(new Event('change')); });
   if (S.items.length) itemsChanged(true); scheduleAvail();
-  return Math.max(0, Math.min(parseInt(d.step, 10) || 0, STEP_IDS.length - 2));
+  const old = ['start', 'items', 'client', 'address', 'access', 'notes', 'dates', 'review'];
+  const raw = parseInt(d.step, 10) || 0;
+  const id = old[raw] || 'start';
+  const vis = visibleSteps();
+  const mapped = id === 'notes' ? vis.indexOf('address') : vis.indexOf(id);
+  return Math.max(0, Math.min(mapped >= 0 ? mapped : 0, vis.length - 2));
 }
 
 (async function init() {

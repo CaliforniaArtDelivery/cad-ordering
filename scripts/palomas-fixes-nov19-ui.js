@@ -75,8 +75,8 @@ const shot = async (p, name, loc) => { const f = `${SHOTS}/${name}.png`; if (loc
     await nextTo(page, 'address');
     await page.fill('#dStreet', '100 Ocean Ave'); await page.fill('#dCity', 'Carmel-by-the-Sea'); await page.fill('#dZip', '93921');
     await nextTo(page, 'access'); await page.selectOption('#aMode', 'ground');
-    await nextTo(page, 'notes'); await nextTo(page, 'dates');
-    await page.waitForSelector('#datesBox:not([hidden])');
+    await nextTo(page, 'dates');
+    await page.waitForSelector('#datesPair .date-pair');
     await nextTo(page, 'review');
     await page.waitForFunction(() => /Due today/.test((document.querySelector('#sumBody') || {}).textContent || '')); await settle(page);
     // staff discount field
