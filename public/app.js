@@ -160,10 +160,10 @@ const UI = { showContact: [], showPayer: false, showList: false };
 const payerShown = () => UI.showPayer || !['pickup', 'dropoff'].includes(S.payer);
 let returnToReview = false; // set by Edit on the review screen: the next Next goes straight back to review
 const saveUi = () => { try { draftStore.setItem('cad-ui', JSON.stringify({ ...UI, rtr: !!returnToReview })); } catch (_) { /* ignore */ } };
-const persist = () => { if (STEPS[step] === 'Done') return; (S.items || []).forEach(tidyItemWeight); syncHeardFlag(S.heard); draftStore.setItem('cad-order', JSON.stringify(S)); draftStore.setItem('cad-step', String(step)); saveUi(); };
+const persist = () => { if (STEPS[step] === 'Done') return; (S.items || []).forEach(tidyItemWeight); tidyAccess('pickup'); tidyAccess('dropoff'); syncHeardFlag(S.heard); draftStore.setItem('cad-order', JSON.stringify(S)); draftStore.setItem('cad-step', String(step)); saveUi(); };
 // What actually gets priced / booked: drop fields that don't apply to the chosen service.
 const payload = () => {
-  applySameAsMe('pickup'); applySameAsMe('dropoff'); applySamePickup(); syncDoorway('pickup'); syncDoorway('dropoff'); // default on-site contact = the booker
+  applySameAsMe('pickup'); applySameAsMe('dropoff'); applySamePickup(); tidyAccess('pickup'); tidyAccess('dropoff'); // default on-site contact = the booker
   const o = JSON.parse(JSON.stringify(S));
   const sv = (CFG && CFG.services[o.service]) || {};
   // "Same as me": no role is sent; the server uses the booker's own "I am a…" (never a silent default).
@@ -489,18 +489,34 @@ const applySamePickup = () => {
   const a = S.dropoff, pu = S.pickup;
   a.sameAsMe = false; a.contactName = pu.contactName; a.contactPhone = pu.contactPhone; a.contactRole = pu.contactRole; a.contactRoleOther = pu.contactRoleOther;
 };
-// Fewer screens on a simple order (Nov 25 2026):
-// - the contact screen is skipped while "I'm the contact" is on (a one-line "Contact: you · Change" sits on the access screen);
-// - normal-size pieces get one tap "Standard doorway and hallway?" on the access screen; "Doors and fit" opens only on No.
+// Fewer screens on a simple order (Nov 25–26 2026):
+// - the contact screen is skipped while "I'm the contact" is on (a one-line "Pickup contact: you · Change"
+//   or "Delivery contact: you · Change" sits on the access screen, or on the address screen if access is skipped);
+// - path / stairs questions are asked only for heavy or big pieces; the doorway question only for truly giant ones.
+//   "Doors and fit" opens only when the doorway question is asked and the answer is No. If access questions
+//   are skipped, leftover path answers are cleared so pricing treats the stop as no stairs / standard.
 const contactShown = (k) => !(S[k] && S[k].sameAsMe) || UI.showContact.includes(k);
-const doorsShown = (k) => CADAccess.firm(S.items) || (S[k] && S[k].stdDoorway === 'no');
-function syncDoorway(k) {
+const accessQuestionsNeeded = () => CADAccess.asksPathAccess(S.items) || CADAccess.asksDoorwayAccess(S.items);
+const doorsShown = (k) => CADAccess.asksDoorwayAccess(S.items) && !!(S[k] && S[k].stdDoorway === 'no');
+function tidyAccess(k) {
   const a = S[k]; if (!a) return;
-  if (CADAccess.firm(S.items)) { if (a.fitsAuto) { a.fits = ''; a.fitsAuto = false; } return; }
-  if (!a.stdDoorway && (a.fits || a.doorway)) a.stdDoorway = a.fits === 'yes' && a.doorway !== 'not_sure' ? 'yes' : 'no';
-  if (a.stdDoorway === 'yes') { if (a.fits !== 'yes') { a.fits = 'yes'; a.fitsAuto = true; } if (a.doorway === 'not_sure') a.doorway = ''; }
-  else if (a.stdDoorway === 'no' && a.fitsAuto) { a.fits = ''; a.fitsAuto = false; }
+  if (!CADAccess.asksPathAccess(S.items)) {
+    a.accessMode = ''; a.pathPick = ''; a.stairFlights = ''; a.stairDir = ''; a.stairTurns = ''; a.stairPhotos = [];
+    a.serviceElevator = ''; a.dock = ''; a.elevatorStairs = ''; a.elevatorType = ''; a.elevatorFit = ''; a.elevatorAck = false;
+    a.floor = ''; a.elevator = false; a.stairs = 0; a.steps = false; a.stairKind = ''; a.accessReview = false; a.stairsPlus = false;
+  }
+  if (!CADAccess.asksDoorwayAccess(S.items)) {
+    a.stdDoorway = '';
+    if (a.fitsAuto) { a.fits = ''; a.fitsAuto = false; }
+    if (!CADAccess.asksPathAccess(S.items)) { a.doorway = ''; if (a.fitsAuto || a.fits === 'yes') { a.fits = ''; a.fitsAuto = false; } }
+  } else {
+    if (!a.stdDoorway && (a.fits || a.doorway)) a.stdDoorway = a.fits === 'yes' && a.doorway !== 'not_sure' ? 'yes' : 'no';
+    if (a.stdDoorway === 'yes') { if (a.fits !== 'yes') { a.fits = 'yes'; a.fitsAuto = true; } if (a.doorway === 'not_sure') a.doorway = ''; }
+    else if (a.stdDoorway === 'no' && a.fitsAuto) { a.fits = ''; a.fitsAuto = false; }
+  }
+  CADAccess.normalize(a);
 }
+function syncDoorway(k) { tidyAccess(k); }
 const syncHeardFlag = (h) => {
   if (!h) return h;
   if (h.repeatAnswer === 'yes') h.repeatClient = true;
@@ -662,7 +678,7 @@ function setPathPick(key, v) {
 }
 const accessBlock = (key, a) => {
   const A = CADAccess;
-  const big = A.firm(S.items);
+  const big = A.asksDoorwayAccess(S.items);
   const mode = a.accessMode;
   const firmNote = '<p class="mini">We need this for large or heavy pieces.</p>';
   const opt = (label) => `${label} (optional)`;
@@ -1274,7 +1290,9 @@ const descHint = (type) => (['furniture', 'decor'].includes(type) ? 'For example
   : ['sculpture', 'other'].includes(type) ? 'For example: material (bronze, marble, glass?), artist or maker, etc.'
   : 'For example: medium (oil, acrylic?), relief or heavy texture?, artist name, etc.');
 // ---------- views ----------
-const roleLabel = (key) => (key === 'pickup' ? 'Pickup contact role' : S.service === 'install_only' ? 'Install contact role' : 'Delivery contact role');
+const contactSideWord = (key) => (key === 'pickup' ? 'Pickup' : S.service === 'install_only' ? 'Install' : shipService() ? 'Destination' : 'Delivery');
+const contactLabel = (key) => contactSideWord(key) + ' contact';
+const roleLabel = (key) => contactLabel(key) + ' role';
 function payerOptions() {
   if (S.payer === 'me') S.payer = (S.dropoff && S.dropoff.sameAsMe && !(S.pickup && S.pickup.sameAsMe)) ? 'dropoff' : 'pickup';
   const puName = (S.pickup && S.pickup.contactName) || 'Pickup contact';
@@ -1401,7 +1419,7 @@ const views = {
 
   Where() {
     // "Same as me" is the default on-site contact, so keep its name and mobile in step with the booker's before the panels draw.
-    applySameAsMe('pickup'); applySameAsMe('dropoff'); applySamePickup(); syncDoorway('pickup'); syncDoorway('dropoff');
+    applySameAsMe('pickup'); applySameAsMe('dropoff'); applySamePickup(); tidyAccess('pickup'); tidyAccess('dropoff');
     const oos = () => (outOfState() ? `<p class="note" data-oos>${OOS_NOTE}</p>` : '');
     const addrPanel = (key, optional = false) => {
       const a = get(key);
@@ -1420,7 +1438,7 @@ const views = {
         <p class="mini zip-check" data-zipcheck="${key}" hidden></p>`}
         ${key === 'dropoff' && shipService() ? `<div class="field" style="margin-top:4px"><label class="f">Destination type</label>${seg(`${key}.locationType`, [['residential', 'Residential'], ['commercial', 'Commercial']])}</div>` : ''}
         ${input(`${key}.business`, 'Business or gallery (optional)', { ph: 'e.g. gallery, showroom, hotel' })}
-      </div>${accessExtras(key, a)}`);
+      </div>${!accessQuestionsNeeded() ? contactLineHtml(key) : ''}${accessExtras(key, a)}`);
     };
     // Tight spaces, parking, access hours and special instructions (Chad, Nov 21 2026): one collapsed, optional section on the
     // address screen instead of its own screen, so a regular customer flies through. Opens by itself when anything is filled in.
@@ -1432,6 +1450,11 @@ const views = {
         <div class="field" style="margin:0"><label class="f" for="f-${key}.notes">Special instructions</label><textarea id="f-${key}.notes" data-path="${key}.notes" placeholder="Gate codes, who to ask for, anything else">${esc(a.notes)}</textarea></div></div></details>`;
     };
     const whereWord = (key) => (key === 'pickup' ? 'pickup' : S.service === 'install_only' ? 'install' : shipService() ? 'destination' : 'delivery');
+    const contactLineHtml = (key) => {
+      const a = get(key);
+      if (contactShown(key)) return '';
+      return `<p class="mini contact-line" data-contactline="${key}">${esc(contactLabel(key))}: you${a.contactName ? ` (${esc(a.contactName)})` : ''} <button type="button" class="link" data-showcontact="${key}">Change</button></p>`;
+    };
     const contactPanel = (key, optional = false) => {
       const a = get(key);
       // Chad, Nov 21 2026: "Pickup contact" / "Delivery contact". Nobody has to be on site, so no "let us in" line.
@@ -1445,13 +1468,16 @@ const views = {
       </div>`);
     };
     const accessPanels = (key) => {
+      if (!accessQuestionsNeeded()) return [];
       const a = get(key);
       const ab = accessBlock(key, a);
       const at = `<p class="sub">${key === 'pickup' ? 'Pickup' : S.service === 'install_only' ? 'Install' : shipService() ? 'Destination' : 'Delivery'}${a.street ? ' · ' + esc(a.street) : ''}</p>`;
-      const me = !contactShown(key) ? `<p class="mini contact-line" data-contactline="${key}">Contact: you${a.contactName ? ` (${esc(a.contactName)})` : ''} <button type="button" class="link" data-showcontact="${key}">Change</button></p>` : '';
-      const std = !CADAccess.firm(S.items) ? `<div class="field" data-reqblock="${key}-stdDoorway" style="margin:14px 0 0"><label class="f">Standard doorway and hallway?${req}</label>${seg(`${key}.stdDoorway`, [['yes', 'Yes'], ['no', 'No']])}<p class="mini" style="margin:6px 0 0">No tight doorways, narrow halls or sharp turns on the way in.</p></div>` : '';
+      const me = contactLineHtml(key);
+      const path = CADAccess.asksPathAccess(S.items) ? ab.inn : '';
+      const std = CADAccess.asksDoorwayAccess(S.items) ? `<div class="field" data-reqblock="${key}-stdDoorway" style="margin:14px 0 0"><label class="f">Standard doorway and hallway?${req}</label>${seg(`${key}.stdDoorway`, [['yes', 'Yes'], ['no', 'No']])}<p class="mini" style="margin:6px 0 0">No tight doorways, narrow halls or sharp turns on the way in.</p></div>` : '';
+      const title = CADAccess.asksPathAccess(S.items) ? pathQuestion(key) : 'Standard doorway and hallway?';
       return [
-        panel(`${key}-access`, `<h1>${pathQuestion(key)}</h1>${at}${me}<div class="card">${ab.inn}${std}</div>`),
+        panel(`${key}-access`, `<h1>${title}</h1>${at}${me}<div class="card">${path}${std}</div>`),
         doorsShown(key) ? panel(`${key}-doors`, `<h1>Doors and fit</h1>${at}<div class="card">${ab.doors || '<p class="mini" style="margin:0">Tell us how we reach the spot first.</p>'}</div>`) : '',
       ];
     };
@@ -1574,7 +1600,7 @@ const views = {
     const addr = (a) => (a.street ? [a.street, a.city, [a.state, a.zip].map((x) => String(x || '').trim()).filter(Boolean).join(' ')].map((x) => String(x || '').trim()).filter(Boolean).map(esc).join(', ') : '—');
     const sp = special();
     const date = avail && [...avail.days, ...avail.rush].find((d) => d.date === S.schedule.date);
-    const siteRows = (label, a, goto) => (a && a.street ? `<div class="sum-row"><span>${label}</span><span>${addr(a)}<br><span class="muted">${esc(a.contactName)} · ${esc(formatPhone(a.contactPhone))}${a.sameAsMe ? (S.contact.clientType ? ` · ${esc(S.contact.clientType)}` : '') : a.contactRole ? ` · ${esc(a.contactRole === 'Other' ? (a.contactRoleOther || 'Other') : a.contactRole)}` : ''}</span> ${editBtn(goto)}</span></div>` : '');
+    const siteRows = (label, a, goto, ckey) => (a && a.street ? `<div class="sum-row"><span>${label}</span><span>${addr(a)}<br><span class="muted">${esc(contactLabel(ckey))}: ${esc(a.contactName)} · ${esc(formatPhone(a.contactPhone))}${a.sameAsMe ? (S.contact.clientType ? ` · ${esc(S.contact.clientType)}` : '') : a.contactRole ? ` · ${esc(a.contactRole === 'Other' ? (a.contactRoleOther || 'Other') : a.contactRole)}` : ''}</span> ${editBtn(goto)}</span></div>` : '');
     const payerCard = payerCardHtml();
     const payerName = payerNameLabel();
     return (payerShown() ? panel('payer', `<h1>Who’s paying?</h1>${payerCard}`) : '')
@@ -1583,8 +1609,8 @@ const views = {
       <div class="card">
         <div class="sum-row"><span>Service</span><span>${esc(svc().label)}${S.rush ? ' · rush' : ''}${S.dedicated ? ' · dedicated trip' : ''} ${editBtn('0:service')}</span></div>
         ${reviewPieces()}
-        ${svc().needsPickup ? siteRows('Pickup', S.pickup, '1:pickup-addr') : ''}
-        ${siteRows(S.service === 'install_only' ? 'Install at' : 'Delivery', S.dropoff, '1:dropoff-addr')}
+        ${svc().needsPickup ? siteRows('Pickup', S.pickup, '1:pickup-addr', 'pickup') : ''}
+        ${siteRows(S.service === 'install_only' ? 'Install at' : 'Delivery', S.dropoff, '1:dropoff-addr', 'dropoff')}
         <div class="sum-row"><span>Booked by</span><span>${esc(S.contact.name)}<br><span class="muted">${esc(S.contact.email)}</span> ${editBtn('1:you')}</span></div>
         <div class="sum-row"><span>Paying</span><span>${esc(payerName)} ${editBtn('3:payer')}</span></div>
       </div>
@@ -1610,8 +1636,8 @@ const views = {
       <div class="card">
         <div class="sum-row"><span>Service</span><span>Shipping ${editBtn('0:service')}</span></div>
         ${reviewPieces()}
-        <div class="sum-row"><span>Pickup</span><span>${destText(S.pickup)}<br><span class="muted">${esc([S.pickup.contactName, formatPhone(S.pickup.contactPhone)].filter(Boolean).join(' · '))}</span> ${editBtn('1:pickup-addr')}</span></div>
-        <div class="sum-row"><span>Destination</span><span>${destText(d)}${d.locationType ? ` · ${esc(d.locationType)}` : ''}<br><span class="muted">${esc([d.contactName, formatPhone(d.contactPhone)].filter(Boolean).join(' · '))}</span> ${editBtn('1:dropoff-addr')}</span></div>
+        <div class="sum-row"><span>Pickup</span><span>${destText(S.pickup)}<br><span class="muted">${esc(contactLabel('pickup'))}: ${esc([S.pickup.contactName, formatPhone(S.pickup.contactPhone)].filter(Boolean).join(' · '))}</span> ${editBtn('1:pickup-addr')}</span></div>
+        <div class="sum-row"><span>Destination</span><span>${destText(d)}${d.locationType ? ` · ${esc(d.locationType)}` : ''}<br><span class="muted">${esc(contactLabel('dropoff'))}: ${esc([d.contactName, formatPhone(d.contactPhone)].filter(Boolean).join(' · '))}</span> ${editBtn('1:dropoff-addr')}</span></div>
         ${intlDest(d) && (sh.customs.name || sh.customs.phone) ? `<div class="sum-row"><span>Customs contact</span><span>${esc([sh.customs.name, sh.customs.phone, sh.customs.email].filter(Boolean).join(' · '))}</span></div>` : ''}
         <div class="sum-row"><span>At destination</span><span>${esc(levelText(sh.serviceLevel))} ${editBtn('2:ship-level')}</span></div>
         <div class="sum-row"><span>Booked by</span><span>${esc(S.contact.name)}<br><span class="muted">${esc(S.contact.email)}</span> ${editBtn('1:you')}</span></div>
@@ -1688,15 +1714,19 @@ const views = {
 
 const siteReview = (title, a, goto) => {
   if (!a || !a.street) return '';
+  const accessBits = CADAccess.summary(a);
+  const showAccess = accessBits.length || accessQuestionsNeeded();
   const rows = [
     a.business && ['Business', esc(a.business)],
     a.hours && ['Access hours', esc(a.hours)],
-    ['Access', accessText(a)],
+    showAccess && ['Access', accessBits.length ? accessText(a) : 'Not answered yet'],
     a.parkingRestricted && ['Parking / loading', esc(a.parkingNote || 'Restrictions')],
     a === S.dropoff && hasHanging() && ['Hanging', `${esc(a.wallType || 'Wall type not sure')}${S.items.map((it, i) => isHung(it) ? '<br>' + esc(hangSummary(it, i)) + (it.hardware ? ' · ' + esc(hardwareText(it.hardware)) : '') : '').join('')}`],
     a.notes && ['Notes', esc(a.notes)],
   ].filter(Boolean);
-  return `<h2>${esc(title)}${goto ? ' ' + editBtn(goto) : ''}</h2><div class="card">${rows.map(([k, v]) => `<div class="sum-row"><span>${k}</span><span>${v}</span></div>`).join('')}</div>`;
+  if (!rows.length) return '';
+  const editTo = accessQuestionsNeeded() ? goto : (a === S.pickup ? '1:pickup-addr' : '1:dropoff-addr');
+  return `<h2>${esc(title)}${editTo ? ' ' + editBtn(editTo) : ''}</h2><div class="card">${rows.map(([k, v]) => `<div class="sum-row"><span>${k}</span><span>${v}</span></div>`).join('')}</div>`;
 };
 
 // ---------- validation + required-field guidance ----------
@@ -1761,11 +1791,11 @@ function missingFields(name = STEPS[step]) {
       if (key === 'dropoff' && shipInsideCA()) add('#f-dropoff.state', 'Destination is in California', 'Shipping is for destinations outside California. Tap Switch to Pickup + Delivery.');
       // Street (with a number), a plausible city and a 5-digit ZIP (or ZIP+4): the same checks the server runs (public/validate.js).
       V.addressProblems(a, title).forEach((pr) => add(`#f-${key}.${pr.field}`, `${{ street: 'Street address', city: 'City', state: 'State', zip: 'ZIP' }[pr.field]} — ${title}`, pr.message));
-      if (!String(a.contactName || '').trim()) add(`#f-${key}.contactName`, `Contact name — ${title}`, 'Please enter the contact’s name.');
-      if (!String(a.contactPhone || '').trim()) add(`#f-${key}.contactPhone`, `Contact mobile — ${title}`, 'Please enter the contact’s mobile number.');
+      if (!String(a.contactName || '').trim()) add(`#f-${key}.contactName`, `${contactLabel(key)} name`, `Please enter the ${contactLabel(key).toLowerCase()}’s name.`);
+      if (!String(a.contactPhone || '').trim()) add(`#f-${key}.contactPhone`, `${contactLabel(key)} mobile`, `Please enter the ${contactLabel(key).toLowerCase()}’s mobile number.`);
       if (a.sameAsMe) { /* role = the booker's own "I am a…" (required above); no role field */ }
-      else if (!String(a.contactRole || '').trim()) add(`#f-${key}.contactRole`, roleLabel(key), 'Please choose the contact’s role.');
-      else if (a.contactRole === 'Other' && !String(a.contactRoleOther || '').trim()) add(`#f-${key}.contactRoleOther`, 'Describe their role', 'Please describe the contact’s role.');
+      else if (!String(a.contactRole || '').trim()) add(`#f-${key}.contactRole`, roleLabel(key), `Please choose the ${contactLabel(key).toLowerCase()}’s role.`);
+      else if (a.contactRole === 'Other' && !String(a.contactRoleOther || '').trim()) add(`#f-${key}.contactRoleOther`, 'Describe their role', `Please describe the ${contactLabel(key).toLowerCase()}’s role.`);
     };
     if (svc().needsPickup) siteMiss('pickup', 'Pickup', true);
     const dropTitle = shipService() ? 'Destination' : S.service === 'install_only' ? 'Installation' : 'Delivery';
@@ -1797,8 +1827,10 @@ function missingFields(name = STEPS[step]) {
         fits: [`[data-seg="${key}.fits"]`, 'Will everything fit easily?', 'Please tell us if everything will fit easily.'],
         doorPhotos: [`[data-accessupload="${key}.doorPhotos"]`, 'Photos of the tight spot', 'Please add a photo of the tight spot and the way in.'],
       };
-      CADAccess.gaps(a, S.items).forEach((g) => { const [sel, label, msg] = ACCESS_GAP[g]; add(sel, `${label} — ${where}`, msg); });
-      if (!isShip() && !CADAccess.firm(S.items) && !['yes', 'no'].includes(a.stdDoorway)) add(`[data-seg="${key}.stdDoorway"]`, `Standard doorway and hallway? — ${where}`, 'Please tap Yes or No.');
+      if (CADAccess.asksPathAccess(S.items) || CADAccess.asksDoorwayAccess(S.items)) {
+        CADAccess.gaps(a, S.items).forEach((g) => { const [sel, label, msg] = ACCESS_GAP[g]; add(sel, `${label} — ${where}`, msg); });
+      }
+      if (!isShip() && CADAccess.asksDoorwayAccess(S.items) && !['yes', 'no'].includes(a.stdDoorway)) add(`[data-seg="${key}.stdDoorway"]`, `Standard doorway and hallway? — ${where}`, 'Please tap Yes or No.');
     });
     S.items.forEach((it, i) => {
       if (pieceNeedsStairwellFit(it) && !it.fitsStairwell) add(`[data-reqblock="stairwellFit-${i}"]`, `Stairwell fit — ${pieceName(i)}`, 'Please check the box to continue.');

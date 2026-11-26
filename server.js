@@ -331,9 +331,9 @@ function validate(o) {
   if (SERVICES[o.service]?.needsDropoff) {
     if (!o.dropoff?.street) errs.push('dropoff');
     errs.push(...addressErrors(o.dropoff, 'dropoff'));
-    if (!siteContact(o.dropoff)) errs.push('dropoff contact');
+    if (!siteContact(o.dropoff)) errs.push(o.service === 'install_only' ? 'install contact' : o.service === 'crating_shipping' ? 'destination contact' : 'delivery contact');
   }
-  // Access (Chad): "How do we get in?" is required at every stop, plus the follow-ups and photos it triggers.
+  // Access (Chad): path / stairs questions are required only for heavy or big pieces; doorway only for truly giant ones.
   const ACCESS_ERR = {
     accessMode: 'access (how do we get in?)', stairFlights: 'number of flights', stairs: 'number of flights (4 or more)', stairDir: 'stairs up or down',
     stairTurns: 'tight turns on the stairs', stairPhotos: 'photos of the stairs and path', floor: 'elevator floor', elevatorStairs: 'stairs on the way to the elevator',

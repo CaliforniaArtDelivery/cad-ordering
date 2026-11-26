@@ -1,6 +1,8 @@
 /* CAD access questions: one shared module for the browser (window.CADAccess) and the server (require).
  * Chad (Nov 2026): access reads like a phone call. First "How do we get in?" (ground / a few steps / stairs / elevator / not sure),
  * then only the follow-ups that apply, then the doorway. Answers are never defaulted, so they can't contradict.
+ * Path / stairs questions are asked only for heavy or big pieces; the doorway question only for truly giant ones
+ * (see isPathAccessPiece / isDoorwayAccessPiece). When those questions are skipped, missing access is no stairs / standard.
  * normalize() maps the new answers onto the legacy fields pricing and scheduling already use
  * (stairKind, stairs, steps, elevator, floor, loadingDock, fits), so stair fees compute exactly as before. */
 (function (root, factory) {
@@ -62,18 +64,60 @@
   const has = (v) => v != null && String(v).trim() !== '';
   const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
-  // "Ask firmer" pieces: sofas / large furniture, anything over ~150 lb, or any side over 72".
-  const BIG_FURNITURE = /sofa|loveseat|sectional|bed|dresser|armoire|wardrobe|cabinet|credenza|sideboard|buffet|bookcase|dining table|piano|desk|hutch|chest/i;
+  // Access-question gates (Chad, Nov 25–26 2026, t2062u / t2064u / t2065u).
+  // Path / stairs ("How do we reach the spot…") is asked only for heavy or big items —
+  // those are the answers that can change the price (stairs, elevator handling).
+  // Doorway / hallway is a stricter gate, only for truly giant items. If there is no
+  // clean way to tell, we lean toward NOT asking.
+  //
+  // Path / stairs thresholds (any matching piece in the order):
+  //   • Wall art (painting, photograph, other wall art, non-mirror décor): longest side > 72 in
+  //     (existing LONG_IN / oversize line). Framed-over-60 in is only for asking weight, not access.
+  //   • Mirrors (Mirror type or Décor → Mirror): face (width or height) >= 60 in, the existing
+  //     large-mirror transport surcharge threshold; or a given weight > 150 lb (existing HEAVY_LB).
+  //   • Furniture: recliner, loveseat, sofa, desk, sectionals, dining table, and other clearly
+  //     large kinds (bed, dresser, armoire, credenza, …), or any furniture with size class large/heavy.
+  //     A medium armchair, nightstand, ottoman, or side table is not asked.
+  //   • Sculpture or "other": 100 lb or more. No weight (or under 100 lb) → not asked.
+  //
+  // Doorway / hallway thresholds (stricter; lean toward not asking):
+  //   • Oversized wall art, including mirrors: longest side >= 96 in ("well over 72 in").
+  //   • Sculpture: 100 lb or more.
+  //   • Large furniture that is clearly a sofa, loveseat, sectional, or dining table.
+  //     A desk, recliner, or large armchair gets path questions but not the doorway question.
+  const PATH_FURNITURE = /sofa|loveseat|sectional|bed|dresser|armoire|wardrobe|cabinet|credenza|sideboard|buffet|bookcase|dining table|piano|desk|hutch|chest|recliner/i;
+  const DOORWAY_FURNITURE = /sofa|loveseat|sectional|dining table/i;
   const HEAVY_LB = 150;
   const LONG_IN = 72;
-  function isBigPiece(it) {
+  const MIRROR_LARGE_FACE_IN = 60;
+  const SCULPTURE_PATH_LB = 100;
+  const DOORWAY_WALL_IN = 96;
+  const longestSide = (it) => Math.max(num(it && it.w), num(it && it.h), num(it && it.d));
+  const mirrorFace = (it) => Math.max(num(it && it.w), num(it && it.h));
+  const largeFurnitureClass = (it) => !!(it && it.type === 'furniture' && /^(large|heavy)$/i.test(String(it.sizeClass || '')));
+  function isPathAccessPiece(it) {
     if (!it) return false;
-    if (num(it.weight) > HEAVY_LB) return true;
-    if (Math.max(num(it.w), num(it.h), num(it.d)) > LONG_IN) return true;
-    if (it.type === 'furniture' && (it.sizeClass === 'large' || BIG_FURNITURE.test(String(it.furnitureKind || '')))) return true;
+    const t = pieceType(it);
+    if (it.type === 'sculpture' || it.type === 'other') return num(it.weight) >= SCULPTURE_PATH_LB;
+    if (it.type === 'furniture') return PATH_FURNITURE.test(String(it.furnitureKind || '')) || largeFurnitureClass(it);
+    if (t === 'mirror') return mirrorFace(it) >= MIRROR_LARGE_FACE_IN || num(it.weight) > HEAVY_LB;
+    if (['painting', 'photograph', 'wallart'].includes(it.type) || it.type === 'decor') return longestSide(it) > LONG_IN;
+    return longestSide(it) > LONG_IN || num(it.weight) >= SCULPTURE_PATH_LB;
+  }
+  function isDoorwayAccessPiece(it) {
+    if (!it) return false;
+    const t = pieceType(it);
+    if (it.type === 'sculpture') return num(it.weight) >= SCULPTURE_PATH_LB;
+    if (it.type === 'furniture') return DOORWAY_FURNITURE.test(String(it.furnitureKind || ''));
+    if (['painting', 'photograph', 'wallart'].includes(it.type) || t === 'mirror' || it.type === 'decor') return longestSide(it) >= DOORWAY_WALL_IN;
+    if (it.type === 'other') return num(it.weight) >= SCULPTURE_PATH_LB || longestSide(it) >= DOORWAY_WALL_IN;
     return false;
   }
+  // isBigPiece / firm: same as the path/stairs gate (heavy or big). Kept as aliases for older callers.
+  function isBigPiece(it) { return isPathAccessPiece(it); }
   const firm = (items) => (Array.isArray(items) ? items : []).some(isBigPiece);
+  const asksPathAccess = (items) => (Array.isArray(items) ? items : []).some(isPathAccessPiece);
+  const asksDoorwayAccess = (items) => (Array.isArray(items) ? items : []).some(isDoorwayAccessPiece);
 
   // Stairs questions (flights, up/down, tight turns) apply to "Stairs", and to "Elevator" with stairs on the way.
   const usesStairs = (a) => !!a && (a.accessMode === 'stairs' || (a.accessMode === 'elevator' && a.elevatorStairs === 'stairs'));
@@ -128,14 +172,16 @@
   // Photos are optional unless (Chad, Nov 23 2026): stairs plus a tight fit, or a rough/outdoor path with a big or heavy piece.
   // (A stairwell install's photos are asked on the hanging screen.)
   const stairPhotosNeeded = (a) => usesStairs(a) && a.fits === 'tight';
-  const sitePhotosNeeded = (a, items) => roughPath(a) && firm(items);
+  const sitePhotosNeeded = (a, items) => roughPath(a) && asksPathAccess(items);
   const doorPhotosNeeded = () => false;
 
   // What is still unanswered at one stop. Codes double as field names.
   function gaps(a, items) {
     const out = [];
     if (!a) return out;
-    const big = firm(items);
+    // Small / normal pieces skip the path questions; missing access is treated as no stairs.
+    if (!asksPathAccess(items)) return out;
+    const needFit = asksDoorwayAccess(items) && a.stdDoorway === 'no';
     if (!MODE_KEYS.includes(a.accessMode)) { out.push('accessMode'); return out; }
     if (a.accessMode === 'elevator') {
       if (!ELEV_TYPES.some(([k]) => k === a.elevatorType)) out.push('elevatorType');
@@ -146,7 +192,7 @@
       if (!has(a.stairFlights)) out.push('stairFlights');
       else if (String(a.stairFlights) === '4plus' && !wholeFlights(a.stairs)) out.push('stairs');
     }
-    if (big && !has(a.fits)) out.push('fits');
+    if (needFit && !has(a.fits)) out.push('fits');
     if (stairPhotosNeeded(a) && !(a.stairPhotos || []).length) out.push('stairPhotos');
     if (sitePhotosNeeded(a, items) && !(a.sitePhotos || []).length) out.push('sitePhotos');
     return out;
@@ -219,5 +265,5 @@
   const TIME_PREFS = [['none', 'No preference'], ['morning', 'Morning'], ['late_morning', 'Late morning'], ['midday', 'Midday'], ['early_afternoon', 'Early afternoon'], ['afternoon', 'Afternoon'], ['late_afternoon', 'Late afternoon'], ['early_evening', 'Early evening'], ['evening', 'Evening'], ['late_evening', 'Late evening']];
   const timePrefList = (v) => String(v == null ? '' : v).split(',').map((x) => x.trim()).filter((x) => x && x !== 'none' && TIME_PREFS.some(([k]) => k === x));
   const timePrefText = (v) => timePrefList(v).map((k) => TIME_PREFS.find(([x]) => x === k)[1]).join(', ');
-  return { TIME_PREFS, timePrefList, timePrefText, FLIGHT_COUNTS, ELEV_TYPES, ELEV_FIT, PATH_TYPES, roughPath, ACK_TEXT, sitePhotosNeeded, MODES, FLIGHTS, DIRS, YNS, DOORWAYS, FITS, ELEV_STAIRS, ELEV_STEPS, MODE_KEYS, REVIEW_NOTE, PRICE_NOTE, WEIGHT_NOTE, WEIGHT_HINT, WEIGHT_DISPATCH_FLAG, WEIGHT_FEE_TYPES, pieceType, weightFeeType, weightUnconfirmed, needsWeightHint, TBC_TOTAL, TBC_DUE, wholeFlights, HEAVY_LB, LONG_IN, isBigPiece, firm, normalize, gaps, summary, stairPhotosNeeded, doorPhotosNeeded, usesStairs, fitUnsure, needsReview, plural };
+  return { TIME_PREFS, timePrefList, timePrefText, FLIGHT_COUNTS, ELEV_TYPES, ELEV_FIT, PATH_TYPES, roughPath, ACK_TEXT, sitePhotosNeeded, MODES, FLIGHTS, DIRS, YNS, DOORWAYS, FITS, ELEV_STAIRS, ELEV_STEPS, MODE_KEYS, REVIEW_NOTE, PRICE_NOTE, WEIGHT_NOTE, WEIGHT_HINT, WEIGHT_DISPATCH_FLAG, WEIGHT_FEE_TYPES, pieceType, weightFeeType, weightUnconfirmed, needsWeightHint, TBC_TOTAL, TBC_DUE, wholeFlights, HEAVY_LB, LONG_IN, MIRROR_LARGE_FACE_IN, SCULPTURE_PATH_LB, DOORWAY_WALL_IN, isPathAccessPiece, isDoorwayAccessPiece, asksPathAccess, asksDoorwayAccess, isBigPiece, firm, normalize, gaps, summary, stairPhotosNeeded, doorPhotosNeeded, usesStairs, fitUnsure, needsReview, plural };
 });
