@@ -4,7 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const config = require('./config');
-const { quote, isOutOfState, applyApprovedPrice, protectionLabel, SERVICES, OFFERED_SERVICES, displayFrom, FURNITURE_KINDS, DECOR_KINDS, needsStairwellFit, numVal } = require('./lib/pricing');
+const { quote, isOutOfState, applyApprovedPrice, protectionLabel, SERVICES, OFFERED_SERVICES, displayFrom, FURNITURE_KINDS, DECOR_KINDS, needsStairwellFit, numVal, installUpsell } = require('./lib/pricing');
 const sched = require('./lib/scheduling');
 const GEO = require('./lib/geo');
 // A US address in California (state CA or a California ZIP). Unknown or blank addresses are never treated as California.
@@ -150,7 +150,12 @@ app.get('/api/config', (_, res) => res.json({
   stripe: !!stripe, livemode: false, stripeTestMode: !!stripe && key.startsWith('sk_test_'), testMode: !stripe && TEST_MODE, notice: config.pricing.exampleRatesNotice,
 }));
 app.post('/api/upload', upload.array('photos', 10), (req, res) => res.json({ files: (req.files || []).map((f) => `/uploads/${f.filename}`) }));
-app.post('/api/quote', (req, res) => res.json(quote(req.body)));
+app.post('/api/quote', (req, res) => {
+  const q = quote(req.body);
+  const u = installUpsell(req.body);
+  if (u && u.show) q.installUpsell = { amount: u.amount };
+  res.json(q);
+});
 // The public site has no member rate any more (Chad, Nov 19 2026), so there is no member-code endpoint, and any member flag or code
 // sent with an order is ignored by the pricing engine. Discount codes are checked here, on the server only.
 const discountTries = new Map(); // ip -> recent misses (guessing guard: 12 wrong codes per 10 minutes)
