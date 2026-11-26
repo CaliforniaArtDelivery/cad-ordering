@@ -432,7 +432,7 @@ function renderDays() {
         ${dedBox('pickup')}
       </div>
       <div class="date-col" data-col="del">${head('Delivery', S.deliveryDate, 'del')}
-        ${dedOn('delivery') ? '' : `${S.deDays.length ? `${cityPill(S.f.dCity)}<div class="days col-days">${deList.map((x, i) => pairCard(x, 'de', delState(x), i)).join('')}</div>${dayCtl(S.deDays, S.deliveryDate, 'de')}` : (zipOk ? '<p class="mini no-route" data-noroute><b>No confirmed route dates for this address.</b> Select a dedicated trip below, or request a custom date once the trip is on.</p>' : '<p class="mini">Available delivery days appear after the delivery ZIP is entered.</p>')}`}
+        ${dedOn('delivery') ? '' : `${S.deDays.length ? `${cityPill(d.city)}<div class="days col-days">${deList.map((x, i) => pairCard(x, 'de', delState(x), i)).join('')}</div>${dayCtl(S.deDays, S.deliveryDate, 'de')}` : (zipOk ? '<p class="mini no-route" data-noroute><b>No confirmed route dates for this address.</b> Select a dedicated trip below, or request a custom date once the trip is on.</p>' : '<p class="mini">Available delivery days appear after the delivery ZIP is entered.</p>')}`}
         ${dedBox('delivery')}
       </div>
     </div>`;
