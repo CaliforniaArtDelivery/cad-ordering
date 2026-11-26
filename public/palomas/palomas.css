@@ -225,6 +225,7 @@ html{scroll-padding-bottom:96px;scroll-padding-top:12px}
   background:linear-gradient(90deg,#16325f 0%,#3264AE 58%,#7eafeb 90%,#e8f2ff 100%);
   box-shadow:0 0 6px 1px rgba(50,100,174,.35),0 0 12px 3px rgba(50,100,174,.2);
   animation:cadBeamGlow 5.6s ease-in-out infinite}
+.pbar .beam-clip{position:absolute;inset:0;overflow:hidden;border-radius:inherit;pointer-events:none}
 .pbar .beam-pulse{position:absolute;top:50%;left:0;width:min(48px,55cqi);height:8px;border-radius:999px;pointer-events:none;
   background:linear-gradient(90deg,transparent 0%,rgba(255,255,255,.18) 28%,rgba(255,255,255,.95) 50%,rgba(180,214,255,.7) 62%,transparent 100%);
   transform:translate(-120%,-50%);animation:cadBeamPulse 5.6s ease-in-out infinite;will-change:transform,opacity}
