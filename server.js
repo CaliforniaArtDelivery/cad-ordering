@@ -208,8 +208,8 @@ app.post('/api/availability', async (req, res) => {
   const badAddr = badAddresses(o, svc);
   if (badAddr.length) return res.status(400).json({ error: 'Please check the ' + badAddr.join(' and ') + ' address: a street number, a city and a 5-digit ZIP code are required. No route was assigned.', invalid: badAddr, days: [], rush: [] });
   const conflicts = [];
-  if (svc.needsPickup && sched.routeConflict(o.pickup)) conflicts.push({ where: 'pickup', ...sched.routeConflict(o.pickup) });
-  if (svc.needsDropoff && sched.routeConflict(o.dropoff)) conflicts.push({ where: 'dropoff', ...sched.routeConflict(o.dropoff) });
+  if (svc.needsPickup && sched.routeConflict(o.pickup)) conflicts.push({ where: 'pickup', ...sched.routeConflict(o.pickup, 'pickup') });
+  if (svc.needsDropoff && sched.routeConflict(o.dropoff)) conflicts.push({ where: 'dropoff', ...sched.routeConflict(o.dropoff, svc.needsPickup ? 'delivery' : null) });
   if (conflicts.length) return res.status(400).json({ error: conflicts[0].message, invalid: conflicts.map((c) => c.where), conflict: true, days: [], rush: [], requestQuote: true, prompt: 'Request a quote' });
   const verify = await require('./lib/address-verify').verifyLegs(o.pickup, o.dropoff, !!svc.needsPickup, { skipGeocode: process.env.SKIP_GEOCODE === '1' });
   const quoteBy = require('./lib/business-days').quoteReplyBy();
@@ -291,7 +291,11 @@ function holdSlots(order, link) {
   if (!(svc.needsPickup ? ds.pickup : ds.delivery)) add(order.schedule.date);
   if (svc.needsPickup && svc.needsDropoff && !ds.delivery) add(order.schedule.deliveryDate || order.schedule.date);
   if (!Object.keys(need).length) return { ok: true };
-  return require('./lib/holds').reserve(order.id, need, (iso, heldOthers) => require('./lib/sheet-days').capacityLeft(iso, heldOthers), { link });
+  // En-route East Bay stops (Chad t2096u) also take one of that date's en-route slots; checked in the same atomic reserve.
+  const enNeed = {}, enRule = {};
+  for (const [iso, addr] of sched.orderLegs(order)) { const r = sched.isEnRouteStop(addr, iso); if (r) { enNeed[iso] = (enNeed[iso] || 0) + 1; enRule[iso] = r; } }
+  const tags = Object.keys(enNeed).length ? { enroute: { need: enNeed, remainingFor: (iso) => sched.enRouteLeft(iso, order.id, enRule[iso]) } } : null;
+  return require('./lib/holds').reserve(order.id, need, (iso, heldOthers) => require('./lib/sheet-days').capacityLeft(iso, heldOthers), { link, tags });
 }
 
 const RULES = require('./lib/date-guard-rules');
@@ -315,8 +319,8 @@ function addressErrors(a, where) {
   const word = { street: 'a street number in the street address', city: 'a valid city', zip: 'a valid 5-digit ZIP code', state: 'a state that matches the ZIP code' };
   const say = (p) => (p.field === 'zip' && /California/.test(p.message) ? 'a ZIP code that matches the state' : word[p.field]);
   const out = VALID.addressProblems(a).filter((p) => !(p.field === 'street' && !String((a || {}).street || '').trim())).map((p) => `${where} ${say(p)}`);
-  const conflict = sched.routeConflict(a);
-  if (conflict) out.push(`${where}: ${conflict.message}`);
+  const conflict = sched.routeConflict(a, /pickup/i.test(where) ? 'pickup' : /deliver|drop/i.test(where) ? 'delivery' : null);
+  if (conflict) out.push(conflict.message);
   return out;
 }
 // An address that fails the checks never gets a route or dates (Samantha, Nov 19: 123456 as a ZIP still returned a route).
@@ -470,19 +474,19 @@ function scheduleErrors(o) {
   const dd0 = String((o.schedule && o.schedule.deliveryDate) || '');
   if (firstDed || (svc.needsPickup && svc.needsDropoff && DS.delivery)) {
     if (firstDed) { const p = DEDICATED.dateProblem(d, new Date(), addr); if (p) errs.push(`${svc.needsPickup ? 'pickup' : 'install'} date: ${p}`); }
-    else if (!sched.availableDays(addr, { order: o, count: 400 }).some((x) => x.date === d)) errs.push('an available route day for that address (please go back and pick a date from the list)');
+    else if (!sched.availableDays(addr, { order: o, count: 400, quickStops: 'all' }).some((x) => x.date === d)) errs.push('an available route day for that address (please go back and pick a date from the list)');
     if (svc.needsPickup && svc.needsDropoff && dd0) {
       if (dd0 < d) errs.push('a delivery date on or after the pickup date');
       else if (DS.delivery) { const p = DEDICATED.dateProblem(dd0, new Date(), o.dropoff); if (p) errs.push(`delivery date: ${p}`); }
-      else if (!sched.availableDays(o.dropoff, { from: new Date(d + 'T12:00:00Z'), leadTime: 0, order: o, count: 400 }).some((x) => x.date === dd0))
+      else if (!sched.availableDays(o.dropoff, { from: new Date(d + 'T12:00:00Z'), leadTime: 0, order: o, count: 400, quickStops: 'all' }).some((x) => x.date === dd0))
         errs.push('an available delivery route day on or after the pickup date');
     }
     if (!errs.length) errs.push(...require('./lib/route-windows').selectionErrors(o, SERVICES));
     return errs;
   }
   const ok = o.rush
-    ? sched.rushDays(addr, new Date(), 7, o).some((x) => x.date === d) || sched.availableDays(addr, { order: o, count: 400 }).some((x) => x.date === d)
-    : sched.availableDays(addr, { order: o, count: 400 }).some((x) => x.date === d);
+    ? sched.rushDays(addr, new Date(), 7, o).some((x) => x.date === d) || sched.availableDays(addr, { order: o, count: 400, quickStops: 'all' }).some((x) => x.date === d)
+    : sched.availableDays(addr, { order: o, count: 400, quickStops: 'all' }).some((x) => x.date === d);
   if (!ok) {
     const why = require('./lib/sheet-days').reason(d, sched.zoneFor(addr), 1) || '';
     errs.push(/^full/.test(why) ? 'FULL: that date just filled up' : 'an available route day for that address (please go back and pick a date from the list)');
@@ -490,7 +494,7 @@ function scheduleErrors(o) {
   const dd = String((o.schedule && o.schedule.deliveryDate) || '');
   if (ok && svc.needsPickup && svc.needsDropoff && dd) {
     if (blackout.includes(dd)) errs.push('another delivery date (we don’t run routes on that holiday)');
-    else if (!sched.canPairPickupDelivery(d, o.pickup, o.dropoff, o) || !sched.availableDeliveryDays(o.dropoff, o.pickup, d, o, 400).some((x) => x.date === dd))
+    else if (!sched.canPairPickupDelivery(d, o.pickup, o.dropoff, o) || !sched.availableDeliveryDays(o.dropoff, o.pickup, d, o, 400, { quickStops: 'all' }).some((x) => x.date === dd))
       errs.push('a delivery day that matches the pickup route (the van can’t pick up after it has already served the delivery area that week)');
   }
   // Route-aware time windows: the chosen windows must still fit the day's planned route (re-checked at submit and again at pay).
@@ -899,7 +903,7 @@ app.post('/api/palomas/availability', (req, res) => {
   const o = PAL.engineOrder(b, { member: true });
   const zip = String(o.dropoff.zip || '');
   if (!/^\d{5}/.test(zip)) return res.json({ days: [] });
-  const conflict = sched.routeConflict(o.dropoff) || sched.routeConflict(o.pickup);
+  const conflict = sched.routeConflict(o.dropoff, 'delivery') || sched.routeConflict(o.pickup, 'pickup');
   if (conflict) return res.status(400).json({ error: conflict.message, conflict: true, days: [] });
   const dateOk = /^\d{4}-\d{2}-\d{2}$/.test(String(b.pickupDate || ''));
   const COUNT = 14; // next 14 available days; "Later date" asks for days from a chosen date (same scheduling rules)
@@ -907,10 +911,10 @@ app.post('/api/palomas/availability', (req, res) => {
   const dedicatedBlocked = { pickup: DEDICATED.blockedFor(o.pickup), delivery: DEDICATED.blockedFor(o.dropoff) };
   if (b.leg === 'dropoff' && dateOk) {
     const start = laterOk && b.from > b.pickupDate ? b.from : b.pickupDate;
-    return res.json({ days: sched.availableDeliveryDays(o.dropoff, o.pickup, start, o, COUNT), dedicatedBlocked });
+    return res.json({ days: sched.availableDeliveryDays(o.dropoff, o.pickup, start, o, COUNT, laterOk ? { quickStops: 'all' } : {}), dedicatedBlocked });
   }
   const earliest = sched.availablePickupDays(o.pickup, o.dropoff, { order: o, count: COUNT });
-  if (laterOk && earliest.length && b.from > earliest[0].date) return res.json({ days: sched.availablePickupDays(o.pickup, o.dropoff, { from: new Date(b.from + 'T12:00:00Z'), count: COUNT, order: o, leadTime: 0 }), earliest: earliest[0].date, dedicatedBlocked });
+  if (laterOk && earliest.length && b.from > earliest[0].date) return res.json({ days: sched.availablePickupDays(o.pickup, o.dropoff, { from: new Date(b.from + 'T12:00:00Z'), count: COUNT, order: o, leadTime: 0, quickStops: 'all' }), earliest: earliest[0].date, dedicatedBlocked });
   res.json({ days: earliest, earliest: (earliest[0] || {}).date, dedicatedBlocked });
 });
 app.post('/api/palomas/orders', (req, res) => {

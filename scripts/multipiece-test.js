@@ -4,6 +4,10 @@
  *   SHOTS=/path   screenshots of the key screens (default /workspace/multipiece_shots)
  *   ONLY=api|ui   run one half
  */
+// Route dates come only from the CAD SCHEDULE digest; this older test runs against the stand-in built from the weekly catalog (never production).
+if (!process.env.SHEET_DAYS_FIXTURE) process.env.SHEET_DAYS_FIXTURE = 'catalog';
+// Many orders land on one route date here; the 8-job daily cap is covered by its own tests.
+if (!process.env.DAILY_JOB_CAP) process.env.DAILY_JOB_CAP = '500';
 const { spawn } = require('child_process');
 const fs = require('fs');
 const os = require('os');

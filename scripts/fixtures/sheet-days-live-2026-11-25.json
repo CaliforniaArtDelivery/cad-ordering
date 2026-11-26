@@ -1,0 +1,686 @@
+{
+ "source": "SCHEDULE 2026 (live sheet 1E4PDjudgBIXnuOtvHO-Ywc4Fp-Gxiy5qr6yGI_4fXhg), rows 1300-1431 read 2026-11-25 23:20 PT, digested like apps-script/Code.gs handleDays_ (column L not read); name-only admin cells removed",
+ "days": {
+  "2026-11-20": {
+   "routes": [
+    "San Jose \u2192 East Bay \u2192 Napa \u2192 SF/Silicon Valley (late & if quick) \u2192 San Jose"
+   ],
+   "jobRows": 2,
+   "off": false,
+   "offWhy": "",
+   "stops": [
+    {
+     "town": "St. Helena",
+     "type": "PU",
+     "win": "12:30PM-1PM",
+     "at": ""
+    },
+    {
+     "town": "Piedmont",
+     "type": "DEL + INST",
+     "win": "2:30PM-3:30PM",
+     "at": ""
+    }
+   ]
+  },
+  "2026-11-21": {
+   "routes": [
+    "Watsonville",
+    "Carmel",
+    "Salinas"
+   ],
+   "jobRows": 5,
+   "off": false,
+   "offWhy": "",
+   "stops": [
+    {
+     "town": "Watsonville",
+     "type": "PU",
+     "win": "1PM-2PM",
+     "at": ""
+    },
+    {
+     "town": "Carmel",
+     "type": "PU",
+     "win": "3PM-3:30PM",
+     "at": ""
+    },
+    {
+     "town": "Salinas",
+     "type": "PU",
+     "win": "5PM-7PM",
+     "at": ""
+    },
+    {
+     "town": "Salinas",
+     "type": "PU",
+     "win": "5PM-7PM",
+     "at": ""
+    },
+    {
+     "town": "Salinas",
+     "type": "PU",
+     "win": "5PM-7PM",
+     "at": ""
+    }
+   ]
+  },
+  "2026-11-22": {
+   "routes": [
+    "Ojai",
+    "Los Angeles",
+    "Palos Verdes"
+   ],
+   "jobRows": 3,
+   "off": false,
+   "offWhy": "",
+   "stops": [
+    {
+     "town": "Ojai",
+     "type": "DEL",
+     "win": "12PM-1PM",
+     "at": ""
+    },
+    {
+     "town": "Los Angeles",
+     "type": "DEL",
+     "win": "5PM-5:30PM",
+     "at": ""
+    },
+    {
+     "town": "Palos Verdes",
+     "type": "PU",
+     "win": "7PM-8PM",
+     "at": ""
+    }
+   ]
+  },
+  "2026-11-23": {
+   "routes": [
+    "Irvine",
+    "Newport Beach",
+    "Palm Springs"
+   ],
+   "jobRows": 6,
+   "off": false,
+   "offWhy": "",
+   "stops": [
+    {
+     "town": "Irvine",
+     "type": "DEL",
+     "win": "8:30-9AM",
+     "at": ""
+    },
+    {
+     "town": "Newport Beach",
+     "type": "DEL",
+     "win": "9:30-10AM",
+     "at": ""
+    },
+    {
+     "town": "Palm Springs",
+     "type": "DEL",
+     "win": "3PM-3:30PM",
+     "at": ""
+    },
+    {
+     "town": "Palm Springs",
+     "type": "DEL",
+     "win": "4PM-4:30PM",
+     "at": ""
+    },
+    {
+     "town": "Palm Springs",
+     "type": "PU",
+     "win": "4PM-4:30PM",
+     "at": ""
+    },
+    {
+     "town": "Indio",
+     "type": "DEL",
+     "win": "6PM-7PM",
+     "at": ""
+    }
+   ]
+  },
+  "2026-11-24": {
+   "routes": [
+    "San Diego"
+   ],
+   "jobRows": 7,
+   "off": false,
+   "offWhy": "",
+   "stops": [
+    {
+     "town": "Lakeside",
+     "type": "DEL",
+     "win": "10AM-10:30AM",
+     "at": ""
+    },
+    {
+     "town": "San Diego",
+     "type": "DEL",
+     "win": "12PM-1PM",
+     "at": ""
+    },
+    {
+     "town": "San Diego",
+     "type": "PU",
+     "win": "12PM-1PM",
+     "at": ""
+    },
+    {
+     "town": "San Diego",
+     "type": "PU",
+     "win": "12PM-1PM",
+     "at": ""
+    },
+    {
+     "town": "Carlsbad",
+     "type": "DEL",
+     "win": "1:30PM-2:30PM",
+     "at": ""
+    },
+    {
+     "town": "Oceanside",
+     "type": "DEL",
+     "win": "3PM-4PM",
+     "at": ""
+    },
+    {
+     "town": "San Clemente",
+     "type": "DEL",
+     "win": "5PM-6PM",
+     "at": ""
+    }
+   ]
+  },
+  "2026-11-25": {
+   "routes": [
+    "Max drives North (LA/Central Valley stops along the way)"
+   ],
+   "jobRows": 5,
+   "off": false,
+   "offWhy": "",
+   "stops": [
+    {
+     "town": "Los Angeles",
+     "type": "PU",
+     "win": "10AM-10:30AM",
+     "at": ""
+    },
+    {
+     "town": "Santa Barbara",
+     "type": "PU",
+     "win": "",
+     "at": ""
+    },
+    {
+     "town": "Santa Barbara",
+     "type": "INST ONLY",
+     "win": "2PM-2:30PM",
+     "at": ""
+    },
+    {
+     "town": "Santa Barbara",
+     "type": "DEL + INST",
+     "win": "2PM-2:30PM",
+     "at": ""
+    },
+    {
+     "town": "Buellton",
+     "type": "DEL",
+     "win": "6:30PM-7PM",
+     "at": ""
+    }
+   ]
+  },
+  "2026-11-26": {
+   "routes": [],
+   "jobRows": 0,
+   "off": false,
+   "offWhy": "",
+   "stops": []
+  },
+  "2026-11-27": {
+   "routes": [],
+   "jobRows": 0,
+   "off": false,
+   "offWhy": "",
+   "stops": []
+  },
+  "2026-11-28": {
+   "routes": [],
+   "jobRows": 0,
+   "off": false,
+   "offWhy": "",
+   "stops": []
+  },
+  "2026-11-29": {
+   "routes": [],
+   "jobRows": 0,
+   "off": false,
+   "offWhy": "",
+   "stops": []
+  },
+  "2026-11-30": {
+   "routes": [],
+   "jobRows": 0,
+   "off": false,
+   "offWhy": "",
+   "stops": []
+  },
+  "2026-12-01": {
+   "routes": [
+    "Carmel",
+    "Salinas"
+   ],
+   "jobRows": 4,
+   "off": false,
+   "offWhy": "",
+   "stops": [
+    {
+     "town": "Carmel",
+     "type": "DEL",
+     "win": "12:30PM-2:30PM",
+     "at": ""
+    },
+    {
+     "town": "Salinas",
+     "type": "PU",
+     "win": "11AM-1PM",
+     "at": ""
+    }
+   ]
+  },
+  "2026-12-02": {
+   "routes": [
+    "Silicon Valley \u2192 SF \u2192 Marin \u2192 Healdsburg \u2192 San Jose"
+   ],
+   "jobRows": 4,
+   "off": false,
+   "offWhy": "",
+   "stops": [
+    {
+     "town": "San Francisco",
+     "type": "PU",
+     "win": "11AM-1PM",
+     "at": ""
+    },
+    {
+     "town": "San Francisco",
+     "type": "PU",
+     "win": "11AM-1PM",
+     "at": ""
+    },
+    {
+     "town": "Belmont",
+     "type": "DEL",
+     "win": "1PM-3PM",
+     "at": ""
+    },
+    {
+     "town": "San Francisco",
+     "type": "PU",
+     "win": "",
+     "at": ""
+    }
+   ]
+  },
+  "2026-12-03": {
+   "routes": [
+    "Sacramento & surrounding areas (priority) \u2014 East Bay only if quick / en route"
+   ],
+   "jobRows": 1,
+   "off": false,
+   "offWhy": "",
+   "stops": []
+  },
+  "2026-12-04": {
+   "routes": [
+    "San Jose \u2192 East Bay \u2192 Napa \u2192 SF/Silicon Valley (late & if quick) \u2192 San Jose"
+   ],
+   "jobRows": 4,
+   "off": false,
+   "offWhy": "",
+   "stops": [
+    {
+     "town": "Oakland",
+     "type": "DEL",
+     "win": "11:30AM-1:30PM",
+     "at": ""
+    },
+    {
+     "town": "St. Helena",
+     "type": "DEL",
+     "win": "3PM-5PM",
+     "at": ""
+    },
+    {
+     "town": "Danville",
+     "type": "DEL",
+     "win": "10AM-12PM",
+     "at": ""
+    },
+    {
+     "town": "Napa",
+     "type": "INST ONLY",
+     "win": "1:30PM-3:30PM",
+     "at": ""
+    }
+   ]
+  },
+  "2026-12-05": {
+   "routes": [
+    "Watsonville",
+    "Carmel",
+    "Salinas"
+   ],
+   "jobRows": 4,
+   "off": false,
+   "offWhy": "",
+   "stops": [
+    {
+     "town": "Watsonville",
+     "type": "PU",
+     "win": "",
+     "at": ""
+    },
+    {
+     "town": "Carmel",
+     "type": "PU",
+     "win": "",
+     "at": ""
+    },
+    {
+     "town": "Salinas",
+     "type": "PU",
+     "win": "",
+     "at": ""
+    }
+   ]
+  },
+  "2026-12-06": {
+   "routes": [
+    "Central California: SLO/Pismo Beach \u2192 Santa Barbara OR Fresno \u2192 Santa Barbara"
+   ],
+   "jobRows": 0,
+   "off": false,
+   "offWhy": "",
+   "stops": []
+  },
+  "2026-12-07": {
+   "routes": [
+    "Los Angeles"
+   ],
+   "jobRows": 3,
+   "off": false,
+   "offWhy": "",
+   "stops": [
+    {
+     "town": "Alta Dena",
+     "type": "DEL + INST",
+     "win": "",
+     "at": ""
+    },
+    {
+     "town": "Alta Dena",
+     "type": "INST ONLY",
+     "win": "",
+     "at": ""
+    },
+    {
+     "town": "Culver City",
+     "type": "DEL + INST",
+     "win": "",
+     "at": ""
+    }
+   ]
+  },
+  "2026-12-08": {
+   "routes": [
+    "Coachella Valley"
+   ],
+   "jobRows": 0,
+   "off": false,
+   "offWhy": "",
+   "stops": []
+  },
+  "2026-12-09": {
+   "routes": [
+    "San Diego County"
+   ],
+   "jobRows": 3,
+   "off": false,
+   "offWhy": "",
+   "stops": [
+    {
+     "town": "Coronado",
+     "type": "DEL + INST",
+     "win": "",
+     "at": ""
+    }
+   ]
+  },
+  "2026-12-10": {
+   "routes": [
+    "Orange County"
+   ],
+   "jobRows": 6,
+   "off": false,
+   "offWhy": "",
+   "stops": [
+    {
+     "town": "Menifee",
+     "type": "DEL",
+     "win": "",
+     "at": ""
+    },
+    {
+     "town": "Newport Beach",
+     "type": "DEL",
+     "win": "",
+     "at": ""
+    },
+    {
+     "town": "Newport Beach",
+     "type": "INST ONLY",
+     "win": "",
+     "at": ""
+    },
+    {
+     "town": "Newport",
+     "type": "DE-INST / PU",
+     "win": "",
+     "at": ""
+    }
+   ]
+  },
+  "2026-12-11": {
+   "routes": [
+    "Off day/OC overflow day if needed/farther out only if big job"
+   ],
+   "jobRows": 0,
+   "off": true,
+   "offWhy": "Off day/OC overflow day if needed/farther out only if big job",
+   "stops": []
+  },
+  "2026-12-12": {
+   "routes": [
+    "Off day/OC overflow day if needed/farther out only if big job"
+   ],
+   "jobRows": 0,
+   "off": true,
+   "offWhy": "Off day/OC overflow day if needed/farther out only if big job",
+   "stops": []
+  },
+  "2026-12-13": {
+   "routes": [
+    "Off day/OC overflow day if needed/farther out only if big job"
+   ],
+   "jobRows": 0,
+   "off": true,
+   "offWhy": "Off day/OC overflow day if needed/farther out only if big job",
+   "stops": []
+  },
+  "2026-12-14": {
+   "routes": [
+    "LA (all day)/SB (late afternoon/evening) stay night bet Central & Carmel"
+   ],
+   "jobRows": 2,
+   "off": false,
+   "offWhy": "",
+   "stops": [
+    {
+     "town": "Los Angeles",
+     "type": "PU",
+     "win": "",
+     "at": ""
+    },
+    {
+     "town": "Porter Ranch",
+     "type": "DEL",
+     "win": "",
+     "at": ""
+    }
+   ]
+  },
+  "2026-12-15": {
+   "routes": [
+    "Speaker Guest",
+    "Carmel"
+   ],
+   "jobRows": 0,
+   "off": false,
+   "offWhy": "",
+   "stops": []
+  },
+  "2026-12-16": {
+   "routes": [
+    "Silicon Valley \u2192 SF \u2192 Marin \u2192 Healdsburg \u2192 San Jose"
+   ],
+   "jobRows": 0,
+   "off": false,
+   "offWhy": "",
+   "stops": []
+  },
+  "2026-12-17": {
+   "routes": [
+    "Sacramento & surrounding areas (priority) \u2014 East Bay only if quick / en route"
+   ],
+   "jobRows": 0,
+   "off": false,
+   "offWhy": "",
+   "stops": []
+  },
+  "2026-12-18": {
+   "routes": [
+    "San Jose \u2192 East Bay \u2192 Napa \u2192 SF/Silicon Valley (late & if quick) \u2192 San Jose"
+   ],
+   "jobRows": 1,
+   "off": false,
+   "offWhy": "",
+   "stops": [
+    {
+     "town": "San Francisco",
+     "type": "DEL + INST",
+     "win": "",
+     "at": ""
+    }
+   ]
+  },
+  "2026-12-19": {
+   "routes": [
+    "Carmel \u2192 stay the night in Central California or Santa Barbara \u2192 Central California"
+   ],
+   "jobRows": 0,
+   "off": false,
+   "offWhy": "",
+   "stops": []
+  },
+  "2026-12-21": {
+   "routes": [],
+   "jobRows": 0,
+   "off": false,
+   "offWhy": "",
+   "stops": []
+  },
+  "2026-12-22": {
+   "routes": [],
+   "jobRows": 0,
+   "off": false,
+   "offWhy": "",
+   "stops": []
+  },
+  "2026-12-23": {
+   "routes": [],
+   "jobRows": 0,
+   "off": false,
+   "offWhy": "",
+   "stops": []
+  },
+  "2026-12-24": {
+   "routes": [],
+   "jobRows": 0,
+   "off": false,
+   "offWhy": "",
+   "stops": []
+  },
+  "2026-12-25": {
+   "routes": [],
+   "jobRows": 0,
+   "off": false,
+   "offWhy": "",
+   "stops": []
+  },
+  "2026-12-26": {
+   "routes": [],
+   "jobRows": 0,
+   "off": false,
+   "offWhy": "",
+   "stops": []
+  },
+  "2026-12-27": {
+   "routes": [],
+   "jobRows": 0,
+   "off": false,
+   "offWhy": "",
+   "stops": []
+  },
+  "2026-12-28": {
+   "routes": [],
+   "jobRows": 0,
+   "off": false,
+   "offWhy": "",
+   "stops": []
+  },
+  "2026-12-29": {
+   "routes": [],
+   "jobRows": 0,
+   "off": false,
+   "offWhy": "",
+   "stops": []
+  },
+  "2026-12-30": {
+   "routes": [],
+   "jobRows": 0,
+   "off": false,
+   "offWhy": "",
+   "stops": []
+  },
+  "2026-12-31": {
+   "routes": [],
+   "jobRows": 0,
+   "off": false,
+   "offWhy": "",
+   "stops": []
+  },
+  "2027-01-01": {
+   "routes": [],
+   "jobRows": 0,
+   "off": false,
+   "offWhy": "",
+   "stops": []
+  }
+ }
+}

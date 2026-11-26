@@ -3,6 +3,9 @@
  * order/sheet parity with an up-front install, and a 390px + desktop UI walk-through.
  *   node scripts/install-upsell-test.js
  */
+// Route dates come only from the CAD SCHEDULE digest; this test runs against the stand-in built from the weekly catalog (never production).
+if (!process.env.SHEET_DAYS_FIXTURE) process.env.SHEET_DAYS_FIXTURE = 'catalog';
+if (!process.env.DAILY_JOB_CAP) process.env.DAILY_JOB_CAP = '500';
 const { spawn } = require('child_process');
 const fs = require('fs');
 const os = require('os');
@@ -496,15 +499,16 @@ ok(JSON.stringify(palRowsOff).includes('DEL') && !JSON.stringify(palRowsOff).inc
         ok(after.hasOffer && !after.hasAdded, 'Remove brings the offer card back and drops Installation added', after);
         ok(after.name === 'Jordan Lee' && after.items === 1, 'Remove does not lose the rest of the order', after);
 
-        // Friday Dec 4 is rejected
-        await openOn(page, stateOf('pickup_delivery', [art()], { schedule: { date: '2026-12-02', deliveryDate: '2026-12-04' } }));
+        // A delivery that is only a stop on the way is rejected: Los Gatos on the Saturday Carmel run (an offered date, but no install time).
+        // (SF on Friday Dec 4 is no longer an offered date at all, so the browser can't hold it; the server check above still rejects it.)
+        await openOn(page, stateOf('pickup_delivery', [art()], { dropoff: { street: '1 N Santa Cruz Ave', city: 'Los Gatos', zip: '95030' }, schedule: { date: '2026-12-02', deliveryDate: '2026-12-05' } }));
         await page.waitForSelector('[data-upsell]', { timeout: 8000 }).catch(() => {});
         if (await page.$('[data-upsell-yes]')) {
           await page.click('[data-upsell-yes]');
           await page.waitForTimeout(900);
           const msg = await page.evaluate(() => (document.querySelector('.upsell-fit') || document.querySelector('[data-upsell]')) ? (document.querySelector('.upsell-fit') || document.body).innerText : '');
           const stillPd = await page.evaluate(() => (JSON.parse(localStorage.getItem('cad-order') || 'null') || {}).service);
-          ok(/doesn’t fit this delivery day|doesn't fit this delivery day/.test(msg), 'SF Fri Dec 4 shows a plain visit-fit message', msg.slice(0, 240));
+          ok(/doesn’t fit this delivery day|doesn't fit this delivery day/.test(msg), 'Los Gatos on the Saturday run (stop on the way) shows a plain visit-fit message', msg.slice(0, 240));
           ok(!/call|phone/i.test(msg), 'visit-fit message has no phone prompt', msg.slice(0, 240));
           ok(stillPd === 'pickup_delivery', 'a rejected visit leaves pickup + delivery in place');
           ok(!(await page.$('[data-panel="install-upsell"]:not([hidden])')), 'the install step does not open when the visit does not fit');

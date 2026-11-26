@@ -75,7 +75,10 @@ function partA() {
   // 6. Keep one window open or drop the date.
   const full = RW.evaluate(addr('100 Wilshire Blvd', 'Santa Monica', '90401'), '2027-02-01'); show('nothing fits, Santa Monica', full);
   ok(full.noFit === true, 'a day where no window fits is flagged noFit');
+  // Route dates come only from the sheet: Feb 8 here is a plain Los Angeles day (the "along the way" text above is not a regular LA day).
+  { const d2 = JSON.parse(JSON.stringify(DAYS)); d2['2027-02-08'].routes = ['Los Angeles']; SD._setForTests(d2); }
   const offered = sched.availableDays(addr('100 Wilshire Blvd', 'Santa Monica', '90401'), { from: new Date('2027-01-25T12:00:00Z'), count: 6, leadTime: 0 }).map((d) => d.date);
+  SD._setForTests(JSON.parse(JSON.stringify(DAYS)));
   ok(!offered.includes('2027-02-01') && offered.includes('2027-02-08'), `that date is not offered at all (offered: ${offered.join(', ')})`);
   ok(Object.keys(DAYS).every((iso) => { const r = RW.evaluate(paloAlto, iso); return r.noFit || openSet(r).length >= 1; }), 'every date that is offered keeps at least one window open');
   // 7. Pickup + delivery as one booking (same day): pickup first, with drive time.
