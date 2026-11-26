@@ -84,6 +84,7 @@ function startBridge({ seed, secret = 'test-secret-0123456789abcdef', port = 0 }
     url: `http://127.0.0.1:${server.address().port}/exec`, secret, book, mails, log, props,
     setFault: (f) => { fault = { ...f }; }, close: () => new Promise((r) => server.close(r)),
     sheet: (n) => book.getSheetByName(n),
+    run: (fn) => sandbox[fn](), // call a Code.gs function directly (e.g. the verifyAll time trigger)
   })));
 }
 module.exports = { startBridge, makeBook };

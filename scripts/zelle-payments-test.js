@@ -57,6 +57,7 @@ const paint = (d, v, o = {}) => ({ type: 'painting', framed: 'no', w: 30, h: 40,
     await sleep(1500);
     const rows = bridge.sheet('TEST SCHEDULE 2026') || bridge.sheet('SCHEDULE 2026');
     const mine = rows.cells.filter((r) => String(r[9] || '').includes(id));
+    const beforeAll = rows.cells.map((r) => r.slice()); const mineIdx = rows.cells.map((r, i) => (String(r[9] || '').includes(id) ? i : -1)).filter((i) => i >= 0);
     ok(mine.length >= 1 && mine.filter((r) => r[31] === 'Payment Requested').length === 1 && mine.every((r) => ['Payment Requested', '...'].includes(r[31])), `schedule rows written; the payment leg has AF = "Payment Requested", never PAID (${mine.map((r) => r[31]).join(', ')})`);
     ok(mine.some((r) => /ZELLE REQUESTED/.test(String(r[34] || ''))) && mine.every((r) => r[32] === '' || r[32] == null), 'Payment Notes say ZELLE REQUESTED with the memo; Amount Paid stays empty');
     const conf = bridge.mails.find((m) => /zelle\.tester@example\.com/.test(m.to) && /booked/i.test(m.subject));
@@ -80,6 +81,14 @@ const paint = (d, v, o = {}) => ({ type: 'painting', framed: 'no', w: 30, h: 40,
     const v = await post(`/api/admin/orders/${id}/zelle-received?key=${ADMIN}`, { by: 'test' });
     ok(v.j && v.j.order && v.j.order.payment.status === 'paid' && v.j.order.payment.verifiedBy === 'test', 'only a person marking it received (admin) makes it PAID');
     await sleep(1500);
+    { const now = rows.cells; const AD = 29;
+      ok(now.length === beforeAll.length, `payment update added/removed no rows (${beforeAll.length} -> ${now.length})`);
+      const outside = []; now.forEach((r, i) => { const b = beforeAll[i] || []; const lim = mineIdx.includes(i) ? AD : Math.max(r.length, b.length); for (let c = 0; c < lim; c++) if (String(r[c] == null ? '' : r[c]) !== String(b[c] == null ? '' : b[c])) outside.push(`row ${i + 3} col ${c + 1}`); });
+      ok(!outside.length, `payment update (Code.gs v5 event "payment") changed only AD..AI on this order's rows; every other cell identical (${outside.slice(0, 5).join(', ') || 'none'})`);
+      const changedPay = mineIdx.some((i) => beforeAll[i].slice(AD).join('|') !== now[i].slice(AD).join('|')); ok(changedPay, 'and AD..AI did change on the order rows'); }
+    { const before = bridge.mails.length; const res = bridge.run('verifyAll'); const flag = bridge.mails.slice(before).filter((m) => m.body.includes(id));
+      const ae = mineIdx.map((i) => `${beforeAll[i][30]} -> ${rows.cells[i][30]}`).join(', ');
+      ok(!flag.length, `verifier (verifyAll trigger) does not report the site's own payment update as "CHANGED after booking" (Amount Due ${ae}; checked ${res && res.checked})`); }
     { const after = rows.cells.filter((r) => String(r[9] || '').includes(id)); ok(after.length === mine.length && after.some((r) => r[31] === 'PAID') && !after.some((r) => r[31] === 'Payment Requested'), `after manual verification the payment leg shows PAID, same rows, nothing added (${after.map((r) => r[31]).join(', ')})`); }
 
     console.log('\n[3] Every order gets an itemized email (requests our team prices too)');

@@ -28,7 +28,7 @@
  *    the reconcile find an order's rows. Nothing is written anywhere else (small per-order check data sits in Script Properties).
  *
  * Actions: order (write + read-back verify; event "payment" rewrites only the payment columns), days (read-only digest per date,
- * v5 adds each date's stops for route-aware time windows), reconcile, alert, verifyAll() (time trigger).
+ * v5 adds each date's stops for route-aware time windows; v6 re-baselines the verifier after a payment update), reconcile, alert, verifyAll() (time trigger).
  */
 var TAB_MAIN_DEFAULT = 'SCHEDULE 2026', TAB_TEST_DEFAULT = 'TEST SCHEDULE 2026', TAB_CAL = 'ROUTE CALENDAR';
 function tabName_() {
@@ -323,7 +323,17 @@ function handleOrder_(b) {
         for (var nq = 0; nq < NUM_COLS.length; nq++) { var ncol = NUM_COLS[nq], nval = rows[pk][ncol - 1]; if (typeof nval === 'number') sh.getRange(prow[pk].row, ncol).setNumberFormat('$#,##0.00').setValue(nval); }
       }
       SpreadsheetApp.flush();
-      return { ok: true, paymentUpdated: n, tab: tabName_(), rows: prow.map(function (p) { return p.row; }), test: test };
+      // v6: re-baseline the verifier's booking signature for these rows, so a payment change made by the site itself (Amount Due
+      // going to 0 when a Zelle/ACH payment is confirmed) is not reported by verifyAll as "Amount Due CHANGED after booking".
+      var st2 = getState_(id);
+      if (st2 && st2.e === 'confirmed') {
+        var snap2 = snapshot_(sh), tz2 = ss.getSpreadsheetTimeZone();
+        st2.s = prow.map(function (p) { return rowSig_(rowAt_(snap2, p.row), tz2); });
+        st2.rows = prow.map(function (p) { return p.row; });
+        st2.payAt = Date.now();
+        setState_(id, st2);
+      }
+      return { ok: true, paymentUpdated: n, tab: tabName_(), rows: prow.map(function (p) { return p.row; }), test: test, rebaselined: !!(st2 && st2.e === 'confirmed') };
     }
     if (isConfirmed) {
       var conf = present.filter(function (p) { return !p.pending; });
@@ -458,7 +468,7 @@ function handleDays_() {
       cd.crew = String(cv[q][5] || ''); cd.vehicle = String(cv[q][6] || ''); cd.calNote = String(cv[q][7] || '');
     }
   }
-  return { ok: true, days: days, digest: 5, sheetVersion: main.getLastRow(), generatedAt: new Date().toISOString() };
+  return { ok: true, days: days, digest: 6, sheetVersion: main.getLastRow(), generatedAt: new Date().toISOString() };
 }
 
 // ---------- ROUTE CALENDAR: one-tab rule, the bridge never creates it. If the team ever adds that tab, missing dates are seeded. ----------

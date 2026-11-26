@@ -32,7 +32,8 @@ const DAYS = {
 };
 
 function partA() {
-  console.log('\n[A] Rules on fixture days');
+  console.log('\n[A] Rules on fixture days (route rules judged with the Morning gate unlocked; the gate itself is tested in [A2])');
+  const CFG = require('../config'); CFG.scheduling.morningUnlockStops = 0;
   SD._setForTests(JSON.parse(JSON.stringify(DAYS)));
   const paloAlto = addr('1 University Ave', 'Palo Alto', '94301');
   // 1. Down-and-back: van leaves San Jose, goes north to Marin / Healdsburg at midday, comes back through SF.
@@ -119,7 +120,7 @@ async function partB() {
   const bridge = await startBridge({ seed });
   const dg = JSON.parse((await (await fetch(bridge.url, { method: 'POST', body: JSON.stringify({ action: 'days', secret: bridge.secret }) })).text()));
   const d10 = dg.days && dg.days['2027-02-10'];
-  ok(dg.digest === 5 && d10 && Array.isArray(d10.stops) && d10.stops.length === 3, `Code.gs digest v5 lists each date's stops (Feb 10: ${d10 && d10.stops.map((s) => s.town + ' ' + s.win).join('; ')})`);
+  ok(dg.digest >= 5 && d10 && Array.isArray(d10.stops) && d10.stops.length === 3, `Code.gs digest v5+ lists each date's stops (Feb 10: ${d10 && d10.stops.map((s) => s.town + ' ' + s.win).join('; ')})`);
   ok(d10 && !d10.stops.some((s) => s.town === 'Fresno'), 'a PENDINGJOB row is not counted as a planned stop');
   { const before = JSON.stringify(bridge.sheet('SCHEDULE 2026').cells); await (await fetch(bridge.url, { method: 'POST', body: JSON.stringify({ action: 'days', secret: bridge.secret }) })).text(); ok(JSON.stringify(bridge.sheet('SCHEDULE 2026').cells) === before, 'the days digest is read-only (sheet unchanged after reading it)'); }
   const storage = fs.mkdtempSync(path.join(os.tmpdir(), 'cad-tw-'));
@@ -133,17 +134,53 @@ async function partB() {
     const tw = (await post('/api/time-windows', { ...o, schedule: { date: '2027-02-10', deliveryDate: '2027-02-24' } })).j || {};
     const m = Object.fromEntries(((tw.pickup || {}).windows || []).map((w) => [w.v, w.ok ? 'open' : w.why]));
     console.log('    /api/time-windows pickup Feb 10:', JSON.stringify(m));
-    ok(tw.pickup && tw.pickup.basis === 'route' && m.morning === 'open' && /farther north/.test(m.midday || ''), 'server: Feb 10 pickup in Palo Alto: Morning open, Midday grayed "Our van is farther north at this time"');
-    ok(tw.delivery && tw.delivery.basis === 'open' && tw.delivery.windows.every((w) => w.ok), 'server: Feb 24 (no timed stops) delivery windows all open');
+    ok(tw.pickup && tw.pickup.basis === 'route' && m.late_afternoon === 'open' && /farther north/.test(m.midday || ''), 'server: Feb 10 pickup in Palo Alto: Late afternoon open (on the way back), Midday grayed "Our van is farther north at this time"');
+    ok(!('morning' in m), 'server: Feb 10 has fewer than 5 stops, so Morning is not offered');
+    ok(tw.delivery && tw.delivery.basis === 'open' && tw.delivery.windows.every((w) => w.ok) && !tw.delivery.windows.some((w) => w.v === 'morning'), 'server: Feb 24 (no timed stops) delivery windows all open except Morning (not offered on a quiet day)');
     ok(!JSON.stringify(tw).match(/fallback|digest|Apps Script|anchor/i), 'server answer carries no internal wording');
     const bad = await post('/api/orders', { ...o, schedule: { date: '2027-02-10', deliveryDate: '2027-02-24', timePref: 'midday', deliveryTimePref: 'none' } });
     ok(bad.status === 409 && bad.j && bad.j.timeConflict && /no longer fits/.test(bad.j.error) && /Nothing has been charged/.test(bad.j.error), `submit with a grayed time is refused before any charge (${bad.status}: ${bad.j && bad.j.error})`);
-    const good = await post('/api/orders', { ...o, schedule: { date: '2027-02-10', deliveryDate: '2027-02-24', timePref: 'morning', deliveryTimePref: 'none' } });
+    const mor = await post('/api/orders', { ...o, schedule: { date: '2027-02-10', deliveryDate: '2027-02-24', timePref: 'morning', deliveryTimePref: 'none' } });
+    ok(mor.status === 409 && mor.j && mor.j.timeConflict, `submit with Morning on a quiet day is refused at the server (${mor.status})`);
+    const good = await post('/api/orders', { ...o, schedule: { date: '2027-02-10', deliveryDate: '2027-02-24', timePref: 'late_afternoon', deliveryTimePref: 'none' } });
     ok(good.status === 200 && good.j && good.j.id, `submit with an open time is accepted (${good.status}${good.j && good.j.error ? ': ' + good.j.error : ''})`);
   } finally { child.kill('SIGKILL'); await bridge.close(); }
 }
 
 // ---------- C: saved progress in the browser ----------
+// ---------- A2: Morning gate (Chad, Nov 25 2026): Morning only on days that already have >= 5 stops ----------
+function partA2() {
+  console.log('\n[A2] Morning window gate (morningUnlockStops)');
+  const CFG = require('../config'); CFG.scheduling.morningUnlockStops = 5;
+  const pa = addr('1 University Ave', 'Palo Alto', '94301');
+  const busy = { routes: ['Silicon Valley → SF → Marin → Healdsburg → San Jose'], jobRows: 5, stops: [st('San Jose', '9AM-10AM'), st('San Rafael', '11AM-12PM'), st('Healdsburg', '12:30PM-1:30PM'), st('San Francisco', '3PM-4PM'), st('Palo Alto', '5PM-6PM')] };
+  const fourStops = { ...busy, jobRows: 4, stops: busy.stops.slice(0, 4) };
+  const fourPlusOnline = { ...fourStops, jobRows: 5 }; // 4 sheet stops + 1 online order booked since the last refresh (sheet-days.bump)
+  SD._setForTests({ '2027-03-03': busy, '2027-03-10': fourStops, '2027-03-17': fourPlusOnline, '2027-03-24': { routes: ['Carmel'], jobRows: 0, stops: [] } });
+  const hidden = (r) => { const w = r.windows.find((x) => x.v === 'morning'); return w && w.hidden && !w.ok; };
+  const r5 = RW.evaluate(pa, '2027-03-03'), r4 = RW.evaluate(pa, '2027-03-10'), r4o = RW.evaluate(pa, '2027-03-17'), r0 = RW.evaluate(pa, '2027-03-24');
+  ok(!hidden(r5) && (RW.publicView(r5).windows.some((w) => w.v === 'morning')), 'day with 5 stops: Morning is offered');
+  ok(hidden(r4) && !RW.publicView(r4).windows.some((w) => w.v === 'morning'), 'day with 4 stops: Morning is not offered at all (left out of the list, not grayed)');
+  ok(RW.publicView(r4).windows[0].v === 'late_morning', 'day with 4 stops: earliest window offered is Late morning');
+  ok(!hidden(r4o), '4 schedule stops + 1 booked online order = 5: Morning is offered');
+  ok(hidden(r0) && r0.fallback && openSet(r0).length === 8, 'no-data day: route windows stay open but Morning is hidden (8 windows)');
+  SD._setForTests({ '2027-03-03': busy }, { fetchedAt: Date.now() - 3 * 3600 * 1000 });
+  ok(hidden(RW.evaluate(pa, '2027-03-03')), 'stale data: Morning hidden even on a busy day (safe default)');
+  SD._setForTests({});
+  ok(hidden(RW.evaluate(pa, '2027-05-05')), 'date with no schedule rows: Morning hidden');
+  ok(hidden(RW.evaluate(pa, '2027-05-05', { order: { dedicated: true } })), 'dedicated / rush trips: Morning also hidden on a quiet day');
+  SD._setForTests({ '2027-03-03': busy, '2027-03-10': fourStops });
+  const SVCS = require('../lib/pricing').SERVICES;
+  const o = (date, del, tp, dtp, extra = {}) => ({ service: 'pickup_delivery', pickup: pa, dropoff: addr('1 Market St', 'San Francisco', '94105'), schedule: { date, deliveryDate: del, timePref: tp, deliveryTimePref: dtp }, ...extra });
+  ok(RW.selectionErrors(o('2027-03-10', '2027-03-03', 'morning', 'none'), SVCS).length === 1, 'submit check: Morning pickup on a 4-stop day is refused (no charge)');
+  ok(RW.selectionErrors(o('2027-03-03', '2027-03-10', 'none', 'morning'), SVCS).length === 1, 'submit check: Morning delivery on a 4-stop day is refused');
+  const firstOpen = RW.publicView(RW.pair(o('2027-03-10').pickup, o('2027-03-10').dropoff, '2027-03-10', '2027-03-03', {}).pickup).windows.find((w) => w.ok).v;
+  ok(firstOpen !== 'morning' && RW.selectionErrors(o('2027-03-10', '2027-03-03', firstOpen, 'none'), SVCS).length === 0, `submit check: an open later window on the same day is accepted (${firstOpen})`);
+  ok(RW.selectionErrors(o('2027-03-10', '2027-03-10', 'morning', 'none', { dedicated: true }), SVCS).length === 1, 'submit check: Morning refused for a dedicated trip on a quiet day too');
+  const src = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
+  ok(/const twHidden = /.test(src) && /TIME_PREF_OPTS\.filter\(\(\[v\]\) => !twHidden\(prefPath, v\)\)/.test(src), 'browser: the Morning chip is left out of both pickup and delivery choices unless the server lists it');
+}
+
 async function partC() {
   console.log('\n[C] Saved progress (localStorage) in a real browser');
   let chromium; try { ({ chromium } = require('playwright')); } catch { ok(false, 'playwright not installed'); return; }
@@ -189,6 +226,7 @@ async function partC() {
 
 (async () => {
   partA();
+  partA2();
   await partB();
   if (!process.env.SKIP_UI) await partC();
   console.log(`\n${passes.length} passed, ${failures.length} failed`);

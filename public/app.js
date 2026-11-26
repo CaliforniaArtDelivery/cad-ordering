@@ -786,6 +786,8 @@ const timeReassure = ""; // the Dedicated trip toggle right below says it (Nov 2
 let tw = null, twKey = '', twSeq = 0;
 const twFor = (prefPath) => { const leg = prefPath === 'schedule.deliveryTimePref' ? 'delivery' : 'pickup'; const r = tw && tw[leg]; const date = leg === 'delivery' ? S.schedule.deliveryDate : S.schedule.date; return r && r.date === date ? r : null; };
 const twOff = (prefPath, v) => { const r = twFor(prefPath); const w = r && (r.windows || []).find((x) => x.v === v); return w && !w.ok ? (w.why || 'Doesn’t fit our route that day') : ''; };
+// Morning shows only when the server lists it for that leg's date (day already busy enough). No answer yet = hidden (safe default).
+const twHidden = (prefPath, v) => { if (v !== 'morning') return false; const r = twFor(prefPath); return !(r && (r.windows || []).some((x) => x.v === v)); };
 function windowsKey() {
   if (STEPS[step] !== 'When' || !S.schedule.date && !S.schedule.deliveryDate) return '';
   const a = (x) => [x && x.zip, x && x.city].join('|');
@@ -797,12 +799,12 @@ async function loadWindows() {
   twKey = key; const seq = ++twSeq;
   const { ok, j } = await api('/api/time-windows', payload());
   if (seq !== twSeq) return;
-  if (!ok || !j) { tw = null; return; } // no answer: every window stays open
+  if (!ok || !j) { tw = null; if (STEPS[step] === 'When') renderWhenIdle(); return; } // no answer: every window stays open (Morning stays hidden)
   tw = j;
   // A chosen window that no longer fits is dropped (like a date that no longer works), so the order can't carry it.
   let changed = false;
   [['schedule.timePref', 'pickup'], ['schedule.deliveryTimePref', 'delivery']].forEach(([path]) => {
-    const on = CADAccess.timePrefList(get(path)); const keep = on.filter((v) => !twOff(path, v));
+    const on = CADAccess.timePrefList(get(path)); const keep = on.filter((v) => !twOff(path, v) && !twHidden(path, v));
     if (keep.length !== on.length) { set(path, keep.length ? keep.join(',') : 'none'); changed = true; }
   });
   if (changed) { twKey = ''; loadWindows(); }
@@ -820,7 +822,7 @@ const timePrefBlock = (prefPath, notePath, { showReassure = false, explain = tru
   };
   return `<h2>Preferred times <span class="opt">(we’ll do our best to accommodate)</span></h2>
     <p class="mini" style="margin:-4px 0 8px">Select all that work.</p>
-    <div class="chips" data-chips="${prefPath}" data-multi>${TIME_PREF_OPTS.map(chip).join('')}</div>
+    <div class="chips" data-chips="${prefPath}" data-multi>${TIME_PREF_OPTS.filter(([v]) => !twHidden(prefPath, v)).map(chip).join('')}</div>
     ${whyHtml}
     ${input(notePath, 'Timing notes (optional)', { ph: 'Anything we should know about timing' })}
     ${explain ? `<p class="mini">We’ll do our best but can’t promise an exact time. As your date gets closer, and on the day, we’ll keep sending you narrower ETA windows. We serve clients all over the state, so a little flexibility helps us help everyone.</p>` : ''}

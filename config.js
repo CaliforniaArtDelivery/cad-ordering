@@ -321,6 +321,8 @@ module.exports = {
   // Midweek of a SoCal week: Tue Coachella Valley, Wed San Diego County, Thu Orange County.
   // SoCal Fri–Sun: no regular stops (OC overflow only; farther out only if a big job).
   scheduling: {
+    // Morning window (9-10:30) only on days that already have this many stops (schedule + booked online orders); else Late morning first.
+    morningUnlockStops: Number(process.env.MORNING_UNLOCK_STOPS || 5),
     anchorWeekStart: '2026-11-16',
     anchorRegion: 'NorCal',
     leadTimeDays: 2,
