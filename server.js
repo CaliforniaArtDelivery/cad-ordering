@@ -363,7 +363,12 @@ function validate(o) {
   if (ship) {
     // Samantha prices shipping without follow-up, so collect what she needs.
     if (!String(o.dropoff?.country || 'United States').trim()) errs.push('destination country');
-    forPieces('dimensions and weight (all three dimensions, or size class only, plus a weight or Not sure)', (it) => (!(it.weightUnsure || numVal(it.weight) > 0) || !(['custom', 'furniture'].includes(it.type) || VALID.hasSizeClassOnly(it) || !VALID.dimProblem(it))));
+    forPieces('dimensions and weight (all three dimensions, plus a weight or Not sure)', (it) => {
+      const missingWeight = !(it.weightUnsure || numVal(it.weight) > 0);
+      const partner = !!(o.partnerOrder || o.skipVolumeDiscount);
+      const skipDims = (it.type === 'custom') || (partner && (it.type === 'furniture' || it.type === 'decor'));
+      return missingWeight || (!skipDims && !!VALID.dimProblem(it));
+    });
     forPieces('a declared value (for the shipping insurance)', (it) => !(numVal(it.value) > 0));
     if (!o.shipping?.serviceLevel) errs.push('destination service level');
     if (!o.shipping?.shipBy && !o.shipping?.flexible) errs.push('ship date or flexibility');
@@ -380,9 +385,12 @@ function validate(o) {
     }
     // Same item rules as the order form (public/app.js missingFields).
     const items = o.items || [];
-    const needsDims = (it) => !['custom', 'furniture'].includes(it.type || 'painting') && !VALID.hasSizeClassOnly(it);
-    forPieces('all three dimensions, or an explicit size-class-only choice', (it) => needsDims(it) && !!VALID.dimProblem(it));
-    forPieces('a complete size (all three dimensions, or size class only)', (it) => !needsDims(it) && !!VALID.optionalDimProblem(it));
+    // Paloma's / partner catalog pieces are priced from a catalog size tier and may not have a full W×H×D.
+    // CAD online orders now always collect inches (except a free-text custom request).
+    const partner = !!(o.partnerOrder || o.skipVolumeDiscount);
+    const needsDims = (it) => (it.type || 'painting') !== 'custom' && !(partner && (it.type === 'furniture' || it.type === 'decor'));
+    forPieces('all three dimensions (width, height and depth)', (it) => needsDims(it) && !!VALID.dimProblem(it));
+    forPieces('a complete size (width, height and depth, if any size is entered)', (it) => !needsDims(it) && !!VALID.optionalDimProblem(it));
     forPieces('a weight (or “Not sure”)', (it) => ['sculpture', 'other'].includes(it.type) && !(it.weightUnsure || numVal(it.weight) > 0));
     forPieces('a stairwell fit confirmation (pieces over 80 inches)', (it) => needsStairwellFit(it, o) && !it.fitsStairwell);
   }

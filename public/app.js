@@ -206,6 +206,7 @@ const payload = () => {
   return o;
 };
 const esc = (v) => String(v ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const nearest5 = (n) => { const x = Number(n); if (!Number.isFinite(x) || x === 0) return 0; const sign = x < 0 ? -1 : 1; const cents = Math.round(Math.abs(x) * 100); const rem = cents % 500; return sign * ((rem >= 250 ? cents - rem + 500 : cents - rem) / 100); };
 const fmt = (n) => { const x = Number(n || 0); const cents = Math.round(x * 100) % 100 !== 0; return '$' + x.toLocaleString('en-US', { minimumFractionDigits: cents ? 2 : 0, maximumFractionDigits: 2 }); };
 const uncomma = (s) => String(s ?? '').replace(/,/g, '');
 const num = (s) => { const n = Number(uncomma(s)); return Number.isFinite(n) ? n : 0; };
@@ -968,7 +969,7 @@ const sitePhotosOk = () => true;
 const hangPhotosOk = (it) => it.hangHeight !== 'higher' || it.hangWhere !== 'stairwell' || (it.hangPhotos || []).length > 0;
 const valueHint = (it) => (shipService() ? 'The value of this one piece. Our shipping partner uses it for coverage.'
   : num(it.value) > 50000 ? 'The value of this one piece.'
-  : num(it.value) > 0 ? `Declared value protection: 1.5% of this piece’s declared value (${fmt(Math.round(num(it.value) * 1.5) / 100)} per piece), included.`
+  : num(it.value) > 0 ? `Declared value protection: 1.5% of this piece’s declared value (${fmt(nearest5(num(it.value) * 0.015))} per piece), included.`
   : PROTECTION_HINT);
 // Declared value protection (Chad + Dot, Nov 16 2026; made optional Nov 19 2026): 1.5% of each ELIGIBLE piece's declared value
 // (pieces valued $50,000 or less), ALWAYS included, no opt-out (Chad, Nov 23 2026). Never called insurance or full coverage.
@@ -989,7 +990,7 @@ const askWeight = (it) => {
   const t = it.type || 'painting';
   if (t === 'furniture' || CADAccess.pieceType(it) === 'mirror') return true;
   if (CADAccess.needsWeightHint(it)) return true; // works on panel
-  return Math.max(num(it.w), num(it.h), num(it.d)) >= WEIGHT_LARGE_IN || ['large', 'xlarge'].includes(it.sizeClassOnly ? it.sizeClass : '');
+  return Math.max(num(it.w), num(it.h), num(it.d)) >= WEIGHT_LARGE_IN;
 };
 const weightOk = (it) => !weightRequired(it) || !!it.weightUnsure || num(it.weight) > 0;
 function updateItemHints(i) {
@@ -1063,7 +1064,7 @@ const shipExtras = (item, i) => {
   const p = `items.${i}`;
   return `<label class="f">Size in inches (W × H × D)${req}</label>
     <div class="row3">${input(`${p}.w`, '', { type: 'number', ph: 'W', attrs: dimAttrs('w', 'Width') })}${input(`${p}.h`, '', { type: 'number', ph: 'H', attrs: dimAttrs('h', 'Height') })}${input(`${p}.d`, '', { type: 'number', ph: 'D', attrs: dimAttrs('d', 'Depth') })}</div>
-    <p class="mini" style="margin:-4px 0 10px">Approximate inches are fine (at least ${V.MIN_DIM.w} × ${V.MIN_DIM.h} × ${V.MIN_DIM.d}).</p>
+
     ${weightField(item, i, { required: true })}
     ${input(`${p}.value`, 'Declared value ($)', { ph: 'e.g. 12,000', attrs: 'inputmode="numeric"', req: true })}
     ${framingBlock(item, i)}
@@ -1091,12 +1092,8 @@ const isFirstPanel = () => { const ids = panelIds(); return ids.length < 2 || id
 const dimsBlock = (i) => {
   const it = S.items[i], p = `items.${i}`;
   const warn = V.belowMinWarning && V.belowMinWarning(it);
-  const sizeOnly = !!it.sizeClassOnly;
-  const sizeOpts = [['small', 'Small'], ['medium', 'Medium'], ['large', 'Large'], ['xlarge', 'Extra large']];
-  return `${toggle(`${p}.sizeClassOnly`, 'I only know the size class (not exact inches)', 'We’ll price from the size class and confirm measurements if needed.', true)}
-        ${sizeOnly ? select(`${p}.sizeClass`, 'Size class', sizeOpts, { req: true }) : `<label class="f">Size in inches (W × H × D)${req}</label>
+  return `<label class="f">Size in inches (W × H × D)${req}</label>
         <div class="row3">${input(`${p}.w`, '', { type: 'number', ph: 'W', attrs: dimAttrs('w', 'Width') })}${input(`${p}.h`, '', { type: 'number', ph: 'H', attrs: dimAttrs('h', 'Height') })}${input(`${p}.d`, '', { type: 'number', ph: 'D', attrs: dimAttrs('d', 'Depth') })}</div>
-        <p class="mini" style="margin:-4px 0 10px">Enter all three dimensions, or choose size class only. Approximate inches are fine.</p>`}
         ${warn ? `<p class="mini warn-line" data-sizewarn="${i}">${esc(warn.message)} You can still request a quote so we can review this size.</p>${toggle('sizeCheckQuote', 'Request a quote for this size (manual review)', 'We won’t book a date until the team checks the size.', true)}` : ''}`;
 };
 const pieceHasSize = (it, ship) => ship || needsDims(it);
@@ -1114,7 +1111,7 @@ const pieceCare = (item, i, ship) => {
     ${handlingBlock(item, i)}`;
   } else {
     const value = input(`${p}.value`, 'Declared value per piece ($)', { ph: 'e.g. 12,000', attrs: 'inputmode="numeric"', req: true })
-      + `<p class="mini" style="margin:-4px 0 8px" data-valhint="${i}">${valueHint(item)}</p>` + checkValueNote(item);
+      + `<p class="mini info-note" style="margin:-4px 0 8px" data-valhint="${i}">${valueHint(item)}</p>` + checkValueNote(item);
     h = `${needsWeight ? weightField(item, i, { required: true }) : ''}
         ${type === 'custom' ? '' : value}
         ${type === 'other' ? '<p class="mini" style="margin:0 0 6px">Priced by weight from our sculpture rates. The price covers pickup, delivery and placement wherever you want it. CAD may adjust the price after seeing photos.</p>' : ''}
@@ -1271,6 +1268,58 @@ function payerNameLabel() {
   return 'Pickup contact' + ((S.pickup && S.pickup.contactName) ? ' (' + S.pickup.contactName + ')' : '');
 }
 
+
+// Front-loaded progress (Chad, Nov 25 2026): early Next clicks cover more of the bar, later ones taper,
+// and 100% is reserved for the review / submit screen. The curve is computed over the actual booking
+// path (every short screen, including ones that appear after a service is chosen) so the bar never
+// shrinks when moving forward — only when the client taps Back.
+function frontLoadedPct(index, total, atEnd) {
+  if (atEnd || total <= 1) return 100;
+  const i = Math.max(0, Math.min(index, total - 1));
+  if (i >= total - 1) return 100;
+  const ratio = (total - 1) / total;
+  const k = Math.log(0.75) / Math.log(ratio || 0.5); // first screen is about 25%
+  const t = (i + 1) / total;
+  return Math.max(1, Math.min(99, Math.round(100 * (1 - Math.pow(1 - t, k)))));
+}
+function bookingPathKeys() {
+  const saved = S.service;
+  const planned = !saved;
+  if (planned) S.service = 'pickup_delivery';
+  const keys = [];
+  try {
+    ['What', 'Where', 'When', 'Pay'].forEach((name) => {
+      const html = views[name]();
+      const ids = [...String(html).matchAll(/data-panel="([^"]+)"/g)].map((m) => m[1]);
+      const si = STEPS.indexOf(name);
+      ids.forEach((id) => keys.push(si + ':' + id));
+    });
+  } finally {
+    if (planned) S.service = saved;
+  }
+  return keys;
+}
+let progressHigh = 0, lastPathIndex = -1;
+function setProgressBar(pct) {
+  const bar = $('#progress i'); if (bar) bar.style.width = pct + '%';
+  const pg = $('#progress'); if (pg) pg.setAttribute('aria-valuenow', String(pct));
+}
+function paintProgress(name) {
+  if (name === 'Done') { progressHigh = 100; lastPathIndex = 1e9; setProgressBar(100); return; }
+  const keys = bookingPathKeys();
+  const key = step + ':' + sub;
+  let i = keys.indexOf(key);
+  if (i < 0 && sub) i = keys.findIndex((k) => k.endsWith(':' + sub));
+  if (i < 0) i = Math.max(0, lastPathIndex);
+  const atEnd = !!(keys.length && keys[keys.length - 1] === (step + ':' + sub));
+  let pct = frontLoadedPct(i, Math.max(1, keys.length), atEnd);
+  const goingBack = lastPathIndex >= 0 && i < lastPathIndex;
+  if (goingBack) progressHigh = pct;
+  else { pct = Math.max(pct, progressHigh); progressHigh = pct; }
+  lastPathIndex = i;
+  setProgressBar(pct);
+}
+
 const views = {
   What() {
     const base = (CFG.pricing && CFG.pricing.displayFrom) || {};
@@ -1280,10 +1329,7 @@ const views = {
       const p = `items.${i}`;
       const ph = { painting: 'e.g. Oil on canvas', photograph: 'e.g. Signed gelatin silver print', mirror: 'e.g. Venetian mirror, gilt', wallart: 'e.g. Mixed media, wall sculpture', sculpture: 'e.g. Bronze on plinth', furniture: 'e.g. Walnut credenza', decor: item.furnitureKind === 'Other (describe)' ? 'e.g. Ceramic garden stool, pair of candlesticks' : 'e.g. Pair of table lamps', other: 'e.g. Antique clock, Murano glass chandelier', custom: 'e.g. Collect two pieces from a framer and deliver them with the rest' }[type];
       const kinds = type === 'furniture' ? (CFG.pricing.furnitureKinds || []) : decorKindOptions();
-      const sizeOpts = sizeOptionsFor(type, item.furnitureKind);
-      const allowedSizes = sizeOpts.map((o) => Array.isArray(o) ? o[0] : o);
-      if ((type === 'furniture' || type === 'decor') && !allowedSizes.includes(item.sizeClass)) item.sizeClass = 'medium';
-      const kindRow = (type === 'furniture' || type === 'decor') ? `<div class="row keep kind-row">${select(`${p}.furnitureKind`, type === 'decor' ? 'Type of décor' : 'Item', kinds, { rerender: true })}${select(`${p}.sizeClass`, 'Size', sizeOpts)}</div>${type === 'decor' && isAccentKind(item.furnitureKind) ? '<p class="mini" style="margin:-4px 0 10px">Extra small is a small figurine or bud vase. Extra large is a statement piece.</p>' : ''}` : '';
+      const kindRow = (type === 'furniture' || type === 'decor') ? `<div class="field">${select(`${p}.furnitureKind`, type === 'decor' ? 'Type of décor' : 'Item', kinds, { rerender: true })}</div>` : '';
       return `<div class="card"><div class="item-head"><b>Piece ${i + 1}</b><span class="item-actions">
           ${S.items.length > 1 ? `<button type="button" class="link muted" data-removeask="${esc(item.id)}">Remove this piece</button>` : ''}</span></div>
         <div class="field"><div class="chips" data-itemtype="${i}">${itemTypes().map(([v, l]) => `<button type="button" class="chip ${type === v ? 'on' : ''}" data-v="${v}">${l}</button>`).join('')}</div></div>
@@ -1297,7 +1343,7 @@ const views = {
     };
     const pieceTitle = (i) => (S.items.length > 1 ? `Piece ${i + 1}: what is it?` : `What are we ${svcVerb()}?`);
     const panels = [];
-    panels.push(panel('service', `<h1>${S.service === 'install_only' ? 'What are we installing?' : 'How can we help?'}</h1><p class="sub">Art, furniture, decor, and antiques are our specialty, plus other fragile or valuable pieces. Approximate sizes are fine.</p>
+    panels.push(panel('service', `<h1>${S.service === 'install_only' ? 'What are we installing?' : 'How can we help?'}</h1><p class="sub">Art, furniture, decor, and antiques are our specialty, plus other fragile or valuable pieces.</p>
       <div class="choices">${Object.entries(CFG.services).map(([k, v]) => `<button type="button" class="choice ${S.service === k ? 'on' : ''}" data-service="${k}">
         <span class="ico">${ICONS[k]}</span><span class="txt"><b>${v.label}</b>${SUBTITLE[k] ? `<span class="svc-sub">${esc(SUBTITLE[k])}</span>` : ''}<span class="d">${DESC[k]}</span></span><span class="from">${base[k] == null ? 'Custom quote' : 'from ' + fmt(base[k])}</span></button>`).join('')}</div>
       <p class="mini" data-from-note>Starting prices don’t include declared value protection.</p>`));
@@ -1625,7 +1671,7 @@ const hasContact = (a) => String(a.contactName || '').trim() && String(a.contact
 const siteReady = (a, required) => (required ? filled(a) && hasContact(a) : !filled(a) || hasContact(a));
 const contactReady = () => S.contact.name.trim() && !V.emailProblem(S.contact.email) && String(S.contact.phone || '').replace(/\D/g, '').length >= 7;
 
-const needsDims = (it) => !['custom', 'furniture'].includes(it.type || 'painting') || shipService();
+const needsDims = (it) => (it.type || 'painting') !== 'custom' || shipService();
 const dimsOk = (it) => !V.dimProblem(it);
 // What one piece still needs (each piece on its own: nothing is borrowed from the others).
 function itemGapList(it, i, name) {
@@ -1642,8 +1688,7 @@ function itemGapList(it, i, name) {
       if (!weightOk(it)) add(`[data-weight="${i}"]`, `Weight — ${p}`, 'Please enter the weight, or tap Not sure.');
     }
     if (!shipService() && wallTooHeavy(it)) add(`[data-heavywall="${i}"]`, `Weight — ${p}`, `Pieces this heavy need a custom quote. Wall pieces over ${wallWeightCfg().maxLb} lb can’t be booked online.`);
-    if (it.sizeClassOnly) { /* size class only — dimensions are optional */ }
-    else if (needsDims(it)) { const dp = V.dimProblem(it); if (dp) add(`#f-items.${i}.${dp.key}`, `Size — ${p}`, dp.message); }
+    if (needsDims(it)) { const dp = V.dimProblem(it); if (dp) add(`#f-items.${i}.${dp.key}`, `Size — ${p}`, dp.message); }
     else { const op = V.optionalDimProblem && V.optionalDimProblem(it); if (op) add(`#f-items.${i}.${op.key}`, `Size — ${p}`, op.message); }
 
     if (FRAMING_TYPES.includes(it.type || 'painting')) {
@@ -2016,16 +2061,7 @@ function render() {
   }
   if (name === 'Pay' && !existing && !isShip()) wrapPriceCard();
   if (name === 'Pay') returnToReview = false;
-  // A slim progress bar plus the "Step X of Y" label: where this screen sits in the whole booking.
-  const pIds = panelIds();
-  const pIdx = Math.max(0, pIds.indexOf(sub)), pLen = Math.max(1, pIds.length);
-  const pct = name === 'Done' ? 100 : Math.max(5, Math.min(100, Math.round(((Math.min(step, 3) + (pIdx + 1) / pLen) / 4) * 100)));
-  const bar = $('#progress i'); if (bar) bar.style.width = pct + '%';
-  const pg = $('#progress'); if (pg) pg.setAttribute('aria-valuenow', String(pct));
-  // "Step X of Y" counts the booking's main steps. Shipping and out-of-state quotes skip the date step, so they show one fewer.
-  const mainSteps = STEPS.slice(0, 4).filter((n) => !(n === 'When' && isShip()));
-  const stepNo = (name === 'When' && isShip()) ? mainSteps.indexOf('Where') + 1 : mainSteps.indexOf(name) + 1;
-  $('#stepsLabel').textContent = name === 'Done' ? (confirmed && confirmed.status === 'pending_approval' ? 'Received' : 'Confirmed') : (stepNo ? `Step ${stepNo} of ${mainSteps.length}` : '');
+  paintProgress(name);
   $('#backBtn').classList.toggle('hide', (step === 0 && isFirstPanel()) || name === 'Done' || !!existing);
   const noDock = name === 'Done';
   $('#dock').classList.toggle('hide', noDock);
@@ -2164,8 +2200,13 @@ app.addEventListener('input', (e) => {
   const hint = p.match(/^items\.(\d+)\.(weight|value)$/);
   if (hint && hint[2] === 'value' && S.items[+hint[1]] && S.items[+hint[1]].checkValue) { S.items[+hint[1]].checkValue = false; persist(); { const pid = S.items[+hint[1]].id; app.querySelectorAll(`[data-checkvalnote="${pid}"], [data-piece-id="${pid}"] [data-checkvalue]`).forEach((el) => el.remove()); } }
   if (hint) updateItemHints(+hint[1]);
-  const sco = p.match(/^items\.(\d+)\.sizeClassOnly$/);
-  if (sco && e.target.checked) { const it = S.items[+sco[1]]; it.w = it.h = it.d = ''; }
+  const dimSet = p.match(/^items\.(\d+)\.(w|h|d)$/);
+  if (dimSet) {
+    const it = S.items[+dimSet[1]];
+    if (it && (it.type === 'furniture' || it.type === 'decor') && V.sizeClassFromDims) {
+      it.sizeClass = V.sizeClassFromDims(it, isAccentKind(it.furnitureKind) ? 'accent' : it.furnitureKind);
+    }
+  }
   // Editing a piece in Quick edit: keep the list above it (titles, facts, "Needs details") in step. The quick-edit fields themselves are not re-rendered, so typing keeps its focus.
   if (/^items\.\d+\./.test(p) && e.target.closest('[data-quick]')) { const L = app.querySelector('[data-pclist]'); if (L) L.innerHTML = S.items.map((it, i) => pieceListRow(it, i)).join(''); const sm = app.querySelector('[data-pcsummary]'); if (sm) sm.outerHTML = listSummary(); }
   updateNext(); refreshQuote();

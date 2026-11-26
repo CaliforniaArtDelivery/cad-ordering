@@ -66,7 +66,8 @@ ok(!VALID.emailProblem('qa@example.com'), '9: a real email is accepted');
 const sofa = VALID.belowMinWarning({ type: 'furniture', furnitureKind: 'Sofa', w: 1, h: 1, d: 1 });
 ok(sofa && sofa.state === 'small' && sofa.quote, '9: a 1-inch sofa is a soft double-check + quote option', sofa);
 ok(!VALID.optionalDimProblem({ type: 'furniture', furnitureKind: 'Sofa', w: 1, h: 1, d: 1 }), '9: a 1-inch sofa is not a hard block');
-ok(!VALID.optionalDimProblem({ type: 'furniture', furnitureKind: 'Sofa' }), '9: a sofa with blank size (size class) is still allowed');
+ok(VALID.dimProblem({ type: 'furniture', furnitureKind: 'Sofa' }), '9: a sofa needs width, height and depth in inches');
+ok(!VALID.optionalDimProblem({ type: 'furniture', furnitureKind: 'Sofa' }), '9: optionalDim still allows a blank size for partner/custom leftovers');
 ok(!VALID.optionalDimProblem({ type: 'furniture', furnitureKind: 'Sofa', w: 84, h: 36, d: 36 }), '9: a realistic sofa is accepted');
 ok(!VALID.dimProblem({ type: 'painting', w: 2, h: 2, d: 1 }) && VALID.belowMinWarning({ type: 'painting', w: 2, h: 2, d: 1 }).state === 'small', '9: a 2-inch painting is a soft warning, not a hard reject');
 ok(!VALID.dimProblem({ type: 'painting', w: 4, h: 4, d: 1 }), '9: a 4×4×1 painting is accepted');
@@ -76,8 +77,9 @@ ok(VALID.minDimsFor({ type: 'sculpture' }).w === 2, '9: sculptures have a 2 in m
 // ---------- 4 + 6. Rush protection not multiplied; $3,000 deposit ----------
 ok(config.payment.depositThreshold === 3000, '6: deposit threshold stays $3,000');
 const plan4025 = paymentPlan(4025, 'pickup_delivery');
-ok(plan4025.paymentPlan === 'deposit' && plan4025.dueNow === 2012.5 && plan4025.balanceDue === 2012.5, '6: a $4,025 general total splits 50/50', plan4025);
-ok(paymentPlan(2999, 'pickup_delivery').paymentPlan === 'full', '6: $2,999 is paid in full');
+ok(plan4025.paymentPlan === 'deposit' && plan4025.dueNow === 2015 && plan4025.balanceDue === 2010, '6: a $4,025 general total splits 50/50, halves rounded to the nearest $5 ($2,015 due, $2,010 balance)', plan4025);
+ok(paymentPlan(2995, 'pickup_delivery').paymentPlan === 'full' && paymentPlan(2995, 'pickup_delivery').dueNow === 2995, '6: $2,995 (nearest $5 under the threshold) is paid in full');
+ok(paymentPlan(2999, 'pickup_delivery').paymentPlan === 'deposit' && paymentPlan(2999, 'pickup_delivery').dueNow === 1500, '6: $2,999 rounds to $3,000 and splits 50/50');
 const rush = quote({
   service: 'pickup_delivery', rush: true,
   items: [painting({ value: 10000 })],

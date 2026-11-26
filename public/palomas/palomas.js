@@ -2,7 +2,7 @@
 'use strict';
 const $ = (s, r = document) => r.querySelector(s);
 const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const usd = (n) => '$' + Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const usd = (n) => '$' + Number(n || 0).toLocaleString('en-US', { maximumFractionDigits: 0 });
 const num = (v) => { const n = Number(String(v ?? '').replace(/[,$\s]/g, '')); return Number.isFinite(n) ? n : 0; };
 
 let CFG = null;
@@ -78,6 +78,7 @@ function renderItems() {
         ${i.custom ? `<div class="cspec">${[i.w && i.d && i.h ? `<b>${esc(i.w)} × ${esc(i.d)} × ${esc(i.h)} in</b>` : '', i.weightUnsure ? 'weight not sure' : i.weight ? `<b>~${esc(i.weight)} lb</b>` : '', (i.photos || []).length ? `${i.photos.length} photo${i.photos.length > 1 ? 's' : ''}` : i.photoLater ? 'photo to follow' : ''].filter(Boolean).join(' · ')}</div>` : ''}
         ${isMirror(i.kind) && !i.custom ? `<div class="dims">Face size, optional: <input data-f="w" value="${esc(i.w)}" inputmode="numeric" placeholder="W"> × <input data-f="h" value="${esc(i.h)}" inputmode="numeric" placeholder="H"> in</div>` : ''}
         <div class="dims">Declared value $ <input data-f="value" value="${esc(i.value || '')}" inputmode="decimal" placeholder="e.g. 2500" aria-label="Declared value for ${esc(i.name)}"></div>
+        <p class="info-note" data-valhint>Declared value protection (1.5%) is included on pieces of $50,000 or less.</p>
         ${i.custom && i.weightUnsure ? `<p class="mini">Price may be adjusted once the actual weight is confirmed; we’ll get your approval before charging any additional fees.</p>` : ''}
         ${isMirror(i.kind) ? `<p class="mini">Mirrors and works on panel are often heavier than they look.</p>` : ''}
         <div class="rmrow"><button type="button" class="rm" data-rm="1" aria-label="Remove ${esc(i.name)}"><span aria-hidden="true">✕</span> Remove</button></div>
@@ -106,7 +107,7 @@ function problems() {
   if (!S.placedBy) add('Choose who is placing the order', '#placedBy', 'Please choose who is placing the order.');
   else if (S.placedBy === 'Other' && !S.placedOther.trim()) add('Type the name of who is placing the order', '#placedOther', 'Please type your name.');
   if (!S.items.length) add('Add at least one item', '#sec-items', 'Please add at least one item.');
-  S.items.forEach((i) => { if (!(num(i.value) > 0)) add('Declared value for ' + (i.name || 'item'), `[data-uid="${i.uid}"] [data-f="value"]`, 'Please enter a declared value. Declared value protection (1.5%) is included on pieces of $50,000 or less.'); });
+  S.items.forEach((i) => { if (!(num(i.value) > 0)) add('Declared value for ' + (i.name || 'item'), `[data-uid="${i.uid}"] [data-f="value"]`, 'Please enter a declared value.'); });
   const d = delivery();
   if (!d.name) add('Client name', '#dName', 'Please enter the client’s name.');
   if (d.phone.replace(/\D/g, '').length < 7) add('Client phone', '#dPhone', 'Please enter the client’s phone number.');
@@ -404,16 +405,30 @@ function showStepErrors(errs, { quiet = false } = {}) {
   if (fel && fel.focus && /^(INPUT|SELECT|TEXTAREA)$/.test(fel.tagName)) fel.focus({ preventScroll: true });
 }
 function refreshStepErrors() { if (document.querySelector('[data-stepmsg]')) showStepErrors(problemsFor(STEP_IDS[stepI]), { quiet: true }); }
+function frontLoadedPct(index, total, atEnd) {
+  if (atEnd || total <= 1) return 100;
+  const i = Math.max(0, Math.min(index, total - 1));
+  if (i >= total - 1) return 100;
+  const ratio = (total - 1) / total;
+  const k = Math.log(0.75) / Math.log(ratio || 0.5);
+  const t = (i + 1) / total;
+  return Math.max(1, Math.min(99, Math.round(100 * (1 - Math.pow(1 - t, k)))));
+}
+let palProgressHigh = 0, palLastIndex = -1;
 function showStep(i, { push = true } = {}) {
   i = Math.max(0, Math.min(STEP_IDS.length - 1, i));
   const first = !stepReady, changed = first || i !== stepI;
+  const goingBack = palLastIndex >= 0 && i < palLastIndex;
   stepI = i; stepReady = true;
   const id = STEP_IDS[i], isLast = id === 'review';
   document.querySelectorAll('[data-step]').forEach((el) => { el.hidden = el.dataset.step !== id; });
   $('#main').classList.toggle('single', !isLast);
   document.body.classList.toggle('compact', i > 0);
   $('#backBtn').hidden = i === 0; $('#nextBtn').hidden = isLast;
-  const pct = Math.round(((i + 1) / STEP_IDS.length) * 100);
+  let pct = frontLoadedPct(i, STEP_IDS.length, isLast);
+  if (goingBack) palProgressHigh = pct;
+  else { pct = Math.max(pct, palProgressHigh); palProgressHigh = pct; }
+  palLastIndex = i;
   $('#pbar i').style.width = pct + '%'; $('#pbar').setAttribute('aria-valuenow', String(pct));
   clearStepErrors();
   if (isLast) { returnToReview = false; renderReview(); renderSummary(); }

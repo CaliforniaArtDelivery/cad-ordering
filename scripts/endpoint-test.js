@@ -168,13 +168,13 @@ const body = (date, over = {}) => ({
   {
     const mk = (over) => body(D, { contact: { name: 'Opt Client ' + Math.random().toString(36).slice(2, 6), email: 'opt@example.com', phone: '310-555-0107', clientType: 'Collector' }, items: [art(12344)], ...over });
     const dflt = await post('/api/quote', mk({}));
-    ok(Math.abs(dflt.j.total - 385.16) < 0.006 && dflt.j.protection && dflt.j.protectionOption.declined === false, 'default: protection is included ($385.16)', dflt.j.total);
+    ok(Math.abs(dflt.j.total - 385) < 0.006 && dflt.j.protection && dflt.j.protectionOption.declined === false, 'default: protection is included ($385)', dflt.j.total);
     for (const [n, v] of [['string "true"', 'true'], ['1', 1], ['"yes"', 'yes'], ['false', false], ['null', null]]) {
       const r = await post('/api/quote', mk({ protectionDeclined: v }));
-      ok(r.j.protection && Math.abs(r.j.total - 385.16) < 0.006, `protectionDeclined = ${n} is ignored (only explicit true declines)`, r.j.total);
+      ok(r.j.protection && Math.abs(r.j.total - 385) < 0.006, `protectionDeclined = ${n} is ignored (only explicit true declines)`, r.j.total);
     }
     const dec = await post('/api/quote', mk({ protectionDeclined: true }));
-    ok(!dec.j.protection && Math.abs(dec.j.total - 200) < 0.006 && dec.j.protectionOption.declined === true && dec.j.protectionOption.amount === 185.16, 'protectionDeclined = true: line drops ($200), add-back amount stays known ($185.16)', dec.j);
+    ok(!dec.j.protection && Math.abs(dec.j.total - 200) < 0.006 && dec.j.protectionOption.declined === true && dec.j.protectionOption.amount === 185, 'protectionDeclined = true: line drops ($200), add-back amount stays known ($185)', dec.j);
     const o1 = await post('/api/orders', mk({ protectionDeclined: true }));
     const stored = o1.j && o1.j.order;
     ok(o1.status === 200 && stored.protectionDeclined === true && !!stored.protectionDeclinedAt && stored.declaredValueProtection === false && !stored.quote.protection, 'the order record stores the opt-out, timestamp included', stored && { d: stored.protectionDeclined, at: stored.protectionDeclinedAt });
@@ -192,7 +192,7 @@ const body = (date, over = {}) => ({
     ok(gone.status === 404, 'the member-code endpoint is gone', gone.status);
 
     const jt = await post('/api/discount-code', { code: ' jt ', order: mk({}) });
-    ok(jt.j.valid === true && jt.j.code === 'JT' && Math.abs(jt.j.amount - 96.29) < 0.006, 'JT (any case, trimmed) is valid: 25% of $385.16 = $96.29', jt.j);
+    ok(jt.j.valid === true && jt.j.code === 'JT' && Math.abs(jt.j.amount - 95) < 0.006, 'JT (any case, trimmed) is valid: 25% of $385 = $95', jt.j);
     const bad = await post('/api/discount-code', { code: 'NOPE', order: mk({}) });
     ok(bad.j.valid === false && /isn.t valid/.test(bad.j.message), 'unknown code -> clear "isn’t valid" message', bad.j);
     const inactive = await post('/api/discount-code', { code: 'freedelivery500', order: mk({}) });
@@ -201,11 +201,11 @@ const body = (date, over = {}) => ({
     ok(empty.status === 400 && empty.j.valid === false, 'blank code -> 400 "Enter a discount code."', empty.j);
     const withCode = await post('/api/orders', mk({ discountCode: 'jt' }));
     const oc = withCode.j && withCode.j.order;
-    ok(withCode.status === 200 && oc.discountCode === 'JT' && oc.quote.discount.amount === 96.29 && oc.quote.lines.some((l) => /^Discount code JT/.test(l.label) && l.amount === -96.29) && Math.abs(oc.quote.total - 288.87) < 0.006, 'an order with code jt stores JT and prices $288.87 with its own discount line', oc && oc.quote.total);
+    ok(withCode.status === 200 && oc.discountCode === 'JT' && oc.quote.discount.amount === 95 && oc.quote.lines.some((l) => /^Discount code JT/.test(l.label) && l.amount === -95) && Math.abs(oc.quote.total - 290) < 0.006, 'an order with code jt stores JT and prices $290 with its own discount line', oc && oc.quote.total);
     const fakeAmt = await post('/api/orders', mk({ discountCode: 'JT', discount: { amount: 9999 }, discountAmount: 9999 }));
-    ok(fakeAmt.status === 200 && fakeAmt.j.order.quote.discount.amount === 96.29, 'a client-supplied discount amount is ignored; only the code counts', fakeAmt.j.order && fakeAmt.j.order.quote.discount);
+    ok(fakeAmt.status === 200 && fakeAmt.j.order.quote.discount.amount === 95, 'a client-supplied discount amount is ignored; only the code counts', fakeAmt.j.order && fakeAmt.j.order.quote.discount);
     const fakeCode = await post('/api/orders', mk({ discountCode: 'FREEDELIVERY500' }));
-    ok(fakeCode.status === 200 && !fakeCode.j.order.discountCode && Math.abs(fakeCode.j.order.quote.total - 385.16) < 0.006, 'an inactive code sent straight to /api/orders is ignored', fakeCode.j.order && fakeCode.j.order.discountCode);
+    ok(fakeCode.status === 200 && !fakeCode.j.order.discountCode && Math.abs(fakeCode.j.order.quote.total - 385) < 0.006, 'an inactive code sent straight to /api/orders is ignored', fakeCode.j.order && fakeCode.j.order.discountCode);
     const tries = []; for (let i = 0; i < 14; i++) tries.push((await post('/api/discount-code', { code: 'GUESS' + i })).status);
     ok(tries.includes(429), 'guessing codes is rate-limited (429 after repeated misses)', tries);
   }

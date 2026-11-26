@@ -141,7 +141,7 @@ const ord = (o = {}) => ({ service: 'pickup_delivery', pickup: addr('8678 Melros
   const laBody = (over) => ({ service: 'pickup_delivery', pickup: addr('8678 Melrose Ave', 'West Hollywood', '90069'), dropoff: addr('1200 Summit Ridge Dr', 'Beverly Hills', '90210'), items: [item()], ...over });
   const laDays = (await avail(laBody({}))).days;
   const dA = laDays[0].date;
-  const sofa = await post('/api/orders', baseOrder(dA, { items: [{ qty: 1, type: 'furniture', furnitureKind: 'Sofa', sizeClass: 'small', value: 2000, description: 'Small sofa' }] }));
+  const sofa = await post('/api/orders', baseOrder(dA, { items: [{ qty: 1, type: 'furniture', furnitureKind: 'Sofa', sizeClass: 'small', w: 60, h: 32, d: 32, value: 2000, description: 'Small sofa' }] }));
   // Default (Chad's Nov 16 rule wins): NEED HELPER is only a label, the order books and pays immediately. HELPER_HOLD_ORDERS=1 holds the date for the team instead.
   const HOLD = process.env.HELPER_HOLD_ORDERS === '1';
   console.log(`  (NEED HELPER mode: ${HOLD ? 'HOLD, HELPER_HOLD_ORDERS=1' : 'label only, default'})`);

@@ -91,10 +91,9 @@
   }
   // Hard problem that must be fixed (partial set, invalid, huge). Below-minimum is a soft warning, not a hard block.
   function dimProblem(it) {
-    if (hasSizeClassOnly(it) && dimFilledCount(it) === 0) return null;
     const filled = dimFilledCount(it);
     if (filled > 0 && filled < 3) {
-      return { key: ['w', 'h', 'd'].find((k) => dimState(it, k) === 'missing') || 'w', state: 'partial', message: 'Please enter all three dimensions (width, height and depth), or choose size class only.' };
+      return { key: ['w', 'h', 'd'].find((k) => dimState(it, k) === 'missing') || 'w', state: 'partial', message: 'Please enter all three dimensions (width, height and depth).' };
     }
     for (const k of ['w', 'h', 'd']) {
       const s = dimState(it, k);
@@ -103,16 +102,14 @@
     return null;
   }
   function belowMinWarning(it) {
-    if (hasSizeClassOnly(it) && dimFilledCount(it) === 0) return null;
     if (dimProblem(it)) return null;
     for (const k of ['w', 'h', 'd']) {
       if (dimState(it, k) === 'small') return { key: k, state: 'small', message: DIM_MESSAGES.small(k, it), quote: true };
     }
     return null;
   }
-  // Furniture and custom: blank size is allowed when a size class is chosen, but any size that is typed must be a complete set.
+  // Custom requests (and partner catalog furniture) may leave size blank; any size that is typed must be a complete set.
   function optionalDimProblem(it) {
-    if (hasSizeClassOnly(it) && dimFilledCount(it) === 0) return null;
     const filled = ['w', 'h', 'd'].some((k) => {
       const raw = (it || {})[k];
       return raw !== undefined && raw !== null && String(raw).trim() !== '';
@@ -120,7 +117,7 @@
     for (const k of ['w', 'h', 'd']) {
       const s = dimState(it, k);
       if (s === 'invalid' || s === 'huge') return { key: k, state: s, message: DIM_MESSAGES[s](k, it) };
-      if (filled && s === 'missing') return { key: k, state: s, message: 'Please enter the width, height and depth in inches, or clear all three, or choose size class only.' };
+      if (filled && s === 'missing') return { key: k, state: s, message: 'Please enter the width, height and depth in inches, or clear all three.' };
     }
     return null;
   }
@@ -228,5 +225,23 @@
 
   const addressOk = (a) => addressProblems(a).length === 0;
 
-  return { MIN_DIM, TYPE_MIN, FURNITURE_MIN, minDimsFor, REVIEW_DIM, MAX_DIM, num, parseDim, dimState, dimProblem, optionalDimProblem, belowMinWarning, hasSizeClassOnly, dimFilledCount, largestSide, isOversized, zipOk, cityOk, streetHasNumber, noStreetNumberOk, needsAddressReview, isUS, addressProblems, addressOk, emailProblem, typoEmail, EMAIL_RX };
+  // Map entered inches to the furniture / décor rate-card tier so pricing still works with no size-class picker.
+  function sizeClassFromDims(it, kind) {
+    const max = Math.max(0, ...['w', 'h', 'd'].map((k) => num((it || {})[k]) || 0));
+    if (!(max > 0)) return (it && it.sizeClass) || 'medium';
+    const accents = new Set(['accent', 'Accents', 'Other (describe)']);
+    const isAccent = !!(kind && (accents.has(kind) || /vase|figurine|bowl|box|tray|candlestick|sculpture/i.test(String(kind))));
+    if (isAccent) {
+      if (max < 8) return 'xs';
+      if (max < 16) return 'small';
+      if (max < 28) return 'medium';
+      if (max < 48) return 'large';
+      return 'xl';
+    }
+    if (max < 36) return 'small';
+    if (max < 72) return 'medium';
+    return 'large';
+  }
+
+  return { MIN_DIM, TYPE_MIN, FURNITURE_MIN, minDimsFor, REVIEW_DIM, MAX_DIM, num, parseDim, dimState, dimProblem, optionalDimProblem, belowMinWarning, hasSizeClassOnly, dimFilledCount, largestSide, isOversized, sizeClassFromDims, zipOk, cityOk, streetHasNumber, noStreetNumberOk, needsAddressReview, isUS, addressProblems, addressOk, emailProblem, typoEmail, EMAIL_RX };
 });

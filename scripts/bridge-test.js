@@ -226,7 +226,7 @@ const snapshotMain = (bridge) => JSON.stringify(bridge.sheet('SCHEDULE 2026').ce
     ['cross-region + stairs', baseOrder(DB, { dropoff: addr('500 Embarcadero', 'San Francisco', '94111', { accessMode: 'stairs', stairFlights: 2, stairDir: 'up', stairTurns: 'no', stairPhotos: [], contactName: 'Sam SF', contactPhone: '415-555-0100', floor: '2', hours: 'after 10am' }) })],
     ['Not sure access', baseOrder(DB, { pickup: addr('1 Not Sure Way', 'Pasadena', '91101', { accessMode: 'not_sure', fits: 'not_sure' }) })],
     ['heavy piece', baseOrder(a1.days[5].date, { items: [{ qty: 2, type: 'sculpture', weight: 226, w: 16, h: 52, d: 15, value: 30000, description: 'Bronze on plinth' }] })],
-    ['custom furniture', baseOrder(a1.days[6].date, { items: [{ qty: 1, type: 'furniture', furnitureKind: 'Sofa', sizeClass: 'large', value: 2000, description: 'Custom sofa (sectional)' }] })],
+    ['custom furniture', baseOrder(a1.days[6].date, { items: [{ qty: 1, type: 'furniture', furnitureKind: 'Sofa', sizeClass: 'large', w: 96, h: 36, d: 40, value: 2000, description: 'Custom sofa (sectional)' }] })],
   ];
   for (const [name, b] of variants) {
     if (name.startsWith('cross-region')) {

@@ -1,5 +1,5 @@
 // Unit tests for quote() pricing. Usage: npm test
-const { quote, roundUpTo, mirrorInstallTier, mirrorTransportTier } = require('../lib/pricing');
+const { quote, roundUpTo, roundToNearest5, mirrorInstallTier, mirrorTransportTier } = require('../lib/pricing');
 
 const errors = [];
 const check = (cond, msg, extra) => {
@@ -9,7 +9,7 @@ const check = (cond, msg, extra) => {
   }
 };
 
-const q = (service, items, extra = {}) => quote({ service, items, ...extra });
+const q = (service, items, extra = {}) => quote({ service, items, ...extra }, { skipCustomerRound: true });
 const line = (res, re) => (res.lines || []).find((l) => re.test(l.label));
 // Quantity no longer exists on the main site (one entry = one piece): qty in a test fixture means that many separate pieces, each with its own line.
 const near = (a, b) => Math.abs(a - b) < 0.006;
@@ -22,6 +22,11 @@ check(roundUpTo(137.5, 5) === 140, '137.50 should round up to $140');
 check(roundUpTo(110, 5) === 110, '110 is already a $5 step and should stay $110');
 check(roundUpTo(111, 5) === 115, '111 should round up to $115, not down to $110');
 check(roundUpTo(187.5, 5) === 190, '187.50 should round up to $190');
+
+check(roundToNearest5(273.75) === 275, '273.75 rounds to the nearest $5 → $275');
+check(roundToNearest5(236.25) === 235, '236.25 rounds to the nearest $5 → $235');
+check(roundToNearest5(272.50) === 275, '272.50 half-up midpoint rounds to $275');
+check(roundToNearest5(275) === 275, 'an exact $5 multiple stays');
 
 const inst = (w, h) => mirrorInstallTier({ w, h }).multiplier;
 const trn = (w, h) => mirrorTransportTier({ w, h }).multiplier;

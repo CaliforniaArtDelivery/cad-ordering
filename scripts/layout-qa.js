@@ -28,12 +28,12 @@ async function checkStep(page, label, problems, freshStep = false) {
       headerBottom: top.bottom, h1Top: hr.top, h1Bottom: hr.bottom, subBottom: sr && sr.bottom, dockTop: dr && dr.top,
       h1Hit: !!hitH1 && (hitH1 === h1 || h1.contains(hitH1)), h1TopHit: !!hitH1Top && (hitH1Top === h1 || h1.contains(hitH1Top)),
       sw: document.documentElement.scrollWidth, cw: document.documentElement.clientWidth, bodySw: document.body.scrollWidth,
-      labelFits: (() => { const l = document.querySelector('#stepsLabel'); return l.scrollWidth <= l.clientWidth + 0.5; })(), brandRight: document.querySelector('.brand').getBoundingClientRect().right, labelLeft: document.querySelector('#stepsLabel').getBoundingClientRect().left,
+      noStepsLabel: !document.querySelector('#stepsLabel'),
       vh: innerHeight, sh: document.documentElement.scrollHeight,
     };
   });
   if (r.h1Top < r.headerBottom - 0.5) problems.push(`${label}: heading starts under header (${r.h1Top} < ${r.headerBottom})`);
-  if (!r.labelFits || r.brandRight > r.labelLeft) problems.push(`${label}: step label truncated or overlapping`);
+  if (!r.noStepsLabel) problems.push(`${label}: step label should not be shown`);
   if (r.h1Top < 0) problems.push(`${label}: heading above viewport`);
   if (!r.h1Hit || !r.h1TopHit) problems.push(`${label}: heading is covered by another element`);
   if (r.subBottom && r.dockTop && r.subBottom > r.dockTop) problems.push(`${label}: intro line runs under the dock`);

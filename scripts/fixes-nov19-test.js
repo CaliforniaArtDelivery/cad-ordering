@@ -6,7 +6,8 @@ const { spawn } = require('child_process');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { quote } = require('../lib/pricing');
+const pricing = require('../lib/pricing');
+const quote = (o, opts) => pricing.quote(o, { skipCustomerRound: true, ...(opts || {}) });
 const V = require('../public/validate');
 
 let pass = 0, fail = 0;
@@ -78,11 +79,11 @@ hdr('2. Address checks (shared module)');
 hdr('3. Size checks (shared module)');
 {
   ok(V.dimProblem({ w: '', h: '', d: '' }).state === 'missing', 'blank sizes are missing');
-  ok(V.dimProblem({ w: 1, h: 1, d: 1 }).state === 'small', '1 x 1 x 1 is refused');
-  ok(V.dimProblem({ w: 3.9, h: 20, d: 2 }).key === 'w', 'width under 4 in. is refused');
-  ok(V.dimProblem({ w: 20, h: 3, d: 2 }).key === 'h', 'height under 4 in. is refused');
-  ok(V.dimProblem({ w: 20, h: 20, d: 0.5 }).key === 'd', 'depth under 1 in. is refused');
-  ok(V.dimProblem({ w: 4, h: 4, d: 1 }) === null, 'the minimum itself (4 x 4 x 1) is accepted');
+  ok(!V.dimProblem({ w: 1, h: 1, d: 1 }) && V.belowMinWarning({ w: 1, h: 1, d: 1 }), '1 x 1 x 1 is a soft below-minimum warning, not a hard block');
+  ok(V.belowMinWarning({ w: 3.9, h: 20, d: 2 }).key === 'w', 'width under 4 in. is a soft warning');
+  ok(V.belowMinWarning({ w: 20, h: 3, d: 2 }).key === 'h', 'height under 4 in. is a soft warning');
+  ok(V.belowMinWarning({ w: 20, h: 20, d: 0.5 }).key === 'd', 'depth under 1 in. is a soft warning');
+  ok(V.dimProblem({ w: 4, h: 4, d: 1 }) === null && !V.belowMinWarning({ w: 4, h: 4, d: 1 }), 'the minimum itself (4 x 4 x 1) is accepted');
   ok(V.dimProblem({ w: 24, h: 36, d: 1.5 }) === null, 'a framed print 24 x 36 x 1.5 is accepted');
 }
 
@@ -105,7 +106,7 @@ hdr('3b. B1: strict decimal parsing of sizes');
   const ov = RULES.review(order([art(5000, { w: 130 })]));
   ok(ov.needed && ov.kinds.includes('oversized') && /^Oversized piece: CAD will confirm handling/.test(ov.reasons[0].text), 'the review rules flag an oversized piece with the agreed wording', ov);
   const ovq = quote(order([art(5000, { w: 130 })]));
-  ok(ovq.paymentPlan === 'quote' && ovq.reviewOnly === true && ovq.total > 0 && ovq.total === ovq.regularTotal, 'an oversized piece prices at the regular rate but becomes a review-only quote (not payable)', { plan: ovq.paymentPlan, total: ovq.total });
+  ok(ovq.paymentPlan !== 'quote' && !ovq.reviewOnly && ovq.total > 0, 'an oversized piece is still payable; the flag goes to the team (Chad, Nov 23)', { plan: ovq.paymentPlan, total: ovq.total });
   ok(!RULES.review(order([art(5000, { w: 120 })])).needed, 'a 120 in piece is not reviewed');
 }
 
@@ -125,7 +126,7 @@ hdr('3c. I3: city characters and the no-street-number checkbox (shared module)')
   ok(V.addressProblems({ street: '   ', city: 'Big Sur', zip: '93920', noStreetNumber: true }).some((x) => x.field === 'street'), 'the checkbox never excuses a blank street');
   ok(V.addressProblems({ ...rural, noStreetNumber: true, zip: '123456' }).some((x) => x.field === 'zip'), 'the checkbox never excuses a bad ZIP');
   const q = quote(order([art(5000)], { pickup: { ...rural, noStreetNumber: true, zip: '94103', city: 'San Francisco' } }));
-  ok(q.reviewOnly === true && q.paymentPlan === 'quote', 'a ticked no-number address becomes a review-only quote');
+  ok(!q.reviewOnly && q.paymentPlan !== 'quote', 'a ticked no-number address is still payable; the flag goes to the team (Chad, Nov 23)');
 }
 
 hdr('3d. I2: the 0.75% value charge is never silently dropped; the rush base never goes negative');
@@ -325,9 +326,9 @@ const post = async (p, b) => { const r = await fetch(BASE + p, { method: 'POST',
     const badOrderZip = await post('/api/orders', full({ dropoff: { ...full().dropoff, zip: '123456' }, items: [{ ...art(5000), framed: 'no' }] }));
     ok(badOrderZip.status === 400 && /ZIP/.test(badOrderZip.j.error), 'order with ZIP 123456 is refused', badOrderZip.j);
     const tiny = await post('/api/orders', full({ items: [{ ...art(5000), framed: 'no', w: 1, h: 1, d: 1 }] }));
-    ok(tiny.status === 400 && /size/.test(tiny.j.error), 'order with a 1 x 1 x 1 piece is refused', tiny.j);
+    ok(tiny.status === 200 && tiny.j && tiny.j.id, 'a 1 x 1 x 1 piece is accepted (below-minimum is a warning, not a hard block)', tiny.j);
     const blank = await post('/api/orders', full({ items: [{ ...art(5000), framed: 'no', w: '', h: '', d: '' }] }));
-    ok(blank.status === 400 && /size/.test(blank.j.error), 'order with blank sizes is refused', blank.j);
+    ok(blank.status === 400 && /dimension|size/i.test(blank.j.error), 'order with blank sizes is refused', blank.j);
   } finally { child.kill(); }
   console.log(`\n${pass} passed, ${fail} failed`);
   process.exit(fail ? 1 : 0);

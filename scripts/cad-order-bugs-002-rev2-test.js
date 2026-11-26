@@ -126,7 +126,8 @@ ok(!sched.calendarUnavailable(), '5: legacy mode still uses the catalog when liv
 
 // ---------- 6. Deposit threshold $3,000 on the payable amount ----------
 ok(config.payment.depositThreshold === 3000, '6: deposit threshold stays $3,000 (pending Chad)');
-ok(paymentPlan(2999.99, 'pickup_delivery').paymentPlan === 'full' && paymentPlan(2999.99, 'pickup_delivery').dueNow === 2999.99, '6: $2,999.99 is paid in full');
+ok(paymentPlan(2995, 'pickup_delivery').paymentPlan === 'full' && paymentPlan(2995, 'pickup_delivery').dueNow === 2995, '6: $2,995 is paid in full');
+ok(paymentPlan(2999.99, 'pickup_delivery').paymentPlan === 'deposit' && paymentPlan(2999.99, 'pickup_delivery').dueNow === 1500, '6: $2,999.99 rounds to $3,000 and is a 50/50 deposit');
 const p3 = paymentPlan(3000, 'pickup_delivery');
 ok(p3.paymentPlan === 'deposit' && p3.dueNow === 1500 && p3.balanceDue === 1500 && /at pickup/i.test(p3.paymentSummary + p3.balanceWhen),
   '6: $3,000.00 is a 50/50 deposit, balance collected at pickup, wording shown in paymentSummary', p3);
@@ -165,7 +166,7 @@ ok(days.capacityLeft('2026-12-04') === Infinity, '8: gap — legacy + no calenda
 // ---------- 9. All three dims or size-class-only; soft mins; typo suggest; no silent address change ----------
 ok(VALID.dimProblem({ type: 'painting', w: 24, h: 30 }) && VALID.dimProblem({ type: 'painting', w: 24, h: 30 }).state === 'partial',
   '9: a partial dimension set is rejected');
-ok(!VALID.dimProblem({ type: 'painting', sizeClassOnly: true, sizeClass: 'medium' }), '9: an explicit size-class-only choice is accepted without dimensions');
+ok(VALID.dimProblem({ type: 'painting', sizeClassOnly: true, sizeClass: 'medium' }), '9: size class alone is not accepted — width, height and depth are required');
 ok(VALID.belowMinWarning({ type: 'furniture', furnitureKind: 'Sofa', w: 1, h: 1, d: 1 }).quote, '9: below-minimum is a quote/manual-review option');
 ok(VALID.typoEmail('a@gmial.com') === 'a@gmail.com' && !VALID.emailProblem('a@gmial.com'), '9: typo emails are suggested, never a hard silent change');
 
