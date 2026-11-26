@@ -862,21 +862,23 @@ function dedDateProblem(iso, side) {
 const dedSideLabel = (side) => (side === 'pickup' ? 'Pickup' : svc().needsPickup ? 'Delivery' : (svc().install ? 'Install' : 'Delivery'));
 const lastDedSide = () => (dedOn('delivery') ? 'delivery' : 'pickup');
 // No dedicated date works (or the one they need is full): send it as a request; the team schedules it and nothing is charged yet.
-const customDateBlock = () => `<div class="ded-custom" data-reqblock="customdate">
+const customDateBlock = (side) => `<div class="ded-custom" ${side === lastDedSide() ? 'data-reqblock="customdate"' : ''}>
     <label class="chk"><input type="checkbox" data-path="customDate" data-rerender ${S.customDate ? 'checked' : ''}> Request a custom date</label>
-    ${S.customDate ? `${input('schedule.customDateNote', 'Which dates would work?', { ph: 'For example: any weekday the week of Dec 14', req: true })}
+    ${S.customDate && side === lastDedSide() ? `${input('schedule.customDateNote', 'Which dates would work?', { ph: 'For example: any weekday the week of Dec 14', req: true })}
       <p class="mini">We’ll schedule it and confirm the date with you before anything is charged.</p>` : ''}
   </div>`;
 function dedBox(side, tagged) {
   const on = dedOn(side), path = dedDatePath(side), v = get(path), R = (CFG && CFG.dedicated) || {};
   const prob = on && v ? dedDateProblem(v, side) : '';
   const blk = path === 'schedule.date' ? 'date' : 'deldate';
-  return `<div class="ded-box${on ? ' on' : ''}" data-ded="${side}">
-    ${tagged ? `<p class="ded-tag">${dedSideLabel(side)}</p>` : ''}<p class="ded-q">None of these dates work for you?</p>
-    ${toggle(dedKey(side), 'Select a dedicated trip', 'A van and crew just for your job, on a date that works for you.', true, 'first')}
+  return `<div class="ded-box${on ? ' on' : ''}${tagged ? ' in-col' : ''}" data-ded="${side}">
+    <p class="ded-q">None of these dates work for you?</p>
+    ${tagged ? `<label class="ded-toggle"><span class="ded-lab">Select a dedicated trip</span><span class="sw"><input type="checkbox" data-path="${dedKey(side)}" ${on ? 'checked' : ''} data-rerender aria-label="Select a dedicated trip for the ${dedSideLabel(side).toLowerCase()}"><i></i></span></label>
+    <p class="ded-help">A van and crew just for your job, on a date that works for you.</p>`
+    : toggle(dedKey(side), 'Select a dedicated trip', 'A van and crew just for your job, on a date that works for you.', true, 'first')}
     ${on && !S.customDate ? `<div class="ded-date" data-reqblock="${blk}">${input(path, `${dedSideLabel(side)} date`, { type: 'date', attrs: `min="${esc(dedMin(side))}" max="${esc(R.max || '')}" data-rerender data-deddate="${side}"`, req: true })}
       ${prob ? `<p class="mini ded-err" role="alert">${esc(prob)}</p>` : ''}</div>` : ''}
-    ${on && (!tagged || side === lastDedSide()) ? customDateBlock() : ''}
+    ${on ? customDateBlock(side) : ''}
   </div>`;
 }
 
@@ -1043,16 +1045,17 @@ function pairBlock() {
   return `<p class="pair-hint mini" data-pairhint>${hint}</p>${cross}
     <div class="date-pair">
       <div class="date-col" data-col="pu">${head('Pickup', S.schedule.date, 'pu')}
-        ${dedOn('pickup') ? '<p class="mini ded-col">Dedicated trip. Pick your pickup date below.</p>' : `<div class="region">● ${esc((avail && avail.area) || 'Pickup')} route</div>
+        ${dedOn('pickup') ? '' : `<div class="region">● ${esc((avail && avail.area) || 'Pickup')} route</div>
         <div class="days col-days" data-reqblock="date">${pw.list.map((d) => pairCard(d, 'pu')).join('')}</div>${pw.btn}
         ${rush.length ? `<p class="col-sub">Need a different pickup date?</p><div class="days col-days">${rush.map((d) => pairCard(d, 'pu')).join('')}</div>` : ''}`}
+        ${dedBox('pickup', true)}
       </div>
       <div class="date-col" data-col="del">${head('Delivery', S.schedule.deliveryDate, 'del')}
-        ${dedOn('delivery') ? '<p class="mini ded-col">Dedicated trip. Pick your delivery date below.</p>' : `<div class="region">● ${esc((delAvail && delAvail.area) || 'Delivery')} route</div>
+        ${dedOn('delivery') ? '' : `<div class="region">● ${esc((delAvail && delAvail.area) || 'Delivery')} route</div>
         ${delAvail ? `<div class="days col-days" data-reqblock="deldate">${dw.list.map((d) => pairCard(d, 'del')).join('')}</div>${dw.btn}` : '<p class="mini" data-reqblock="deldate">Finding delivery days…</p>'}`}
+        ${dedBox('delivery', true)}
       </div>
     </div>
-    ${dedBox('pickup', true)}${dedBox('delivery', true)}
 `;
 }
 

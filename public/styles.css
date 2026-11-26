@@ -487,3 +487,18 @@ details.handling .handling-body .toggle{padding-bottom:0}
 .ded-err{color:var(--err,#b00020);margin:-4px 0 8px}
 .ded-tag{font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin:0 0 4px}
 .ded-col{margin:6px 2px 0}
+/* Split layout (Chad, t2078u): each side's dedicated box sits in its own date column, under that side's dates. */
+.ded-box.in-col{margin-top:12px;padding:10px 10px 4px;border-radius:12px}
+.ded-box.in-col .ded-q{font-size:15.5px;line-height:1.25;margin:0 0 8px;overflow-wrap:break-word;hyphens:manual}
+.ded-toggle{display:flex;align-items:center;justify-content:space-between;gap:8px;cursor:pointer;margin:0}
+.ded-toggle .ded-lab{font-size:14.5px;font-weight:600;line-height:1.25;min-width:0;flex:1 1 auto}
+.ded-toggle .sw{flex:0 0 auto}
+.ded-help{font-size:12.5px;line-height:1.35;color:var(--muted);margin:6px 0 8px}
+.ded-box.in-col .ded-date .field{margin-bottom:8px}
+.ded-box.in-col .ded-date input[type=date]{width:100%;min-width:0;font-size:15px;padding-left:8px;padding-right:6px}
+.ded-box.in-col .ded-custom .chk{font-size:13px;line-height:1.3;align-items:flex-start}
+.ded-box.in-col .ded-custom .field input{font-size:15px}
+.ded-box.in-col .ded-err{font-size:12.5px;margin:0 0 8px}
+.ded-toggle .sw{width:44px;height:27px}
+.ded-toggle .sw i:before{width:23px;height:23px}
+.ded-toggle .sw input:checked+i:before{transform:translateX(17px)}
