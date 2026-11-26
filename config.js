@@ -320,6 +320,44 @@ module.exports = {
   // SLO/Pismo → SB or Fresno → SB (or straight to LA if no SB).
   // Midweek of a SoCal week: Tue Coachella Valley, Wed San Diego County, Thu Orange County.
   // SoCal Fri–Sun: no regular stops (OC overflow only; farther out only if a big job).
+  // Dedicated trip fee (Chad, Nov 25 2026, t2069u / t2071u / t2073u / t2074u). INTERNAL ONLY: the customer sees one total price.
+  // The rate, hours, start point, weekend charge and this formula are never shown (no line item; the fee is folded into the price).
+  //   1. Extra hours, per dedicated side = round-trip drive from the closest starting point that day to the address:
+  //      the nearest hub, or the center of a route region the van serves on that date when that is closer
+  //      (e.g. Tahoe on a Sacramento route day). Drive time = straight-line km x roadFactor / avgKmh (~45 mph, rush-hour-safe),
+  //      round trip, rounded to the nearest roundHoursTo. Pickup + delivery = one pool of hours (the sum).
+  //   2. Fee = ratePerHour for the first tierHours, then ratePerHourAfter for each hour beyond; at least minFee.
+  //   3. + weekendFee once when any dedicated date is a Saturday or Sunday. Added on top of the normal price; total to nearest $5.
+  //   Calibration: Carmel ~3 h = $300; Sacramento ~5 h = $500; a 7 h pool = 5x100 + 2x50 = $600.
+  // Dates: any day at least leadTimeDays out (PT), not a holiday / blackout, up to maxDaysOut; Sundays only when allowSundays.
+  dedicatedTrip: {
+    hubs: [
+      { name: 'San Jose (Gradell Place)', region: 'NorCal', ll: [37.3375, -121.7886] },
+      { name: 'Irvine', region: 'SoCal', ll: [33.68, -117.79] },
+    ],
+    useRouteDayStart: true,
+    roadFactor: 1.3,
+    avgKmh: 72.4,
+    roundTrip: true,
+    roundHoursTo: 0.5,
+    ratePerHour: 100,
+    tierHours: 5,
+    ratePerHourAfter: 50,
+    minFee: 50,
+    weekendFee: 100,
+    roundTo: 5,
+    unknownHours: 2,
+    leadTimeDays: 2,
+    maxDaysOut: 120,
+    allowSundays: true,
+    // Capacity (t2075u, approximation): a dedicated side needs ceil((round-trip hours + onSiteHours) / hoursPerRow) free job rows
+    // on that date in the CAD SCHEDULE (sheet-days capacityLeft, 8 rows = 10 h). When the day before is full and the date already
+    // has jobs, one extra row is required (early jobs after a long day). Overnight leg: when the date has no jobs booked yet, the
+    // previous day's route regions also count as a starting point (stay over, e.g. Sacramento -> Tahoe).
+    onSiteHours: 1,
+    hoursPerRow: 1.25,
+    useOvernightStart: true,
+  },
   scheduling: {
     // Morning window (9-10:30) only on days that already have this many stops (schedule + booked online orders); else Late morning first.
     morningUnlockStops: Number(process.env.MORNING_UNLOCK_STOPS || 5),

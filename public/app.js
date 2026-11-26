@@ -50,7 +50,7 @@ const emptyHeard = () => ({
   referrerKind: '', referrerName: '', referrerPhone: '', referrerEmail: '', businessName: '',
 });
 const fresh = () => ({
-  service: '', crating: false, rush: false, dedicated: false, declaredValueProtection: false, protectionDeclined: false, discountCode: '',
+  service: '', crating: false, rush: false, dedicated: false, dedicatedPickup: false, dedicatedDelivery: false, customDate: false, declaredValueProtection: false, protectionDeclined: false, discountCode: '',
   items: [emptyItem()], pickup: emptyAddr(), dropoff: emptyAddr(),
   contact: { name: '', email: '', phone: '', company: '', clientType: '' },
   heard: emptyHeard(), referral: false, partner: { type: 'None', name: '', email: '', phone: '' }, payer: 'pickup', payerOther: { name: '', email: '', phone: '' },
@@ -166,6 +166,12 @@ const payload = () => {
   applySameAsMe('pickup'); applySameAsMe('dropoff'); applySamePickup(); tidyAccess('pickup'); tidyAccess('dropoff'); // default on-site contact = the booker
   const o = JSON.parse(JSON.stringify(S));
   const sv = (CFG && CFG.services[o.service]) || {};
+  // Dedicated trip per side (Chad, Nov 25 2026). Install only has one stop: the delivery side.
+  if (!sv.needsPickup) o.dedicatedPickup = false;
+  o.dedicated = !!(o.dedicatedPickup || o.dedicatedDelivery);
+  if (!o.dedicated) o.customDate = false;
+  if (!o.customDate) delete o.schedule.customDateNote;
+  else { o.schedule.date = ''; o.schedule.deliveryDate = ''; }
   // "Same as me": no role is sent; the server uses the booker's own "I am a…" (never a silent default).
   ['pickup', 'dropoff'].forEach((k) => { if (o[k] && o[k].sameAsMe) { o[k].contactRole = ''; o[k].contactRoleOther = ''; } });
   const clearInstall = (a) => { a.centerHeight = ''; a.wallType = ''; a.hardware = ''; a.highInstall = false; a.installLocation = ''; a.wallPhotos = []; };
@@ -200,7 +206,7 @@ const payload = () => {
   ['pickup', 'dropoff'].forEach((k) => { if (o[k] && !o[k].technicalCarry) o[k].sitePhotos = []; });
   ['pickup', 'dropoff'].forEach((k) => { if (o[k] && (o[k].noStreetNumber !== true || /\d/.test(String(o[k].street || '')))) o[k].noStreetNumber = false; });
   if (intlDest(o.dropoff)) o.dropoff.state = '';
-  if (isShipState()) { o.schedule = { date: '', window: '', timePref: 'none', timeNote: '', deliveryLater: false, deliveryDate: '', deliveryTimePref: 'none', deliveryTimeNote: '' }; o.rush = false; o.dedicated = false; o.crating = false; clearInstall(o.dropoff); if (!intlDest(o.dropoff)) o.shipping.customs = { name: '', phone: '', email: '' }; }
+  if (isShipState()) { o.schedule = { date: '', window: '', timePref: 'none', timeNote: '', deliveryLater: false, deliveryDate: '', deliveryTimePref: 'none', deliveryTimeNote: '' }; o.rush = false; o.dedicated = false; o.dedicatedPickup = false; o.dedicatedDelivery = false; o.crating = false; clearInstall(o.dropoff); if (!intlDest(o.dropoff)) o.shipping.customs = { name: '', phone: '', email: '' }; }
   else delete o.shipping;
   o.items.forEach((it) => { cleanFraming(it); delete it.framedGlass; tidyItemWeight(it); });
   syncHeardPayload(o);
@@ -296,7 +302,7 @@ const isShip = isShipState;
 const get = (path) => path.split('.').reduce((o, k) => (o == null ? o : o[k]), S);
 const set = (path, v) => { const ks = path.split('.'); const last = ks.pop(); ks.reduce((o, k) => o[k], S)[last] = v; persist(); };
 const isQuote = (q) => !!(q && q.paymentPlan === 'quote');
-const special = () => !!(isShip() || S.rush || S.dedicated || S.crating || isQuote(quoteData));
+const special = () => !!(isShip() || S.rush || S.crating || (S.customDate && dedAny()) || isQuote(quoteData));
 const hasInstall = () => !!svc().install;
 // Only wall-hung pieces get hung. Sculpture, furniture and freestanding pieces are placed (never hung or installed).
 const DEFAULT_HUNG_DECOR = ['Wall Decor', 'Wall sculptures', 'Tapestries & textiles', 'Mirror', 'Chandelier', 'Sconces'];
@@ -820,6 +826,60 @@ const paymentBlock = (q) => {
 };
 const toggleRaw = (id, on, label, hint) => `<label class="toggle"><span>${label}<small>${hint}</small></span><span class="sw"><input type="checkbox" id="${id}" ${on ? 'checked' : ''}><i></i></span></label>`;
 
+
+// ---------- dedicated trips, per side (Chad, Nov 25 2026, t2069u) ----------
+// A side the route days don't suit can be a dedicated trip: the customer picks any date that works (lead time, holidays and the
+// booking window come from /api/config dedicated). The price is one exact total from the server; no fee breakdown is shown.
+let dedBlocked = null; // per side: dates in the window the CAD SCHEDULE can't fit (from /api/availability)
+const dedKey = (side) => (side === 'pickup' ? 'dedicatedPickup' : 'dedicatedDelivery');
+const dedDatePath = (side) => (side === 'pickup' || !svc().needsPickup ? 'schedule.date' : 'schedule.deliveryDate');
+const firstSide = () => (svc().needsPickup ? 'pickup' : 'delivery');
+const dedOn = (side) => !!(side === 'pickup' ? svc().needsPickup && S.dedicatedPickup : S.dedicatedDelivery);
+const dedAny = () => dedOn('pickup') || dedOn('delivery');
+const dedLabel = (o) => {
+  const x = o || S, sv = o ? ((CFG && CFG.services[o.service]) || {}) : svc();
+  const pu = !!(sv.needsPickup && x.dedicatedPickup), de = !!x.dedicatedDelivery || (o && x.dedicated && x.dedicatedPickup == null);
+  return pu && de ? ' · dedicated pickup and delivery' : pu ? ' · dedicated pickup' : de ? (sv.needsPickup ? ' · dedicated delivery' : ' · dedicated trip') : '';
+};
+const dedMin = (side) => {
+  const R = (CFG && CFG.dedicated) || {};
+  let min = R.min || '';
+  if (side === 'delivery' && needsTwoDates() && S.schedule.date && S.schedule.date > min) min = S.schedule.date;
+  return min;
+};
+function dedDateProblem(iso, side) {
+  const R = (CFG && CFG.dedicated) || {};
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(iso || ''))) return 'Please pick a date.';
+  const min = dedMin(side);
+  if (min && iso < min) return side === 'delivery' && needsTwoDates() && S.schedule.date && min === S.schedule.date ? 'Please pick a delivery date on or after your pickup date.' : `Please pick ${shortDate(min)} or later.`;
+  if (R.max && iso > R.max) return `Please pick ${shortDate(R.max)} or earlier.`;
+  if (!R.allowSundays && new Date(iso + 'T12:00:00Z').getUTCDay() === 0) return 'Please pick a day other than Sunday.';
+  if ((R.blocked || []).includes(iso)) return 'We’re closed that day. Please pick another date.';
+  const full = (dedBlocked && dedBlocked[side === 'pickup' ? 'pickup' : 'delivery']) || (avail && avail.dedicatedBlocked && avail.dedicatedBlocked[side === 'pickup' ? 'pickup' : 'delivery']) || [];
+  if (full.includes(iso)) return 'That date is fully booked. Please pick another date, or request a custom date below.';
+  return '';
+}
+const dedSideLabel = (side) => (side === 'pickup' ? 'Pickup' : svc().needsPickup ? 'Delivery' : (svc().install ? 'Install' : 'Delivery'));
+const lastDedSide = () => (dedOn('delivery') ? 'delivery' : 'pickup');
+// No dedicated date works (or the one they need is full): send it as a request; the team schedules it and nothing is charged yet.
+const customDateBlock = () => `<div class="ded-custom" data-reqblock="customdate">
+    <label class="chk"><input type="checkbox" data-path="customDate" data-rerender ${S.customDate ? 'checked' : ''}> Request a custom date</label>
+    ${S.customDate ? `${input('schedule.customDateNote', 'Which dates would work?', { ph: 'For example: any weekday the week of Dec 14', req: true })}
+      <p class="mini">We’ll schedule it and confirm the date with you before anything is charged.</p>` : ''}
+  </div>`;
+function dedBox(side, tagged) {
+  const on = dedOn(side), path = dedDatePath(side), v = get(path), R = (CFG && CFG.dedicated) || {};
+  const prob = on && v ? dedDateProblem(v, side) : '';
+  const blk = path === 'schedule.date' ? 'date' : 'deldate';
+  return `<div class="ded-box${on ? ' on' : ''}" data-ded="${side}">
+    ${tagged ? `<p class="ded-tag">${dedSideLabel(side)}</p>` : ''}<p class="ded-q">None of these dates work for you?</p>
+    ${toggle(dedKey(side), 'Select a dedicated trip', 'A van and crew just for your job, on a date that works for you.', true, 'first')}
+    ${on && !S.customDate ? `<div class="ded-date" data-reqblock="${blk}">${input(path, `${dedSideLabel(side)} date`, { type: 'date', attrs: `min="${esc(dedMin(side))}" max="${esc(R.max || '')}" data-rerender data-deddate="${side}"`, req: true })}
+      ${prob ? `<p class="mini ded-err" role="alert">${esc(prob)}</p>` : ''}</div>` : ''}
+    ${on && (!tagged || side === lastDedSide()) ? customDateBlock() : ''}
+  </div>`;
+}
+
 // ---------- schedule helpers ----------
 const crossRegion = () => !!(quoteData && quoteData.regions && quoteData.regions.pickup && quoteData.regions.dropoff && quoteData.regions.pickup !== quoteData.regions.dropoff);
 const REGION_NAME = { NorCal: 'Northern California', SoCal: 'Southern California' };
@@ -845,7 +905,7 @@ const twHidden = (prefPath, v) => { if (v !== 'morning') return false; const r =
 function windowsKey() {
   if (STEPS[step] !== 'When' || !S.schedule.date && !S.schedule.deliveryDate) return '';
   const a = (x) => [x && x.zip, x && x.city].join('|');
-  return JSON.stringify([S.service, S.rush, S.dedicated, S.schedule.date, S.schedule.deliveryDate, S.schedule.timePref, S.schedule.deliveryTimePref, a(S.pickup), a(S.dropoff)]);
+  return JSON.stringify([S.service, S.rush, S.dedicatedPickup, S.dedicatedDelivery, S.schedule.date, S.schedule.deliveryDate, S.schedule.timePref, S.schedule.deliveryTimePref, a(S.pickup), a(S.dropoff)]);
 }
 async function loadWindows() {
   const key = windowsKey();
@@ -885,15 +945,16 @@ const timePrefBlock = (prefPath, notePath, { showReassure = false, explain = tru
 const promiseCard = (sub, extraStyle = '', editTarget = '') => {
   const sp = special();
   const two = needsTwoDates() && S.schedule.date && S.schedule.deliveryDate;
-  const title = two
-    ? `Pickup ${esc(shortDate(S.schedule.date))} · Delivery ${esc(shortDate(S.schedule.deliveryDate))}`
+  const title = S.customDate && dedAny() ? 'Custom date request'
+    : two ? `Pickup ${esc(shortDate(S.schedule.date))} · Delivery ${esc(shortDate(S.schedule.deliveryDate))}`
     : `${esc(longDate(S.schedule.date))}`;
   const prefs = two
     ? [timePrefSummary(S.schedule.timePref, S.schedule.timeNote) && `Pickup: ${timePrefSummary(S.schedule.timePref, S.schedule.timeNote)}`,
        timePrefSummary(S.schedule.deliveryTimePref, S.schedule.deliveryTimeNote) && `Delivery: ${timePrefSummary(S.schedule.deliveryTimePref, S.schedule.deliveryTimeNote)}`].filter(Boolean).join(' · ')
     : timePrefSummary(S.schedule.timePref, S.schedule.timeNote);
-  const line = sp ? (S.rush || S.dedicated ? 'Preferred date' : (prefs || sub || ''))
-    : (prefs || sub || '');
+  const dl = dedLabel(); // ' · dedicated pickup' etc.
+  const line = sp ? (S.rush ? 'Preferred date' : (prefs || sub || ''))
+    : ([dl && dl.replace(/^ · d/, 'D'), prefs || (dl ? '' : sub) || ''].filter(Boolean).join(' · '));
   return `<div class="promise ${sp ? 'quote' : ''}" style="${extraStyle}"><span class="pi">${sp ? '⏱' : '✓'}</span><span><b>${title}</b><span>${esc(line)}</span></span>${editTarget ? editBtn(editTarget) : ''}</div>`;
 };
 function deliveryBlock() {
@@ -915,33 +976,36 @@ function deliveryBlock() {
 }
 // Pickup + delivery on one screen (Chad, Nov 21 2026). The server returns the pickup days, the delivery days and, for each
 // pickup, the delivery days that work with it (leg=pairs: the same route rules leg=dropoff and the order check use).
-let pairs = null;
+let pairs = null, pickupAny = null, deliveryAny = null;
 async function loadDelivery() {
   if (!needsTwoDates()) return;
   const { ok, j } = await api('/api/availability', { ...payload(), leg: 'pairs' });
   if (!ok || !j || !j.delivery) return;
-  delAvail = j.delivery; pairs = j.pairs || {};
+  delAvail = j.delivery; pairs = j.pairs || {}; dedBlocked = j.dedicatedBlocked || null; pickupAny = j.pickupAny || null; deliveryAny = j.deliveryAny || null;
   if (j.days) avail = { ...(avail || {}), region: j.region, zone: j.zone, area: j.area, days: j.days, rush: j.rush || [] };
   const okPair = (p, d) => !!(pairs[p] && pairs[p].includes(d));
-  if (S.schedule.date && !(pairs[S.schedule.date])) { S.schedule.date = ''; S.rush = false; persist(); }
-  if (S.schedule.deliveryDate && !delAvail.days.some((d) => d.date === S.schedule.deliveryDate)) { S.schedule.deliveryDate = ''; persist(); }
-  if (S.schedule.date && S.schedule.deliveryDate && !okPair(S.schedule.date, S.schedule.deliveryDate)) { S.schedule.deliveryDate = ''; persist(); }
+  const puList = dedOn('delivery') && pickupAny ? pickupAny : null, deList = dedOn('pickup') && deliveryAny ? deliveryAny : delAvail.days;
+  if (S.schedule.date && !dedOn('pickup') && !(puList ? puList.some((d) => d.date === S.schedule.date) : pairs[S.schedule.date])) { S.schedule.date = ''; S.rush = false; persist(); }
+  if (S.schedule.deliveryDate && !dedOn('delivery') && !deList.some((d) => d.date === S.schedule.deliveryDate)) { S.schedule.deliveryDate = ''; persist(); }
+  if (S.schedule.date && S.schedule.deliveryDate && !dedAny() && !okPair(S.schedule.date, S.schedule.deliveryDate)) { S.schedule.deliveryDate = ''; persist(); }
   if (STEPS[step] === 'When') renderWhenIdle();
 }
-const pairOk = (p, d) => !!(pairs && pairs[p] && pairs[p].includes(d));
+const pairOk = (p, d) => (dedAny() ? !p || !d || d >= p : !!(pairs && pairs[p] && pairs[p].includes(d)));
 // What a card looks like: 'on' (chosen), 'dim' (another day in a column that already has a choice; tap to switch),
 // 'off' (doesn't work with the day chosen in the other column; can't be picked until that choice is cleared).
 const puState = (d) => {
   const sel = S.schedule.date, del = S.schedule.deliveryDate;
   if (sel === d.date && !!S.rush === !!d.rush) return 'on';
-  if (del && !pairOk(d.date, del)) return 'off';
+  if (del && dedOn('delivery')) { if (d.date > del) return 'off'; }
+  else if (del && !pairOk(d.date, del)) return 'off';
   return sel ? 'dim' : '';
 };
 const delState = (d) => {
   const sel = S.schedule.deliveryDate, pu = S.schedule.date;
   if (sel === d.date) return 'on';
+  if (dedOn('pickup')) return pu && d.date < pu ? 'off' : sel ? 'dim' : '';
   if (pu && !pairOk(pu, d.date)) return 'off';
-  if (!pu && pairs && !Object.values(pairs).some((l) => l.includes(d.date))) return 'off';
+  if (!pu && !dedOn('pickup') && pairs && !Object.values(pairs).some((l) => l.includes(d.date))) return 'off';
   return sel ? 'dim' : '';
 };
 // Each column shows its first few days, always including the chosen one and at least three that can still be picked.
@@ -966,11 +1030,12 @@ const pairCard = (d, kind) => {
   return `<button type="button" class="day ${st} ${d.rush ? 'rush' : ''}" ${attr} ${st === 'off' ? `aria-disabled="true" data-off="1" title="${why}"` : ''} aria-pressed="${st === 'on'}"><div class="dw">${w}</div><div class="dd">${m} ${n}</div><div class="rg">${d.rush ? 'Rush quote' : esc(d.shortLabel || d.routeLabel || d.region)}</div></button>`;
 };
 function pairBlock() {
-  const pu = (avail && avail.days) || [], rush = (avail && avail.rush) || [];
-  const del = (delAvail && delAvail.days) || [];
+  const pu = (dedOn('delivery') && pickupAny) || (avail && avail.days) || [], rush = (avail && avail.rush) || [];
+  const del = (dedOn('pickup') && deliveryAny) || (delAvail && delAvail.days) || [];
   const pw = pairWindow(pu, puState, 'pu'), dw = pairWindow(del, delState, 'del');
   const head = (label, iso, key) => `<div class="col-head"><span class="col-t">${label}</span>${iso ? `<span class="col-sel"><b>${esc(shortDate(iso))}</b><button type="button" class="linkbtn" data-clear="${key}" aria-label="Clear ${label.toLowerCase()} date">Clear</button></span>` : '<span class="col-sel mini">Not picked</span>'}</div>`;
-  const hint = S.schedule.date && S.schedule.deliveryDate ? 'Both dates are set. Tap Clear on either one to change it.'
+  const hint = dedOn('pickup') && dedOn('delivery') ? 'Dedicated trip on both sides: pick the pickup and delivery dates that work for you.'
+    : S.schedule.date && S.schedule.deliveryDate ? 'Both dates are set. Tap Clear on either one to change it.'
     : S.schedule.date ? 'Now pick a delivery day. Grayed-out days don’t work with that pickup.'
     : S.schedule.deliveryDate ? 'Now pick a pickup day. Grayed-out days are too late for that delivery.'
     : 'Start with either one. We’ll gray out the days that don’t work together.';
@@ -978,15 +1043,16 @@ function pairBlock() {
   return `<p class="pair-hint mini" data-pairhint>${hint}</p>${cross}
     <div class="date-pair">
       <div class="date-col" data-col="pu">${head('Pickup', S.schedule.date, 'pu')}
-        <div class="region">● ${esc((avail && avail.area) || 'Pickup')} route</div>
+        ${dedOn('pickup') ? '<p class="mini ded-col">Dedicated trip. Pick your pickup date below.</p>' : `<div class="region">● ${esc((avail && avail.area) || 'Pickup')} route</div>
         <div class="days col-days" data-reqblock="date">${pw.list.map((d) => pairCard(d, 'pu')).join('')}</div>${pw.btn}
-        ${rush.length ? `<p class="col-sub">Need a different pickup date?</p><div class="days col-days">${rush.map((d) => pairCard(d, 'pu')).join('')}</div>` : ''}
+        ${rush.length ? `<p class="col-sub">Need a different pickup date?</p><div class="days col-days">${rush.map((d) => pairCard(d, 'pu')).join('')}</div>` : ''}`}
       </div>
       <div class="date-col" data-col="del">${head('Delivery', S.schedule.deliveryDate, 'del')}
-        <div class="region">● ${esc((delAvail && delAvail.area) || 'Delivery')} route</div>
-        ${delAvail ? `<div class="days col-days" data-reqblock="deldate">${dw.list.map((d) => pairCard(d, 'del')).join('')}</div>${dw.btn}` : '<p class="mini" data-reqblock="deldate">Finding delivery days…</p>'}
+        ${dedOn('delivery') ? '<p class="mini ded-col">Dedicated trip. Pick your delivery date below.</p>' : `<div class="region">● ${esc((delAvail && delAvail.area) || 'Delivery')} route</div>
+        ${delAvail ? `<div class="days col-days" data-reqblock="deldate">${dw.list.map((d) => pairCard(d, 'del')).join('')}</div>${dw.btn}` : '<p class="mini" data-reqblock="deldate">Finding delivery days…</p>'}`}
       </div>
     </div>
+    ${dedBox('pickup', true)}${dedBox('delivery', true)}
 `;
 }
 
@@ -1542,18 +1608,20 @@ const views = {
     const subTxt = two
       ? 'Our van follows a weekly route. Pick a route day that serves the pickup address.'
       : 'Our van follows a weekly route. Pick a route day.'
-    const ready = two ? !!(S.schedule.date && S.schedule.deliveryDate) : !!S.schedule.date;
+    const dedOk = (side) => !dedOn(side) || !dedDateProblem(get(dedDatePath(side)), side);
+    const ready = (two ? !!(S.schedule.date && S.schedule.deliveryDate) : !!S.schedule.date) && dedOk('pickup') && dedOk('delivery');
     if (S.schedule.date && !(S.schedule.timePref || '').trim()) S.schedule.timePref = 'none';
     if (S.schedule.deliveryDate && !(S.schedule.deliveryTimePref || '').trim()) S.schedule.deliveryTimePref = 'none';
-    const pickupHtml = `<h1 class="when-h1">${title}</h1><p class="sub">${subTxt}</p>
+    const fd = dedOn(firstSide());
+    const pickupHtml = `<h1 class="when-h1">${title}</h1>${fd ? '' : `<p class="sub">${subTxt}</p>
       <div class="region">● ${esc(avail.area || region)} route</div>
       <div class="days" data-reqblock="date">${dayWindow(avail.days, S.schedule.date, 'pu').list.map(card).join('')}</div>${dayWindow(avail.days, S.schedule.date, 'pu').btn}
       ${intro ? `<p class="mini">${intro}</p>` : ''}
-      ${avail.rush.length ? `<h2>Need a different date?</h2><div class="days">${avail.rush.map(card).join('')}</div>` : ''}
+      ${avail.rush.length ? `<h2>Need a different date?</h2><div class="days">${avail.rush.map(card).join('')}</div>` : ''}`}
+      ${dedBox(firstSide())}
       ${sel ? routeHint(sel) : ''}
       ${S.schedule.date ? timePrefBlock('schedule.timePref', 'schedule.timeNote', { showReassure: true }) : ''}`;
     const tail = `${ready ? promiseCard(tripLine() || (sel && sel.routeLabel) || (region + ' route')) : ''}
-      <div class="card" style="margin-top:14px">${toggle('dedicated', 'Dedicated trip', 'A van and crew just for your job, at a time that works for you.', true, 'first')}</div>
 `;
     if (two) {
       const dsel = delAvail && (delAvail.days || []).find((d) => d.date === S.schedule.deliveryDate);
@@ -1607,7 +1675,7 @@ const views = {
       + panel('review', `<h1>${sp ? 'Review your order' : 'Review & pay'}</h1><p class="sub">${sp ? 'Check the details, then send it to our team for pricing.' : 'Your job is booked as soon as payment goes through.'}</p>${valueConfirmCard('review')}
       ${promiseCard(tripLine() || (date && date.routeLabel) || (avail && avail.region ? avail.region + ' route' : 'Route day'), 'margin-top:0', '2:date')}
       <div class="card">
-        <div class="sum-row"><span>Service</span><span>${esc(svc().label)}${S.rush ? ' · rush' : ''}${S.dedicated ? ' · dedicated trip' : ''} ${editBtn('0:service')}</span></div>
+        <div class="sum-row"><span>Service</span><span>${esc(svc().label)}${S.rush ? ' · rush' : ''}${esc(dedLabel())} ${editBtn('0:service')}</span></div>
         ${reviewPieces()}
         ${svc().needsPickup ? siteRows('Pickup', S.pickup, '1:pickup-addr', 'pickup') : ''}
         ${siteRows(S.service === 'install_only' ? 'Install at' : 'Delivery', S.dropoff, '1:dropoff-addr', 'dropoff')}
@@ -1657,7 +1725,7 @@ const views = {
     const o = existing, q = o.quote;
     return panel('review', `<h1>Pay to confirm</h1><p class="sub">${payCanceled ? 'Payment wasn’t completed. Your booking is saved; pay below to confirm it.' : o.approvedAt ? 'Your quote is approved. Your job is booked as soon as payment goes through.' : 'Pay below to confirm your booking.'}</p>
       <div class="promise" style="margin-top:0"><span class="pi">✓</span><span><b>${o.service === 'crating_shipping' ? esc(timingText(o.shipping || {})) : `${esc(longDate(o.schedule.date))}${o.schedule.deliveryDate ? ' · Delivery ' + esc(shortDate(o.schedule.deliveryDate)) : ''}`}</b><span>Order ${esc(o.id)}</span></span></div>
-      <div class="card"><div class="sum-row"><span>Service</span><span>${esc(o.serviceLabel)}${o.rush ? ' · rush' : ''}${o.dedicated ? ' · dedicated trip' : ''}</span></div>
+      <div class="card"><div class="sum-row"><span>Service</span><span>${esc(o.serviceLabel)}${o.rush ? ' · rush' : ''}${esc(dedLabel(o))}</span></div>
         ${(o.items || []).map((i, n) => `<div class="sum-row"><span><b>${esc(pieceTitle0(i, n))}</b><br><span class="muted">${esc(TYPE_LABEL(i.type))}</span></span><span></span></div>`).join('')}</div>
       ${priceCard(q, false)}
       <h2>Payment</h2>${paymentBlock(q)}`);
@@ -1684,7 +1752,7 @@ const views = {
       return `<div class="done"><div class="check">✓</div><h1>Order received</h1>
         <p class="sub">Order <b>${esc(o.id)}</b>. We’ll email ${esc(o.contact.email)} ${esc((o.quote && o.quote.quoteNote) || 'your price with a payment link within 1 business day. Nothing is charged until you authorize payment.')}</p></div>
         <div class="card">
-          <div class="sum-row"><span>Service</span><span>${esc(o.serviceLabel)}${o.rush ? ' · rush' : ''}${o.dedicated ? ' · dedicated trip' : ''}</span></div>
+          <div class="sum-row"><span>Service</span><span>${esc(o.serviceLabel)}${o.rush ? ' · rush' : ''}${esc(dedLabel(o))}</span></div>
           <div class="sum-row"><span>Date</span><span>${esc(longDate(o.schedule.date))}${o.schedule.deliveryDate ? '<br>Delivery ' + esc(longDate(o.schedule.deliveryDate)) : ''}${timePrefSummary(o.schedule.timePref, o.schedule.timeNote) ? '<br><span class="muted">' + esc(timePrefSummary(o.schedule.timePref, o.schedule.timeNote)) + '</span>' : ''}</span></div>
           ${q && q.tripPremium && q.quoteRange ? `<div class="sum-row"><span>Price range</span><span class="amt"><b>${fmt(q.quoteRange.low)}–${fmt(q.quoteRange.high)}</b></span></div>` : '<div class="sum-row"><span>Price</span><span>Set by our team</span></div>'}
         </div>
@@ -1847,8 +1915,14 @@ function missingFields(name = STEPS[step]) {
     if (S.quoteOnly || (avail && (avail.requestQuote || avail.unverified || avail.calendarUnavailable))) {
       if (!S.quoteOnly) add('[data-reqblock="date"]', 'Request a quote', 'Turn on Request a quote so we can confirm the details by hand.');
     } else {
+      const fs = firstSide();
+      if (S.customDate && dedAny()) { if (!String(S.schedule.customDateNote || '').trim()) add('[data-reqblock="customdate"]', 'Dates that would work', 'Tell us which dates would work for you.'); return out; }
       if (!S.schedule.date) add('[data-reqblock="date"]', needsTwoDates() ? 'Pickup date' : 'Date', needsTwoDates() ? 'Please pick a pickup date.' : 'Please pick a date.');
-      if (needsTwoDates() && S.schedule.date && !(S.schedule.deliveryDate && S.schedule.deliveryDate >= S.schedule.date)) add('[data-reqblock="deldate"]', 'Delivery date', 'Please pick a delivery date.');
+      else if (dedOn(fs) && dedDateProblem(S.schedule.date, fs)) add('[data-reqblock="date"]', needsTwoDates() ? 'Pickup date' : 'Date', dedDateProblem(S.schedule.date, fs));
+      if (needsTwoDates() && (S.schedule.date || dedOn('delivery'))) {
+        if (!S.schedule.deliveryDate || (S.schedule.date && S.schedule.deliveryDate < S.schedule.date)) add('[data-reqblock="deldate"]', 'Delivery date', 'Please pick a delivery date.');
+        else if (dedOn('delivery') && dedDateProblem(S.schedule.deliveryDate, 'delivery')) add('[data-reqblock="deldate"]', 'Delivery date', dedDateProblem(S.schedule.deliveryDate, 'delivery'));
+      }
     }
     return out;
   }
@@ -2260,6 +2334,15 @@ app.addEventListener('input', (e) => {
   } else {
     set(p, e.target.type === 'checkbox' ? e.target.checked : e.target.value);
   }
+  if (p === 'customDate') { S.schedule.date = ''; S.schedule.deliveryDate = ''; S.rush = false; persist(); }
+  if ((p === 'dedicatedPickup' || p === 'dedicatedDelivery') && !dedOn('pickup') && !dedOn('delivery')) { S.customDate = false; persist(); }
+  if (p === 'dedicatedPickup' || p === 'dedicatedDelivery') {
+    const side = p === 'dedicatedPickup' ? 'pickup' : 'delivery', dp = dedDatePath(side);
+    set(dp, '');
+    if (dp === 'schedule.date') { S.rush = false; S.schedule.timePref = 'none'; S.schedule.timeNote = ''; } else { S.schedule.deliveryTimePref = 'none'; S.schedule.deliveryTimeNote = ''; }
+    S.dedicated = !!(dedOn('pickup') || dedOn('delivery')); persist();
+    if (needsTwoDates()) loadDelivery();
+  }
   if (p === 'dropoff.state') shipStateTyped = true;
   if (p === 'contact.name' || p === 'contact.phone') syncSameAsMe();
   const m = p.match(/^(pickup|dropoff)\.contact(Name|Phone)$/);
@@ -2448,7 +2531,7 @@ app.addEventListener('click', async (e) => {
     }
     S.service = t.dataset.service;
     normShipState();
-    if (S.service === 'crating_shipping') { S.crating = false; S.rush = false; S.dedicated = false; }
+    if (S.service === 'crating_shipping') { S.crating = false; S.rush = false; S.dedicated = false; S.dedicatedPickup = false; S.dedicatedDelivery = false; }
     if (S.service === 'install_only') { S.crating = false; S.schedule.deliveryLater = false; }
     if (!(svc().install)) S.items.forEach((it) => { delete it.hardware; });
     persist(); avail = null; render();
@@ -2535,7 +2618,7 @@ app.addEventListener('click', async (e) => {
   if (t.dataset.off) { uploadToast(t.dataset.date ? 'That pickup day is too late for the delivery day you picked. Clear the delivery day to see every pickup day.' : 'That delivery day doesn’t work with the pickup day you picked. Clear the pickup day to see every delivery day.'); return; }
   if (t.dataset.date) {
     S.schedule.date = t.dataset.date; S.rush = !!t.dataset.rush;
-    if (needsTwoDates() && S.schedule.deliveryDate && !pairOk(S.schedule.date, S.schedule.deliveryDate)) S.schedule.deliveryDate = '';
+    if (needsTwoDates() && S.schedule.deliveryDate && !dedOn('delivery') && !pairOk(S.schedule.date, S.schedule.deliveryDate)) S.schedule.deliveryDate = '';
     persist(); render();
     if (needsTwoDates() && !pairs) loadDelivery();
     return;
@@ -2545,7 +2628,7 @@ app.addEventListener('click', async (e) => {
     return;
   }
   if (t.dataset.level) { S.shipping.serviceLevel = t.dataset.level; persist(); render(); return; }
-  if (t.dataset.deldate) { S.schedule.deliveryDate = t.dataset.deldate; if (S.schedule.date && !pairOk(S.schedule.date, S.schedule.deliveryDate)) { S.schedule.date = ''; S.rush = false; } persist(); render(); return; }
+  if (t.dataset.deldate) { S.schedule.deliveryDate = t.dataset.deldate; if (S.schedule.date && !dedOn('pickup') && !pairOk(S.schedule.date, S.schedule.deliveryDate)) { S.schedule.date = ''; S.rush = false; } persist(); render(); return; }
   if (t.id === 'newOrder') { sessionStorage.clear(); draftStore.clear(); location.href = '/'; }
 });
 

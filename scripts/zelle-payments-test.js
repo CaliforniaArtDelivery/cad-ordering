@@ -92,8 +92,8 @@ const paint = (d, v, o = {}) => ({ type: 'painting', framed: 'no', w: 30, h: 40,
     { const after = rows.cells.filter((r) => String(r[9] || '').includes(id)); ok(after.length === mine.length && after.some((r) => r[31] === 'PAID') && !after.some((r) => r[31] === 'Payment Requested'), `after manual verification the payment leg shows PAID, same rows, nothing added (${after.map((r) => r[31]).join(', ')})`); }
 
     console.log('\n[3] Every order gets an itemized email (requests our team prices too)');
-    const dd = await post('/api/orders', { ...base, contact: { ...base.contact, email: 'request.tester@example.com' }, dedicated: true, schedule: { date: D, deliveryDate: D, timePref: 'none', deliveryTimePref: 'none' } });
-    ok(dd.status === 200 && dd.j.status === 'pending_approval', 'dedicated-trip request created (team prices it)');
+    const dd = await post('/api/orders', { ...base, contact: { ...base.contact, email: 'request.tester@example.com' }, dedicated: true, dedicatedPickup: true, customDate: true, schedule: { date: '', deliveryDate: '', customDateNote: 'Any weekday next month', timePref: 'none', deliveryTimePref: 'none' } });
+    ok(dd.status === 200 && dd.j.status === 'pending_approval', 'custom date request created (team schedules it)');
     await sleep(800);
     const rq = bridge.mails.find((m) => /request\.tester@example\.com/.test(m.to));
     ok(rq && /We received your request/.test(rq.subject) && /Your pieces:/.test(rq.body) && /Watercolor study/.test(rq.body), `request-received email is itemized ("${rq && rq.subject}")`);

@@ -73,7 +73,7 @@ const ord = (o = {}) => ({ service: 'pickup_delivery', pickup: addr('8678 Melros
   ok(!RULES.review(ord({ items: [item({ type: 'furniture', furnitureKind: 'Nightstand', sizeClass: 'small' })] })).helper, 'a small nightstand does not');
   ok(RULES.review(ord({ service: 'delivery_install', items: [item({ type: 'decor', furnitureKind: 'Wall Decor', hangHeight: 'higher', hangWhere: 'stairwell' })] })).helper, 'stairwell / ladder install (Level 2/3 stand-in) needs a helper');
   const ded = RULES.review(ord({ dedicated: true }));
-  ok(ded.quote && !ded.needed, 'dedicated trip: marked quote (team prices and dates it)');
+  ok(!ded.quote && !ded.needed && ded.kinds.includes('dedicated'), 'dedicated trip: priced online, labelled for the team (Chad, Nov 25 2026)');
 
   console.log('\n[B] Cap 8 and flag at 6 (Date Guard numbers)');
   const mk = (cap, rows) => ({ '2027-03-02': { calendar: true, open: true, zones: ['LA'], capacity: cap, jobRows: rows, routes: [] } });
@@ -157,7 +157,7 @@ const ord = (o = {}) => ({ service: 'pickup_delivery', pickup: addr('8678 Melros
   if (HOLD) ok(heavy.status === 200 && heavy.j.status === 'pending_approval' && heavy.j.order.review.helper, 'a 200 lb piece holds the date for a helper');
   else ok(heavy.status === 200 && heavy.j.status === 'awaiting_payment' && heavy.j.order.review.helper, 'a 200 lb piece is flagged NEED HELPER but books and pays immediately (not held)');
   const ded2 = await post('/api/orders', baseOrder(laDays[2].date, { dedicated: true }));
-  ok(ded2.status === 200 && ded2.j.status === 'pending_approval' && ded2.j.quote.paymentPlan === 'quote', 'dedicated trip goes to the team for a quote');
+  ok(ded2.status === 200 && ded2.j.status === 'awaiting_payment' && ded2.j.quote.paymentPlan !== 'quote', 'dedicated trip is priced and paid online (Chad, Nov 25 2026)');
   const plain = await post('/api/orders', baseOrder(laDays[3].date, {}));
   ok(plain.status === 200 && plain.j.status === 'awaiting_payment', 'a normal order still books and pays immediately');
   const pp = await post(`/api/orders/${plain.j.id}/pay`, { method: 'card', card: '4242424242424242' });

@@ -478,3 +478,12 @@ details.handling .handling-body .toggle{padding-bottom:0}
 
 /* Informational helper text: laser-bar blue, not red/orange. True errors stay --err / --need-red (AA 4.5:1). */
 .info-note, [data-valhint], .mini[data-valhint], [data-protection-note]{color:var(--info)}
+/* Dedicated trip, per side (Chad, Nov 25 2026): the question sits bold and larger above the toggle. */
+.ded-box{margin-top:14px;padding:14px 14px 6px;border:1px solid var(--line,#e5e7eb);border-radius:14px;background:#fff}
+.ded-box.on{border-color:#1d4ed8;box-shadow:0 0 0 1px #1d4ed8 inset}
+.ded-q{font-weight:800;font-size:18px;line-height:1.25;margin:0 0 8px;color:var(--ink,#0f1b2d)}
+.ded-box .toggle{margin:0}
+.ded-date{margin-top:10px}
+.ded-err{color:var(--err,#b00020);margin:-4px 0 8px}
+.ded-tag{font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin:0 0 4px}
+.ded-col{margin:6px 2px 0}

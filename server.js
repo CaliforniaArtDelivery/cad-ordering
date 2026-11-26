@@ -132,6 +132,7 @@ app.get('/api/config', (_, res) => res.json({
   // phone, phoneNorth, and phoneSouth stay in config.js for internal use only and are not sent to the browser.
   company: (({ phone, phoneNorth, phoneSouth, ...pub }) => pub)(config.company), services: OFFERED_SERVICES, timePrefs: config.scheduling.timePrefs,
   payment: config.payment,
+  dedicated: DEDICATED.publicRules(), // dates only; the fee rules stay on the server
   pricing: {
     quoteMultiplierMin: config.pricing.quoteMultiplierMin,
     quoteMultiplierMax: config.pricing.quoteMultiplierMax,
@@ -213,7 +214,11 @@ app.post('/api/availability', async (req, res) => {
     const all = [...puDays, ...rush].map((d) => d.date).sort();
     const dRegion = sched.regionFor(o.dropoff), dZone = sched.zoneFor(o.dropoff);
     const out = { region, zone, area: sched.customerAreaName(zone, region), days: puDays, rush, delivery: { region: dRegion, zone: dZone, area: sched.customerAreaName(dZone, dRegion), days: [] }, pairs: {} };
-    if (!all.length) return res.json(out);
+    // Dedicated on one side (Chad, Nov 25 2026): the other side picks from its plain route days (scheduleErrors checks the same lists).
+    out.pickupAny = sched.availableDays(addr, { order: o, count: 40 });
+    out.deliveryAny = sched.availableDays(o.dropoff, { order: o, count: 40 });
+    out.dedicatedBlocked = { pickup: DEDICATED.blockedFor(addr), delivery: DEDICATED.blockedFor(o.dropoff) };
+    if (!all.length) { out.delivery.days = out.deliveryAny.slice(0, config.scheduling.showDays); return res.json(out); }
     const delFrom = (iso) => sched.availableDeliveryDays(o.dropoff, addr, iso, o, 400);
     const fromFirst = delFrom(all[0]);
     // The column runs from the first pickup to showDays delivery days after the last pickup (each pickup keeps the same
@@ -231,6 +236,7 @@ app.post('/api/availability', async (req, res) => {
     region, zone, area: sched.customerAreaName(zone, region),
     days: pairWith ? sched.availablePickupDays(addr, pairWith, { order: o }) : sched.availableDays(addr, { order: o }),
     rush: (config.scheduling.rushEnabled ? sched.rushDays(addr, new Date(), 7, o) : []).filter((d) => !pairWith || sched.canPairPickupDelivery(d.date, addr, pairWith, o)),
+    dedicatedBlocked: svc.needsPickup ? { pickup: DEDICATED.blockedFor(addr), delivery: o.dropoff ? DEDICATED.blockedFor(o.dropoff) : [] } : { pickup: [], delivery: DEDICATED.blockedFor(addr) },
   });
 });
 
@@ -256,12 +262,16 @@ function holdSlots(order, link) {
   const need = {};
   const add = (iso) => { if (iso) need[iso] = (need[iso] || 0) + 1; };
   if (svc.shipping || !order.schedule || !order.schedule.date) return { ok: true };
-  add(order.schedule.date);
-  if (svc.needsPickup && svc.needsDropoff) add(order.schedule.deliveryDate || order.schedule.date);
+  // Dedicated sides run on their own van, so they don't take a route slot.
+  const ds = DEDICATED.sides(order);
+  if (!(svc.needsPickup ? ds.pickup : ds.delivery)) add(order.schedule.date);
+  if (svc.needsPickup && svc.needsDropoff && !ds.delivery) add(order.schedule.deliveryDate || order.schedule.date);
+  if (!Object.keys(need).length) return { ok: true };
   return require('./lib/holds').reserve(order.id, need, (iso, heldOthers) => require('./lib/sheet-days').capacityLeft(iso, heldOthers), { link });
 }
 
 const RULES = require('./lib/date-guard-rules');
+const DEDICATED = require('./lib/dedicated-fee');
 // Instant heads-up to the CAD inbox (through the schedule bridge). Never blocks or fails an order.
 const teamAlert = (subject, body) => { try { sheetSync.alert((TEST_MODE ? '[TEST SITE] ' : '') + subject, body).catch(() => {}); } catch {} };
 const reviewAlert = (o) => teamAlert(`REVIEW NEEDED: online request ${o.id} (${((o.review || {}).kinds || []).join(', ') || 'quote'})`,
@@ -373,8 +383,9 @@ function validate(o) {
     if (!o.shipping?.serviceLevel) errs.push('destination service level');
     if (!o.shipping?.shipBy && !o.shipping?.flexible) errs.push('ship date or flexibility');
   } else {
-    const skipDates = !!(o.quoteOnly || o.unverifiedAddress || (o.sizeCheckQuote && !(o.schedule && o.schedule.date)));
+    const skipDates = !!(o.quoteOnly || o.customDate || o.unverifiedAddress || (o.sizeCheckQuote && !(o.schedule && o.schedule.date)));
     if (!skipDates && !o.schedule?.date) errs.push('schedule');
+    if (o.customDate && !String((o.schedule && o.schedule.customDateNote) || '').trim()) errs.push('the dates that would work (custom date request)');
     // In-California white glove jobs: every piece needs a declared value (protection / high-value handling depend on it).
     // $0 (or blank) is never accepted as a declared value; only a custom request, which CAD always quotes itself, has none.
     forPieces('a declared value above $0', (it) => it.type !== 'custom' && !(numVal(it.value) > 0));
@@ -429,6 +440,22 @@ function scheduleErrors(o) {
   }
   const first = svc.needsPickup ? o.pickup : o.dropoff;
   const addr = first && (first.zip || first.city) ? first : o.dropoff;
+  // Dedicated sides (Chad, Nov 25 2026): any date that works for the customer (config.dedicatedTrip rules), not a route day.
+  const DS = DEDICATED.sides(o);
+  const firstDed = svc.needsPickup ? DS.pickup : DS.delivery;
+  const dd0 = String((o.schedule && o.schedule.deliveryDate) || '');
+  if (firstDed || (svc.needsPickup && svc.needsDropoff && DS.delivery)) {
+    if (firstDed) { const p = DEDICATED.dateProblem(d, new Date(), addr); if (p) errs.push(`${svc.needsPickup ? 'pickup' : 'install'} date: ${p}`); }
+    else if (!sched.availableDays(addr, { order: o, count: 400 }).some((x) => x.date === d)) errs.push('an available route day for that address (please go back and pick a date from the list)');
+    if (svc.needsPickup && svc.needsDropoff && dd0) {
+      if (dd0 < d) errs.push('a delivery date on or after the pickup date');
+      else if (DS.delivery) { const p = DEDICATED.dateProblem(dd0, new Date(), o.dropoff); if (p) errs.push(`delivery date: ${p}`); }
+      else if (!sched.availableDays(o.dropoff, { from: new Date(d + 'T12:00:00Z'), leadTime: 0, order: o, count: 400 }).some((x) => x.date === dd0))
+        errs.push('an available delivery route day on or after the pickup date');
+    }
+    if (!errs.length) errs.push(...require('./lib/route-windows').selectionErrors(o, SERVICES));
+    return errs;
+  }
   const ok = o.rush
     ? sched.rushDays(addr, new Date(), 7, o).some((x) => x.date === d) || sched.availableDays(addr, { order: o, count: 400 }).some((x) => x.date === d)
     : sched.availableDays(addr, { order: o, count: 400 }).some((x) => x.date === d);
@@ -473,7 +500,7 @@ app.post('/api/orders', (req, res) => {
   const dup = load().find((x) => x.fingerprint === fp && Date.now() - Date.parse(x.createdAt) < DEDUPE_MS);
   if (dup) return res.json({ id: dup.id, quote: dup.quote, status: dup.status, order: dup, duplicate: true });
   const sizeWarn = (b.items || []).map((it) => VALID.belowMinWarning(it)).filter(Boolean);
-  const special = quote(b).paymentPlan === 'quote' || !!b.quoteOnly || !!b.unverifiedAddress || !!b.sizeCheckQuote || sizeWarn.length; // rush, dedicated, shipping, quote-only, or below-minimum size review
+  const special = quote(b).paymentPlan === 'quote' || !!b.quoteOnly || !!b.customDate || !!b.unverifiedAddress || !!b.sizeCheckQuote || sizeWarn.length; // rush, dedicated, shipping, quote-only, or below-minimum size review
   const outOfState = !SERVICES[b.service].shipping && isOutOfState(b);
   const shipping = !!SERVICES[b.service].shipping || outOfState;
   const svcKey = shipping ? 'crating_shipping' : b.service;
@@ -486,7 +513,9 @@ app.post('/api/orders', (req, res) => {
     service: svcKey, serviceLabel: SERVICES[svcKey].label,
     ...(outOfState ? { requestedService: b.service, outOfState: true } : {}),
     ...(shipping ? { shipping: b.shipping || {} } : {}),
-    crating: false, rush: !!b.rush, dedicated: !!b.dedicated,
+    crating: false, rush: !!b.rush,
+    ...(b.customDate ? { customDate: { note: String((b.schedule && b.schedule.customDateNote) || '').trim().slice(0, 500) } } : {}),
+    ...(() => { const ds = DEDICATED.sides(b); return { dedicated: ds.pickup || ds.delivery, dedicatedPickup: ds.pickup, dedicatedDelivery: ds.delivery }; })(),
     // Access “Not sure” at any stop: CAD confirms access with the customer before the job (not priced as ground level silently).
     accessReview: ['pickup', 'dropoff'].some((k) => b[k] && b[k].street && ACCESS.needsReview(b[k])),
     // No member rate on the public site (Chad, Nov 19 2026): never stored from the request.
@@ -515,7 +544,7 @@ app.post('/api/orders', (req, res) => {
   // The opt-out is only recorded when there was protection to decline (an eligible piece up to $50,000, in-California white glove job).
   if (order.needsManualReview) teamAlert(`NEEDS MANUAL REVIEW: order ${order.id} was submitted with an old quantity entry`, `Order ${order.id}: ${order.manualReviewReason}\nPieces:\n${piecesOf(order).map((it, i) => '  ' + require('./lib/itemtypes').pieceDetail(it, i)).join('\n')}`);
   // Normal orders hold their date while the client pays. Review orders (pencil-in, helper, Monday OC) hold it while the team decides.
-  if (!special || (rv.needed && !order.rush && !order.dedicated)) { const held = holdSlots(order, special); if (!held.ok) return res.status(409).json({ error: 'That date just filled up. Please go back and pick another date.', full: held.full }); }
+  if (!special || (rv.needed && !order.rush)) { const held = holdSlots(order, special); if (!held.ok) return res.status(409).json({ error: 'That date just filled up. Please go back and pick another date.', full: held.full }); }
   const all = load(); all.unshift(order); save(all);
   if (special) {
     reviewAlert(order);
@@ -569,7 +598,7 @@ function finalize(id, payment) {
   if (!o) return null;
   const cur = findOrder(id);
   // Paid bookings that trip a Date Guard rule (remote area, Monday OC, NEED HELPER, oversized, no street number): the team checks them.
-  if (firstConfirm && cur.review && (cur.review.reasons || []).length && !cur.rush && !cur.dedicated) teamAlert(`CHECK PAID BOOKING ${cur.id} (${(cur.review.kinds || []).join(', ')})`,
+  if (firstConfirm && cur.review && (cur.review.reasons || []).length && !cur.rush) teamAlert(`CHECK PAID BOOKING ${cur.id} (${(cur.review.kinds || []).join(', ')})`,
     `Order ${cur.id} is PAID and booked online. Call the client to confirm the date and arrival window.\n`
     + `Client: ${(cur.contact || {}).name || ''} ${(cur.contact || {}).phone || ''} ${(cur.contact || {}).email || ''}\n`
     + `Date(s): ${(cur.schedule || {}).date || 'none'}${(cur.schedule || {}).deliveryDate ? ' / delivery ' + cur.schedule.deliveryDate : ''}\n`
