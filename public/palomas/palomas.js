@@ -346,7 +346,7 @@ function dedDateProblem(iso, side) {
 const lastDedSide = () => (dedOn('delivery') ? 'delivery' : 'pickup');
 const customDateBlock = (side) => `<div class="ded-custom">
     <label class="chk"><input type="checkbox" data-customdate="1" ${S.customDate ? 'checked' : ''}> Request a custom date</label>
-    ${S.customDate && side === lastDedSide() ? `<label class="field"><span class="lbl">Which dates would work?</span><input id="customDateNote" type="text" value="${esc(S.customDateNote)}" placeholder="For example: any weekday the week of Dec 14" maxlength="500"><p class="mini">We’ll schedule it and confirm the date with you before anything is charged.</p></label>` : ''}
+    ${S.customDate && side === lastDedSide() ? `<label class="field"><span class="lbl">Which dates would work?</span><textarea id="customDateNote" rows="3" maxlength="500" placeholder="For example: any weekday the week of Dec 14">${esc(S.customDateNote)}</textarea><p class="mini">We’ll schedule it and confirm the date with you before anything is charged.</p></label>` : ''}
   </div>`;
 function dedBox(side) {
   const on = dedOn(side), R = (CFG && CFG.dedicated) || {};
@@ -382,7 +382,7 @@ function dayCtl(days, sel, kind) {
   const hidden = days.length > SHOW_FIRST && !(more || selIdx >= SHOW_FIRST);
   const min = (days[0] || {}).date || '';
   return `${hidden ? `<button type="button" class="linkbtn" data-more="${kind}">Show more dates (${days.length - SHOW_FIRST} more)</button>` : ''}
-    <label class="later">Later date <input type="date" data-later="${kind}" min="${esc(from ? '' : min)}" value="${esc(from)}" aria-label="Choose a later ${kind === 'pu' ? 'pickup' : 'delivery'} date"></label>
+    <label class="later"><span class="later-lab">Later date</span><input type="date" data-later="${kind}" min="${esc(from ? '' : min)}" value="${esc(from)}" aria-label="Choose a later ${kind === 'pu' ? 'pickup' : 'delivery'} date"></label>
     ${from ? `<button type="button" class="linkbtn" data-back="${kind}">Back to earliest dates</button>` : ''}`;
 }
 function puState(d) {

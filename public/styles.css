@@ -398,6 +398,7 @@ input.dim{-moz-appearance:textfield;appearance:textfield}
   .col-days .day{padding:10px 6px;border-radius:var(--r)}
   .col-days .day .dd{font-size:18px}
   .col-head{flex-direction:column;align-items:flex-start;gap:0;margin-bottom:8px}
+  .ded-box.in-col .ded-date input[type=date]{font-size:13px;padding:8px 6px;min-height:40px}
 }
 
 /* ---- Nov 21 2026: optional access details, fees on choices, heavy wall piece block ---- */
@@ -490,12 +491,12 @@ details.handling .handling-body .toggle{padding-bottom:0}
 /* Split layout (Chad, t2078u): each side's dedicated box sits in its own date column, under that side's dates. */
 .ded-box.in-col{margin-top:12px;padding:10px 10px 4px;border-radius:12px}
 .ded-box.in-col .ded-q{font-size:15.5px;line-height:1.25;margin:0 0 8px;overflow-wrap:break-word;hyphens:manual}
-.ded-toggle{display:flex;align-items:center;justify-content:space-between;gap:8px;cursor:pointer;margin:0}
-.ded-toggle .ded-lab{font-size:14.5px;font-weight:600;line-height:1.25;min-width:0;flex:1 1 auto}
-.ded-toggle .sw{flex:0 0 auto}
+.ded-toggle{display:flex;flex-direction:column;align-items:stretch;gap:8px;cursor:pointer;margin:0}
+.ded-toggle .ded-lab{display:block;font-size:14.5px;font-weight:600;line-height:1.3;min-width:0;width:100%}
+.ded-toggle .sw{flex:0 0 auto;align-self:flex-start}
 .ded-help{font-size:12.5px;line-height:1.35;color:var(--muted);margin:6px 0 8px}
-.ded-box.in-col .ded-date .field{margin-bottom:8px}
-.ded-box.in-col .ded-date input[type=date]{width:100%;min-width:0;font-size:15px;padding-left:8px;padding-right:6px}
+.ded-box.in-col .ded-date .field{margin-bottom:8px;min-width:0;max-width:100%}
+.ded-box.in-col .ded-date input[type=date]{display:block;width:100%;max-width:100%;min-width:0;box-sizing:border-box;font-size:15px;padding:8px}
 .ded-box.in-col .ded-custom .chk{font-size:13px;line-height:1.3;align-items:flex-start}
 .ded-box.in-col .ded-custom .field input{font-size:15px}
 .ded-box.in-col .ded-err{font-size:12.5px;margin:0 0 8px}
