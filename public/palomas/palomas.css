@@ -355,3 +355,4 @@ html{scroll-padding-bottom:96px;scroll-padding-top:12px}
   .later input[type=date],
   .ded-box.in-col .ded-date input[type=date]{font-size:13px;padding:8px 6px;min-height:40px}
 }
+.no-route{margin:10px 0 6px;padding:10px 12px;border:1px solid #d9dee7;border-radius:10px;background:#f7f9fc;font-size:15px;line-height:1.35;color:var(--ink);overflow-wrap:break-word}

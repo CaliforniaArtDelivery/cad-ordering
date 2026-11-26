@@ -15,7 +15,8 @@ const ZONE_CITIES = {
   SB: ['camarillo', 'carpinteria', 'goleta', 'montecito', 'ojai', 'oxnard', 'santa barbara', 'santa paula', 'summerland', 'ventura'],
   Central: ['arroyo grande', 'atascadero', 'bakersfield', 'clovis', 'fresno', 'lompoc', 'morro bay', 'nipomo', 'paso robles', 'pismo', 'san luis obispo', 'santa maria', 'santa ynez', 'slo', 'solvang', 'visalia'],
   Carmel: ['big sur', 'carmel', 'carmel by the sea', 'carmel highlands', 'carmel valley', 'castroville', 'del rey oaks', 'gilroy', 'marina', 'monterey', 'pacific grove', 'pebble beach', 'prunedale', 'salinas', 'sand city', 'seaside', 'watsonville'],
-  BayWest: ['aptos', 'atherton', 'belmont', 'belvedere', 'bolinas', 'brisbane', 'burlingame', 'campbell', 'capitola', 'corte madera', 'cupertino', 'daly city', 'east palo alto', 'fairfax', 'foster city', 'greenbrae', 'half moon bay', 'healdsburg', 'hillsborough', 'kentfield', 'larkspur', 'los altos', 'los altos hills', 'los gatos', 'marin', 'menlo park', 'mill valley', 'millbrae', 'milpitas', 'mountain view', 'novato', 'pacifica', 'palo alto', 'portola valley', 'redwood city', 'ross', 'san anselmo', 'san bruno', 'san carlos', 'san francisco', 'san jose', 'san mateo', 'san rafael', 'santa clara', 'santa cruz', 'saratoga', 'sausalito', 'scotts valley', 'sf', 'soquel', 'south san francisco', 'stinson beach', 'sunnyvale', 'tiburon', 'woodside'],
+  SantaCruz: ['aptos', 'ben lomond', 'boulder creek', 'capitola', 'felton', 'santa cruz', 'scotts valley', 'soquel'],
+  BayWest: ['atherton', 'belmont', 'belvedere', 'bolinas', 'brisbane', 'burlingame', 'campbell', 'corte madera', 'cupertino', 'daly city', 'east palo alto', 'fairfax', 'foster city', 'greenbrae', 'half moon bay', 'healdsburg', 'hillsborough', 'kentfield', 'larkspur', 'los altos', 'los altos hills', 'los gatos', 'marin', 'menlo park', 'mill valley', 'millbrae', 'milpitas', 'mountain view', 'novato', 'pacifica', 'palo alto', 'portola valley', 'redwood city', 'ross', 'san anselmo', 'san bruno', 'san carlos', 'san francisco', 'san jose', 'san mateo', 'san rafael', 'santa clara', 'saratoga', 'sausalito', 'sf', 'south san francisco', 'stinson beach', 'sunnyvale', 'tiburon', 'woodside'],
   EastBay: ['alameda', 'alamo', 'albany', 'berkeley', 'castro valley', 'concord', 'danville', 'dublin', 'el cerrito', 'emeryville', 'fremont', 'hayward', 'lafayette', 'livermore', 'martinez', 'moraga', 'newark', 'oakland', 'orinda', 'piedmont', 'pleasant hill', 'pleasanton', 'richmond', 'san leandro', 'san lorenzo', 'san ramon', 'union city', 'walnut creek'],
   NapaWine: ['calistoga', 'deer park', 'glen ellen', 'kenwood', 'napa', 'oakville', 'petaluma', 'rutherford', 'saint helena', 'santa rosa', 'sebastopol', 'sonoma', 'st helena', 'yountville'],
   Sacramento: ['auburn', 'citrus heights', 'davis', 'el dorado', 'elk grove', 'fair oaks', 'folsom', 'grass valley', 'lincoln', 'orangevale', 'placerville', 'rancho cordova', 'rocklin', 'roseville', 'sacramento', 'west sacramento', 'woodland'],
@@ -39,12 +40,15 @@ const ZONE_ZIPS = {
   // 954: Sonoma / Wine Country vs Healdsburg (Wednesday SF / Marin route).
   const MIXED_PREFIXES = { 945: 'EastBay', 950: 'BayWest', 954: 'NapaWine' };
   const NAPA_945 = /^945(08|15|58|59|62|73|74|76|81|99)$/; // St Helena, Napa, Calistoga, Yountville, Deer Park, etc.
-  const ZIP5_ZONES = { 95020: 'Carmel', 95021: 'Carmel', 95076: 'Carmel', 95077: 'Carmel', 95448: 'BayWest' }; // Gilroy, Watsonville, Healdsburg
+  // Gilroy, Watsonville, Healdsburg; Santa Cruz / Aptos / Capitola / Soquel / Scotts Valley and the San Lorenzo Valley are their own area (Dot #4).
+  const ZIP5_ZONES = { 95020: 'Carmel', 95021: 'Carmel', 95076: 'Carmel', 95077: 'Carmel', 95448: 'BayWest',
+    95060: 'SantaCruz', 95061: 'SantaCruz', 95062: 'SantaCruz', 95063: 'SantaCruz', 95064: 'SantaCruz', 95065: 'SantaCruz', 95066: 'SantaCruz', 95067: 'SantaCruz',
+    95003: 'SantaCruz', 95001: 'SantaCruz', 95010: 'SantaCruz', 95073: 'SantaCruz', 95005: 'SantaCruz', 95006: 'SantaCruz', 95007: 'SantaCruz', 95018: 'SantaCruz', 95041: 'SantaCruz' };
 
   const AREA_NAMES = {
   LA: 'Los Angeles', OC: 'Orange County', SD: 'San Diego', Coachella: 'Palm Springs & desert', SB: 'Santa Barbara & Ventura',
   Central: 'Central Coast & Valley', Carmel: 'Carmel & Monterey', BayWest: 'SF Bay Area', EastBay: 'East Bay',
-  NapaWine: 'Napa & Sonoma', Sacramento: 'Sacramento', Tahoe: 'Lake Tahoe',
+  NapaWine: 'Napa & Sonoma', Sacramento: 'Sacramento', Tahoe: 'Lake Tahoe', SantaCruz: 'Santa Cruz',
 };
 
   const customerAreaName = (zone, macro) => AREA_NAMES[zone] || (macro === 'SoCal' ? 'Southern California' : macro === 'NorCal' ? 'Northern California' : 'Your area');
@@ -151,7 +155,12 @@ const ZONE_ZIPS = {
 
   // If both the city and the ZIP resolve to a zone and they disagree, the address cannot be routed
   // (unless the city is a listed postal alias for that ZIP).
-  function routeConflict(addr) {
+  // leg: 'pickup' | 'delivery' (optional) names the address to check. Plain words only (Dot #5): no area names in this message.
+  function conflictMessage(leg) {
+    const which = leg === 'pickup' ? 'pickup address' : leg === 'delivery' ? 'delivery address' : 'address';
+    return `This city and ZIP don’t match. Check the ${which}.`;
+  }
+  function routeConflict(addr, leg) {
     if (addr && cityFitsZip(addr) && aliasesForZip(zip5(addr)).length && cityZone(String(addr.city || '').trim()) && zipZone(addr) && cityZone(addr.city) !== zipZone(addr)) {
       // Alias for this ZIP wins over a generic city-name zone (rare).
       return null;
@@ -162,15 +171,12 @@ const ZONE_ZIPS = {
     const cz = cityZone(city);
     const zz = zipZone(addr);
     if (!city || !zip || !cz || !zz || cz === zz) return null;
-    const cityArea = customerAreaName(cz, macroOfZone(cz));
-    const zipArea = customerAreaName(zz, macroOfZone(zz));
-    const msg = `This city and ZIP don’t match. ${city} is in the ${cityArea} area, but ZIP ${zip} is in the ${zipArea} area. Please fix the city or the ZIP so they belong together. Dates are not offered until the address is consistent.`;
-    return { message: msg, city, zip, cityZone: cz, zipZone: zz, cityRegion: macroOfZone(cz), zipRegion: macroOfZone(zz) };
+    return { message: conflictMessage(leg), city, zip, cityZone: cz, zipZone: zz, cityRegion: macroOfZone(cz), zipRegion: macroOfZone(zz) };
   }
 
   return {
     SOCAL_ZIP_MAX, SOCAL_ZONES, ZONE_CITIES, ZONE_ZIPS, MIXED_PREFIXES, NAPA_945, ZIP5_ZONES, AREA_NAMES, ZIP_ALIASES,
-    macroOfZone, customerAreaName, zip5, cityZone, zipZone, regionOfZone, regionForZip, routeConflict,
+    macroOfZone, customerAreaName, zip5, cityZone, zipZone, regionOfZone, regionForZip, routeConflict, conflictMessage,
     cityFitsZip, aliasesForZip, addressComplete, normName,
   };
 });

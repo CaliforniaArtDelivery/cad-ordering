@@ -380,6 +380,28 @@ module.exports = {
       installProxy: { hangWhere: ['high', 'stairwell', 'other'], quoteHangKinds: ['Chandelier', 'Sconces'] },
     },
     showDays: 12,
+    // En-route stops: places the van passes on a route day, bookable only in set windows and capped per date. They never replace a
+    // regular route day, and they need the live sheet to have that route on that date.
+    //  thu-eastbay (Chad t2096u): the Sacramento run leaves the East San Jose (Evergreen) hub and drives up through the East Bay
+    //    (I-880 / I-680 / I-80). Applies when the sheet route says "East Bay ... en route". Livermore (east on I-580) is off the way.
+    //  sat-carmel-south (Chad t2098u): the Saturday Carmel run goes north to south (hub, Carmel, Salinas). South San Jose, Los Gatos,
+    //    Saratoga, Gilroy, Santa Cruz, Aptos and Capitola are on the way down. Wednesday stays the regular day where it already is.
+    //  wed-eastbay-return (Chad t2098u): on the way back down from Healdsburg on Wednesday, a quick East Bay pickup or drop-off in the
+    //    evening. Never a default: offered only when the address has no other route date (or the customer asks for later dates).
+    enRoute: {
+      maxStopsPerDay: 3,
+      rules: [
+        { id: 'thu-eastbay', fromRouteText: true, zones: ['EastBay'], offRouteCities: ['livermore'], windows: ['late_morning', 'midday'] },
+        { id: 'sat-carmel-south', dow: 6, routePrimary: ['Carmel'], label: 'On the way to Carmel (midday stop)',
+          cities: ['los gatos', 'monte sereno', 'saratoga', 'gilroy', 'santa cruz', 'aptos', 'capitola', 'soquel'],
+          zips: ['95111', '95118', '95119', '95120', '95123', '95136', '95138', '95139', '95030', '95032', '95033', '95070', '95020', '95021', '95060', '95062', '95065', '95003', '95010', '95073'],
+          windows: ['late_morning', 'midday'] },
+        { id: 'wed-eastbay-return', dow: 3, routePrimary: ['BayWest'], zones: ['EastBay'], offRouteCities: ['livermore'], label: 'Wed evening, quick stop only',
+          windows: ['evening', 'late_evening'], quickStopOnly: true, lastResort: true },
+      ],
+    },
+    // Live sheet data older than this hides every route date (Dot, CAD-ROUTE-REGIONS-001 #1). Matches lib/sheet-days FRESH_MS.
+    liveScheduleMaxAgeMs: Number(process.env.LIVE_SCHEDULE_MAX_AGE_MS || 30 * 60 * 1000),
     rushEnabled: true,
     // No regular route days on federal and major holidays, plus Thanksgiving Friday, Christmas Eve and New Year's Eve.
     // Weekend holidays also block the observed weekday. Extend this list each year (covers bookings out to the end of 2027).
@@ -437,15 +459,17 @@ module.exports = {
     // Wed San Diego, and Thu Orange County (Irvine hub) are down-and-back from the hub.
     // Simple OC Monday stops sit at the hub start or return, so they are downAndBack
     // even though the rest of that Monday is a through LA run.
+    // The catalog NEVER opens a date (Dot, CAD-ROUTE-REGIONS-001 #1): customer dates come only from the live CAD SCHEDULE
+    // (lib/scheduling.js routeEligibility). The catalog is kept for route type, seeding and ops labels.
     dayCatalog: {
       NorCal: {
         0: { zones: ['Central', 'SB'], conditionalZones: ['LA'], label: 'Central California: SLO/Pismo Beach → Santa Barbara OR Fresno → Santa Barbara', shortLabel: 'Central Coast & Santa Barbara', routeType: 'through' },
         1: { zones: ['LA'], conditionalZones: ['SB', 'Central'], label: 'LA, heading northwest (SB late or Fresno very late)', shortLabel: 'Los Angeles', routeType: 'through',
             simpleStops: [{ zone: 'OC', maxStandardItems: 2, label: 'OC simple stop (1–2 standard items) leaving the Irvine hub, then LA heading northwest', shortLabel: 'OC · simple stop', routeType: 'downAndBack' }] },
         2: { zones: ['Carmel'], label: 'Carmel, Salinas and Monterey Bay (night in San Jose)', shortLabel: 'Monterey Bay & Salinas', routeType: 'through' },
-        3: { zones: ['BayWest'], label: 'Silicon Valley → SF → Marin → Healdsburg → San Jose', shortLabel: 'Peninsula, SF & Marin', routeType: 'downAndBack' },
-        4: { zones: ['Sacramento', 'Tahoe'], conditionalZones: ['EastBay'], label: 'Sacramento & surrounding areas (priority) — East Bay only if quick / en route', shortLabel: 'Sacramento', routeType: 'downAndBack' },
-        5: { zones: ['EastBay', 'NapaWine', 'BayWest'], conditionalZones: ['BayWest'], label: 'San Jose → East Bay → Napa → SF/Silicon Valley (late & if quick) → San Jose', shortLabel: 'East Bay & Napa', routeType: 'downAndBack' },
+        3: { zones: ['BayWest'], label: 'Silicon Valley → SF → Marin → Healdsburg → San Jose', shortLabel: 'Silicon Valley, SF, Marin & Healdsburg', routeType: 'downAndBack' },
+        4: { zones: ['Sacramento'], conditionalZones: ['EastBay'], label: 'Sacramento & surrounding areas (priority) — East Bay only if quick / en route', shortLabel: 'East Bay (morning) & Sacramento area', routeType: 'downAndBack' },
+        5: { zones: ['EastBay', 'NapaWine'], conditionalZones: ['BayWest'], label: 'San Jose → East Bay → Napa → SF/Silicon Valley (late & if quick) → San Jose', shortLabel: 'East Bay & Napa', routeType: 'downAndBack' },
         6: { zones: ['Carmel'], conditionalZones: ['Central'], label: 'Carmel / Salinas (then toward SLO or Fresno)', shortLabel: 'Monterey Bay & Salinas', routeType: 'through' },
       },
       SoCal: {

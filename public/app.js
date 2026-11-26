@@ -903,7 +903,8 @@ let tw = null, twKey = '', twSeq = 0;
 const twFor = (prefPath) => { const leg = prefPath === 'schedule.deliveryTimePref' ? 'delivery' : 'pickup'; const r = tw && tw[leg]; const date = leg === 'delivery' ? S.schedule.deliveryDate : S.schedule.date; return r && r.date === date ? r : null; };
 const twOff = (prefPath, v) => { const r = twFor(prefPath); const w = r && (r.windows || []).find((x) => x.v === v); return w && !w.ok ? (w.why || 'Doesn’t fit our route that day') : ''; };
 // Morning shows only when the server lists it for that leg's date (day already busy enough). No answer yet = hidden (safe default).
-const twHidden = (prefPath, v) => { if (v !== 'morning') return false; const r = twFor(prefPath); return !(r && (r.windows || []).some((x) => x.v === v)); };
+// Any other window the server leaves out (e.g. the Thursday East Bay drive-up: mid-morning to midday only, Chad t2096u) is not shown.
+const twHidden = (prefPath, v) => { if (v === 'none') return false; const r = twFor(prefPath); if (v === 'morning') return !(r && (r.windows || []).some((x) => x.v === v)); return !!(r && (r.windows || []).length && !(r.windows || []).some((x) => x.v === v)); };
 function windowsKey() {
   if (STEPS[step] !== 'When' || !S.schedule.date && !S.schedule.deliveryDate) return '';
   const a = (x) => [x && x.zip, x && x.city].join('|');
@@ -1031,6 +1032,10 @@ const pairCard = (d, kind) => {
   const why = st === 'off' ? (kind === 'pu' ? 'Too late for the delivery day you picked' : 'Doesn’t work with the pickup day you picked') : '';
   return `<button type="button" class="day ${st} ${d.rush ? 'rush' : ''}" ${attr} ${st === 'off' ? `aria-disabled="true" data-off="1" title="${why}"` : ''} aria-pressed="${st === 'on'}"><div class="dw">${w}</div><div class="dd">${m} ${n}</div><div class="rg">${d.rush ? 'Rush quote' : esc(d.shortLabel || d.routeLabel || d.region)}</div></button>`;
 };
+// Nothing on the live schedule fits this address (Dot, CAD-ROUTE-REGIONS-001 #2): say so plainly and keep the order for review.
+const NO_ROUTE_MSG = 'No confirmed route dates for this address.';
+const noRouteLine = (blk) => `<p class="no-route" data-noroute data-reqblock="${blk}"><b>${NO_ROUTE_MSG}</b></p>`;
+const noRouteQuote = () => `<div class="card" data-noroute-quote style="margin-top:10px">${toggle('quoteOnly', 'Request a quote (we’ll confirm details by hand)', 'We keep your order details for review. No dates are booked and nothing is charged until you authorize payment.', true, 'first')}</div>`;
 function pairBlock() {
   const pu = (dedOn('delivery') && pickupAny) || (avail && avail.days) || [], rush = (avail && avail.rush) || [];
   const del = (dedOn('pickup') && deliveryAny) || (delAvail && delAvail.days) || [];
@@ -1045,14 +1050,14 @@ function pairBlock() {
   return `<p class="pair-hint mini" data-pairhint>${hint}</p>${cross}
     <div class="date-pair">
       <div class="date-col" data-col="pu">${head('Pickup', S.schedule.date, 'pu')}
-        ${dedOn('pickup') ? '' : `<div class="region">● ${esc((avail && avail.area) || 'Pickup')} route</div>
-        <div class="days col-days" data-reqblock="date">${pw.list.map((d) => pairCard(d, 'pu')).join('')}</div>${pw.btn}
+        ${dedOn('pickup') ? '' : `${pw.list.length || rush.length ? `<div class="region">● ${esc((avail && avail.area) || 'Pickup')} route</div>` : ''}
+        ${pw.list.length || rush.length ? `<div class="days col-days" data-reqblock="date">${pw.list.map((d) => pairCard(d, 'pu')).join('')}</div>${pw.btn}` : noRouteLine('date')}
         ${rush.length ? `<p class="col-sub">Need a different pickup date?</p><div class="days col-days">${rush.map((d) => pairCard(d, 'pu')).join('')}</div>` : ''}`}
         ${dedBox('pickup', true)}
       </div>
       <div class="date-col" data-col="del">${head('Delivery', S.schedule.deliveryDate, 'del')}
-        ${dedOn('delivery') ? '' : `<div class="region">● ${esc((delAvail && delAvail.area) || 'Delivery')} route</div>
-        ${delAvail ? `<div class="days col-days" data-reqblock="deldate">${dw.list.map((d) => pairCard(d, 'del')).join('')}</div>${dw.btn}` : '<p class="mini" data-reqblock="deldate">Finding delivery days…</p>'}`}
+        ${dedOn('delivery') ? '' : `${delAvail && !dw.list.length ? '' : `<div class="region">● ${esc((delAvail && delAvail.area) || 'Delivery')} route</div>`}
+        ${delAvail ? (dw.list.length ? `<div class="days col-days" data-reqblock="deldate">${dw.list.map((d) => pairCard(d, 'del')).join('')}</div>${dw.btn}` : noRouteLine('deldate')) : '<p class="mini" data-reqblock="deldate">Finding delivery days…</p>'}`}
         ${dedBox('delivery', true)}
       </div>
     </div>
@@ -1618,8 +1623,8 @@ const views = {
     if (S.schedule.deliveryDate && !(S.schedule.deliveryTimePref || '').trim()) S.schedule.deliveryTimePref = 'none';
     const fd = dedOn(firstSide());
     const pickupHtml = `<h1 class="when-h1">${title}</h1>${fd ? '' : `<p class="sub">${subTxt}</p>
-      <div class="region">● ${esc(avail.area || region)} route</div>
-      <div class="days" data-reqblock="date">${dayWindow(avail.days, S.schedule.date, 'pu').list.map(card).join('')}</div>${dayWindow(avail.days, S.schedule.date, 'pu').btn}
+      ${avail.days.length || avail.rush.length ? `<div class="region">● ${esc(avail.area || region)} route</div>` : ''}
+      ${avail.days.length || avail.rush.length ? `<div class="days" data-reqblock="date">${dayWindow(avail.days, S.schedule.date, 'pu').list.map(card).join('')}</div>${dayWindow(avail.days, S.schedule.date, 'pu').btn}` : noRouteLine('date') + noRouteQuote()}
       ${intro ? `<p class="mini">${intro}</p>` : ''}
       ${avail.rush.length ? `<h2>Need a different date?</h2><div class="days">${avail.rush.map(card).join('')}</div>` : ''}`}
       ${dedBox(firstSide())}
@@ -1629,8 +1634,11 @@ const views = {
 `;
     if (two) {
       const dsel = delAvail && (delAvail.days || []).find((d) => d.date === S.schedule.deliveryDate);
+      const puEmpty = !dedOn('pickup') && !((avail.days || []).length || (avail.rush || []).length);
+      const deEmpty = !dedOn('delivery') && delAvail && !(delAvail.days || []).length;
       const pairHtml = `<h1 class="when-h1">Choose your dates</h1>
         ${pairBlock()}
+        ${puEmpty || deEmpty ? noRouteQuote() : ''}
         ${intro ? `<p class="mini">${intro}</p>` : ''}
         ${sel ? routeHint(sel) : dsel ? routeHint(dsel) : ''}
         ${S.schedule.date ? `<div class="pair-pref"><p class="col-sub">Pickup · ${esc(shortDate(S.schedule.date))}</p>${timePrefBlock('schedule.timePref', 'schedule.timeNote', { explain: !S.schedule.deliveryDate })}</div>` : ''}
@@ -2472,8 +2480,8 @@ async function checkZipCity(key) {
   if (!zip || city.length < 2) return show('');
   if (window.CADZones) {
     const addr = { street: a.street, city, state: a.state || 'CA', zip };
-    const conflict = CADZones.routeConflict(addr);
-    if (conflict) return show(`<b>City and ZIP don’t match the same delivery area.</b> ${esc(conflict.message)}`, { zip, city, place: conflict.zipArea || conflict.zipZone, conflict: true, message: conflict.message });
+    const conflict = CADZones.routeConflict(addr, key === 'pickup' ? 'pickup' : 'delivery');
+    if (conflict) return show(esc(conflict.message), { zip, city, place: conflict.zipZone, conflict: true, message: conflict.message });
     if (CADZones.cityFitsZip && CADZones.cityFitsZip(addr)) return show('');
   }
   if (!(zip in zipCache)) { const j = await geoGet(`https://api.zippopotam.us/us/${zip}`); zipCache[zip] = j && j.places ? j.places.map((pl) => ({ name: pl['place name'], st: String(pl['state abbreviation'] || '').toLowerCase(), at: [+pl.latitude, +pl.longitude] })) : []; }

@@ -126,7 +126,7 @@ function problems() {
   if (!d.street) add('Delivery street address', '#dStreet', 'Please enter the street address.');
   if (!d.city) add('City', '#dCity', 'Please enter the city.');
   if (!/^\d{5}(-\d{4})?$/.test(d.zip)) add('ZIP code', '#dZip', 'Please enter a 5-digit ZIP code.');
-  if (window.CADZones && d.city && d.zip) { const c = CADZones.routeConflict({ city: d.city, state: d.state || 'CA', zip: d.zip }); if (c) add('City and ZIP', '#dZip', c.message); }
+  if (window.CADZones && d.city && d.zip) { const c = CADZones.routeConflict({ city: d.city, state: d.state || 'CA', zip: d.zip }, 'delivery'); if (c) add('City and ZIP', '#dZip', c.message); }
   if (needsDeliveryAccess()) {
     const a = access();
     if (needsPathAccess() && !a.mode) add('How we get in at delivery', '#aMode', 'Please tell us how we get in.');
@@ -374,7 +374,7 @@ const SHOW_FIRST = 3;
 const pairCard = (d, kind, st, i) => {
   const [w, m, n] = String(d.label).replace(',', '').split(' ');
   const why = st === 'off' ? (kind === 'pu' ? 'Too late for the delivery day you picked' : 'Doesn’t work with the pickup day you picked') : '';
-  return `<button type="button" class="day ${st} ${i === 0 ? 'early' : ''}" data-${kind}="${d.date}" ${st === 'off' ? `aria-disabled="true" data-off="1" title="${why}"` : ''} aria-pressed="${st === 'on'}"><div class="dw">${esc(w)}</div><div class="dd">${esc(m)} ${esc(n)}</div><div class="rg">${esc(d.shortLabel || d.region || '')}</div></button>`;
+  return `<button type="button" class="day ${st} ${i === 0 && !d.quickStop ? 'early' : ''}" data-${kind}="${d.date}" ${st === 'off' ? `aria-disabled="true" data-off="1" title="${why}"` : ''} aria-pressed="${st === 'on'}"><div class="dw">${esc(w)}</div><div class="dd">${esc(m)} ${esc(n)}</div><div class="rg">${esc(d.shortLabel || d.region || '')}</div></button>`;
 };
 function dayCtl(days, sel, kind) {
   const more = kind === 'pu' ? S.puMore : S.deMore, from = kind === 'pu' ? S.puFrom : S.deFrom;
@@ -421,11 +421,11 @@ function renderDays() {
   box.innerHTML = `${zipOk ? `<p class="pair-hint mini">${hint}</p>` : '<p class="pair-hint mini">Enter the delivery ZIP on the address step and the available days appear here.</p>'}
     <div class="date-pair">
       <div class="date-col" data-col="pu">${head('Pickup', S.pickupDate, 'pu')}
-        ${dedOn('pickup') ? '' : `${S.puDays.length ? `<div class="region">● Pickup route</div><div class="days col-days">${puList.map((x, i) => pairCard(x, 'pu', puState(x), i)).join('')}</div>${dayCtl(S.puDays, S.pickupDate, 'pu')}` : (zipOk ? '<p class="mini">No route days are open right now. Select a dedicated trip below, or request a custom date once the trip is on.</p>' : '<p class="mini">Available pickup days appear after the delivery ZIP is entered.</p>')}`}
+        ${dedOn('pickup') ? '' : `${S.puDays.length ? `<div class="region">● Pickup route</div><div class="days col-days">${puList.map((x, i) => pairCard(x, 'pu', puState(x), i)).join('')}</div>${dayCtl(S.puDays, S.pickupDate, 'pu')}` : (zipOk ? '<p class="mini no-route" data-noroute><b>No confirmed route dates for this address.</b> Select a dedicated trip below, or request a custom date once the trip is on.</p>' : '<p class="mini">Available pickup days appear after the delivery ZIP is entered.</p>')}`}
         ${dedBox('pickup')}
       </div>
       <div class="date-col" data-col="del">${head('Delivery', S.deliveryDate, 'del')}
-        ${dedOn('delivery') ? '' : `${S.deDays.length ? `<div class="region">● Delivery route</div><div class="days col-days">${deList.map((x, i) => pairCard(x, 'de', delState(x), i)).join('')}</div>${dayCtl(S.deDays, S.deliveryDate, 'de')}` : (zipOk ? '<p class="mini">No route days are open right now. Select a dedicated trip below, or request a custom date once the trip is on.</p>' : '<p class="mini">Available delivery days appear after the delivery ZIP is entered.</p>')}`}
+        ${dedOn('delivery') ? '' : `${S.deDays.length ? `<div class="region">● Delivery route</div><div class="days col-days">${deList.map((x, i) => pairCard(x, 'de', delState(x), i)).join('')}</div>${dayCtl(S.deDays, S.deliveryDate, 'de')}` : (zipOk ? '<p class="mini no-route" data-noroute><b>No confirmed route dates for this address.</b> Select a dedicated trip below, or request a custom date once the trip is on.</p>' : '<p class="mini">Available delivery days appear after the delivery ZIP is entered.</p>')}`}
         ${dedBox('delivery')}
       </div>
     </div>`;
@@ -444,7 +444,7 @@ async function refreshDates() {
   if (tok !== availTok) return;
   if (ok && j.dedicatedBlocked) S.dedicatedBlocked = j.dedicatedBlocked;
   S.puDays = ok ? (j.days || []) : [];
-  if (!dedOn('pickup') && !S.puDays.some((x) => x.date === S.pickupDate)) S.pickupDate = (S.puDays[0] || {}).date || '';
+  if (!dedOn('pickup') && !S.puDays.some((x) => x.date === S.pickupDate)) S.pickupDate = (S.puDays.find((x) => !x.quickStop) || {}).date || ''; // a quick stop is never the default
   await refreshDelivery(tok);
 }
 async function refreshDelivery(tok = availTok) {
@@ -456,7 +456,7 @@ async function refreshDelivery(tok = availTok) {
   if (tok !== availTok) return;
   if (ok && j.dedicatedBlocked) S.dedicatedBlocked = j.dedicatedBlocked;
   S.deDays = ok ? (j.days || []) : [];
-  if (!dedOn('delivery') && !S.deDays.some((x) => x.date === S.deliveryDate)) S.deliveryDate = (S.deDays[0] || {}).date || '';
+  if (!dedOn('delivery') && !S.deDays.some((x) => x.date === S.deliveryDate)) S.deliveryDate = (S.deDays.find((x) => !x.quickStop) || {}).date || '';
   renderDays(); renderSummary(); availPending = false;
 }
 function toggleDedicated(side, on) {
@@ -466,8 +466,8 @@ function toggleDedicated(side, on) {
     if (side === 'pickup' && S.puDays.some((x) => x.date === S.pickupDate)) S.pickupDate = '';
     if (side === 'delivery' && S.deDays.some((x) => x.date === S.deliveryDate)) S.deliveryDate = '';
   } else if (!S.customDate) {
-    if (side === 'pickup' && !S.puDays.some((x) => x.date === S.pickupDate)) S.pickupDate = (S.puDays[0] || {}).date || '';
-    if (side === 'delivery' && !S.deDays.some((x) => x.date === S.deliveryDate)) S.deliveryDate = (S.deDays[0] || {}).date || '';
+    if (side === 'pickup' && !S.puDays.some((x) => x.date === S.pickupDate)) S.pickupDate = (S.puDays.find((x) => !x.quickStop) || {}).date || ''; // a quick stop is never the default
+    if (side === 'delivery' && !S.deDays.some((x) => x.date === S.deliveryDate)) S.deliveryDate = (S.deDays.find((x) => !x.quickStop) || {}).date || '';
   }
   scheduleQuote();
   if (side === 'pickup' && !on) refreshDelivery(); else { renderDays(); renderSummary(); }

@@ -512,3 +512,4 @@ details.handling .handling-body .toggle{padding-bottom:0}
 .ded-toggle .sw{width:44px;height:27px}
 .ded-toggle .sw i:before{width:23px;height:23px}
 .ded-toggle .sw input:checked+i:before{transform:translateX(17px)}
+.no-route{margin:10px 0 6px;padding:10px 12px;border:1px solid #d9dee7;border-radius:10px;background:#f7f9fc;font-size:15px;line-height:1.35;color:var(--ink,#0f1b2d);overflow-wrap:break-word}
