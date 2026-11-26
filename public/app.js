@@ -155,7 +155,7 @@ let saveMethod = false;
 let busy = false;
 
 // Screen-skipping flags (Nov 25 2026) and "return to review" live with the saved progress, so a refresh mid-edit still goes back to review.
-const UI = { showContact: [], showPayer: false, showList: false };
+const UI = { showContact: [], showPayer: false, showList: false, installUpsell: '' };
 // The payer screen is skipped while the payer is the pre-selected contact; review shows it as a line with Edit.
 const payerShown = () => UI.showPayer || !['pickup', 'dropoff'].includes(S.payer);
 let returnToReview = false; // set by Edit on the review screen: the next Next goes straight back to review
@@ -165,6 +165,8 @@ const persist = () => { if (STEPS[step] === 'Done') return; (S.items || []).forE
 const payload = () => {
   applySameAsMe('pickup'); applySameAsMe('dropoff'); applySamePickup(); tidyAccess('pickup'); tidyAccess('dropoff'); // default on-site contact = the booker
   const o = JSON.parse(JSON.stringify(S));
+  // While the install-upsell step is open, price and persist as delivery + install without committing until Confirm.
+  if (UI.installUpsell === 'ask') o.service = 'delivery_install';
   const sv = (CFG && CFG.services[o.service]) || {};
   // Dedicated trip per side (Chad, Nov 25 2026). Install only has one stop: the delivery side.
   if (!sv.needsPickup) o.dedicatedPickup = false;
@@ -622,7 +624,7 @@ const hangFeeFor = (it, v) => {
   return typeof hi[v] === 'number' ? hi[v] : 0;
 };
 const hardwareField = (it, i) => `<div class="field" data-hardware="${i}" style="margin-top:12px"><label class="f">Is hanging hardware already on the back of the piece? — ${esc(pieceTitle0(it, i))}${req}</label>
-  ${seg(`items.${i}.hardware`, HARDWARE_OPTS.filter((v) => hwCfg()[v]).map((v) => [v, esc(hwCfg()[v].label) + (v === 'not_sure' ? ' <span class="fee">we’ll confirm on site</span>' : feeTag(hwCfg()[v].fee))]), 'stack')}</div>`;
+  ${seg(`items.${i}.hardware`, HARDWARE_OPTS.filter((v) => hwCfg()[v]).map((v) => [v, esc(hwCfg()[v].label) + (v === 'not_sure' ? ' <span class="fee">we’ll confirm on the visit; this may add to the total</span>' : feeTag(hwCfg()[v].fee))]), 'stack')}</div>`;
 const hangSummary = (it, i) => {
   const name = pieceName(i);
   if (it.hangHeight === 'higher') {
@@ -642,7 +644,7 @@ const hangPieceBlock = (it, i) => {
   const stairwell = higher && it.hangWhere === 'stairwell';
   const helpful = higher && it.hangWhere && it.hangWhere !== 'stairwell';
   let html = '<div class="field" style="margin-top:14px" data-hangpiece="' + i + '">';
-  html += '<label class="f">Hanging height — ' + title + '<span class="req">Required</span></label>';
+  html += '<label class="f">Hanging height — ' + title + ' <span class="req">Required</span></label>';
   it.hangPick = higher ? (it.hangWhere || '') : 'standard';
   html += seg(p + '.hangPick', HANG_PICKS.map(([v, l]) => [v, l + feeTag(hangFeeFor(it, v))]), 'stack');
   if (!higher) {
@@ -656,6 +658,146 @@ const hangPieceBlock = (it, i) => {
   }
   html += '</div>';
   return html;
+};
+const installUpsellAmount = () => (quoteData && quoteData.installUpsell && quoteData.installUpsell.amount) || 0;
+const installUpsellAsLittle = () => !!(quoteData && quoteData.installUpsell && quoteData.installUpsell.asLittle);
+const installUpsellOfferOpen = () => UI.installUpsell !== 'no' && UI.installUpsell !== 'done' && UI.installUpsell !== 'ask' && !hasInstall() && !isShip() && !existing && !S.rush && installUpsellAmount() > 0;
+let upsellShownTracked = false;
+let installFitMsg = '';
+let installUpsellBaseTotal = 0;
+let installUpsellEditing = false;
+const track = (name, meta) => { try { fetch('/api/events', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, meta: meta || {} }) }); } catch (_) { /* ignore */ } };
+const installUpsellCard = () => {
+  if (!installUpsellOfferOpen()) return '';
+  if (!upsellShownTracked) { upsellShownTracked = true; track('install_upsell_shown'); }
+  const amt = installUpsellAmount();
+  const asLittle = installUpsellAsLittle();
+  const title = asLittle
+    ? `Add installation for <span class="upsell-aslittle">as little as ${fmt(amt)}</span>`
+    : `Add installation for ${fmt(amt)}`;
+  return `<div class="card upsell-card" data-upsell>
+      <p class="upsell-kicker">Optional add-on</p>
+      <p class="upsell-title">${title}</p>
+      <p class="upsell-copy">We hang it level and secure on the same visit.</p>
+      ${asLittle ? '<p class="upsell-may">Hardware or special placement may add cost.</p>' : ''}
+      ${installFitMsg ? `<p class="upsell-fit" data-upsell-fit role="status">${esc(installFitMsg)}</p>` : ''}
+      <button type="button" class="btn primary full" data-upsell-yes>Add installation</button>
+      <button type="button" class="upsell-no" data-upsell-no>No thanks</button>
+    </div>`;
+};
+const installAddedCard = () => {
+  if (!(hasInstall() && !isShip() && !existing && S.items.some(isHung))) return '';
+  if (UI.installUpsell === 'ask') return '';
+  const wall = String((S.dropoff && S.dropoff.wallType) || '').trim();
+  const hang = S.items.map((it, i) => {
+    if (!isHung(it)) return '';
+    return `<div class="sum-row"><span>${esc(pieceName(i))}</span><span>${esc(hangSummary(it, i))}${it.hardware ? ' · ' + esc(hardwareText(it.hardware)) : ''}</span></div>`;
+  }).join('');
+  const wallHtml = wall ? `<div class="sum-row"><span>Wall type</span><span>${esc(wall)}</span></div>` : '';
+  return `<div class="card install-added" data-install-added>
+      <div class="sum-row install-added-head"><span>Installation added</span><span><button type="button" class="edit" data-upsell-edit>Edit</button> <button type="button" class="edit" data-upsell-remove>Remove</button></span></div>
+      ${hang}${wallHtml}
+    </div>`;
+};
+const installUpsellAccessNeeded = () => {
+  if (!accessQuestionsNeeded()) return false;
+  return CADAccess.gaps(S.dropoff, S.items).length > 0 || (CADAccess.asksDoorwayAccess(S.items) && !['yes', 'no'].includes((S.dropoff || {}).stdDoorway));
+};
+async function checkInstallFit() {
+  const body = payload();
+  body.service = 'delivery_install';
+  const { ok, j } = await api('/api/install-visit-fit', body);
+  if (ok && j && j.ok === false) return j.message || 'Installation doesn’t fit this delivery day. Your pickup and delivery stay as they are.';
+  return '';
+}
+const startInstallUpsell = async () => {
+  track('install_upsell_add');
+  const msg = await checkInstallFit();
+  if (msg) { installFitMsg = msg; render(); return; }
+  installFitMsg = '';
+  installUpsellBaseTotal = (quoteData && quoteData.total) || 0;
+  installUpsellEditing = false;
+  UI.installUpsell = 'ask';
+  saveUi();
+  sub = 'install-upsell';
+  quotePending = true;
+  render();
+};
+const dismissInstallUpsell = () => {
+  track('install_upsell_no_thanks');
+  UI.installUpsell = 'no';
+  installFitMsg = '';
+  saveUi();
+  sub = 'review';
+  render();
+};
+const cancelInstallUpsell = () => {
+  if (installUpsellEditing && hasInstall()) { UI.installUpsell = 'done'; installUpsellEditing = false; saveUi(); sub = 'review'; render(); return; }
+  UI.installUpsell = hasInstall() ? 'done' : '';
+  installUpsellEditing = false;
+  saveUi();
+  sub = 'review';
+  render();
+};
+const confirmInstallUpsell = async () => {
+  const msg = await checkInstallFit();
+  if (msg) { installFitMsg = msg; UI.installUpsell = ''; installUpsellEditing = false; S.service = 'pickup_delivery'; persist(); saveUi(); sub = 'review'; render(); return; }
+  installFitMsg = '';
+  S.service = 'delivery_install';
+  persist();
+  UI.installUpsell = 'done';
+  installUpsellEditing = false;
+  saveUi();
+  sub = 'review';
+  track('install_upsell_confirm');
+  render();
+};
+const editInstallUpsell = () => {
+  installUpsellEditing = true;
+  installUpsellBaseTotal = 0;
+  UI.installUpsell = 'ask';
+  saveUi();
+  sub = 'install-upsell';
+  render();
+};
+const removeInstallUpsell = () => {
+  track('install_upsell_remove');
+  S.service = 'pickup_delivery';
+  persist();
+  UI.installUpsell = '';
+  installUpsellEditing = false;
+  installFitMsg = '';
+  saveUi();
+  sub = 'review';
+  render();
+};
+const addInstallUpsellGaps = (add) => {
+  S.items.forEach((it, i) => {
+    if (!isHung(it)) return;
+    const p = pieceName(i);
+    if (it.hangHeight === 'higher' && !it.hangWhere) add(`#f-items.${i}.hangWhere`, `Where? — ${p}`, 'Please tell us where this piece will hang.');
+    else if (it.hangHeight === 'higher' && it.hangWhere === 'other' && !String(it.hangWhereOther || '').trim()) add(`#f-items.${i}.hangWhereOther`, `Where? — ${p}`, 'Please tell us where this piece will hang.');
+    if (!HARDWARE_OPTS.includes(it.hardware)) add(`[data-hardware="${i}"]`, `Hanging hardware — ${p}`, 'Please tell us what hanging hardware is on the back of this piece.');
+    if (!hangPhotosOk(it)) add(`[data-hangupload="${i}"]`, `Photos of the stairwell — ${p}`, 'Please add a photo of the stairwell.');
+  });
+  if (installUpsellAccessNeeded()) {
+    const a = S.dropoff || {};
+    const ACCESS_GAP = {
+      accessMode: [`[data-seg="dropoff.pathPick"]`, 'How do we reach the spot?', 'Please tell us how we reach the spot, the whole way.'],
+      stairFlights: [`#f-dropoff.stairFlights`, 'How many flights?', 'Please choose how many flights of stairs.'],
+      stairs: [`#f-dropoff.stairs`, 'Total number of flights', 'Enter the total number of flights (4 or more).'],
+      elevatorType: [`[data-seg="dropoff.elevatorType"]`, 'Regular or service elevator?', 'Please choose regular or service elevator.'],
+      elevatorFit: [`[data-seg="dropoff.elevatorFit"]`, 'Will it fit in the elevator?', 'Please tell us if it will fit in the elevator.'],
+      elevatorAck: [`[data-reqblock="dropoff-elevatorAck"]`, 'Elevator acknowledgment', 'Please check the box to continue.'],
+      sitePhotos: [`[data-siteupload="dropoff"]`, 'Photos of the path', 'Please add a photo of the path.'],
+      stairPhotos: [`[data-accessupload="dropoff.stairPhotos"]`, 'Photos of the stairs and path', 'Please add a photo of the stairs and path.'],
+      floor: [`#f-dropoff.floor`, 'Floor', 'Please enter the floor.'],
+      fits: [`[data-seg="dropoff.fits"]`, 'Will everything fit easily?', 'Please tell us if everything will fit easily.'],
+      doorPhotos: [`[data-accessupload="dropoff.doorPhotos"]`, 'Photos of the tight spot', 'Please add a photo of the tight spot and the way in.'],
+    };
+    CADAccess.gaps(a, S.items).forEach((g) => { const row = ACCESS_GAP[g]; if (row) { const [sel, label, msg] = row; add(sel, `${label} — Delivery`, msg); } });
+    if (CADAccess.asksDoorwayAccess(S.items) && !['yes', 'no'].includes(a.stdDoorway)) add(`[data-seg="dropoff.stdDoorway"]`, 'Standard doorway and hallway? — Delivery', 'Please tap Yes or No.');
+  }
 };
 const accessText = (a) => esc(CADAccess.summary(a).map((x) => (x === 'Ground level, straight in (no stairs)' ? 'Same level the whole way (no stairs)' : x)).join(' · ')) || 'Not answered yet';
 // Access, asked like a phone call (Chad): how do we get in, then only the follow-ups that apply, then the doorway.
@@ -1679,9 +1821,35 @@ const views = {
     return out.join('');
   },
 
+  InstallUpsell() {
+    const hung = S.items.map((it, i) => ({ it, i })).filter((x) => isHung(x.it));
+    const needHw = hung.filter((x) => !HARDWARE_OPTS.includes(x.it.hardware));
+    const needWall = !String((S.dropoff && S.dropoff.wallType) || '').trim();
+    const needAccess = installUpsellAccessNeeded();
+    const q = quoteData;
+    const hwKnown = hung.every(({ it }) => HARDWARE_OPTS.includes(it.hardware) && it.hardware !== 'not_sure');
+    const addOn = (q && installUpsellBaseTotal) ? (Number(q.total) - installUpsellBaseTotal) : 0;
+    const status = !hwKnown
+      ? 'Estimated total with installation'
+      : (addOn > 0 && q ? `Installation adds ${fmt(addOn)} · New order total ${fmt(q.total)}` : (q ? `New order total ${fmt(q.total)}` : ''));
+    const hwHtml = needHw.map(({ it, i }) => hardwareField(it, i)).join('');
+    const hangHtml = hung.map(({ it, i }) => hangPieceBlock(it, i)).join('');
+    const wallHtml = needWall ? select('dropoff.wallType', 'Wall type (optional)', ['Not sure', 'Drywall', 'Plaster', 'Concrete / brick', 'Wood', 'Tile / stone', 'Glass'], { placeholder: 'Please choose one' }) : '';
+    return panel('install-upsell', `<h1>A few details so we can hang it</h1>
+      <p class="sub">These help us hang it level and secure on the same visit.</p>
+      ${status ? `<p class="upsell-status" data-upsell-status>${esc(status)}</p>` : ''}
+      ${installFitMsg ? `<p class="upsell-fit" data-upsell-fit role="status">${esc(installFitMsg)}</p>` : ''}
+      <div class="card">
+        ${hwHtml}${hangHtml}
+        ${wallHtml}
+      </div>
+      ${needAccess ? `<div class="card">${accessBlock('dropoff', S.dropoff)}</div>` : ''}`);
+  },
+
   Pay() {
     if (existing) return views.PayLink();
     if (isShip()) return views.ShipPay();
+    if (UI.installUpsell === 'ask') return views.InstallUpsell();
     const q = quoteData;
     // Full address with state and ZIP, so the customer can confirm the ZIP that sets their route (QA re-check N5).
     const addr = (a) => (a.street ? [a.street, a.city, [a.state, a.zip].map((x) => String(x || '').trim()).filter(Boolean).join(' ')].map((x) => String(x || '').trim()).filter(Boolean).map(esc).join(', ') : '—');
@@ -1693,6 +1861,7 @@ const views = {
     return (payerShown() ? panel('payer', `<h1>Who’s paying?</h1>${payerCard}`) : '')
       + panel('review', `<h1>${sp ? 'Review your order' : 'Review & pay'}</h1><p class="sub">${sp ? 'Check the details, then send it to our team for pricing.' : 'Your job is booked as soon as payment goes through.'}</p>${valueConfirmCard('review')}
       ${promiseCard(tripLine() || (date && date.routeLabel) || (avail && avail.region ? avail.region + ' route' : 'Route day'), 'margin-top:0', '2:date')}
+      ${installUpsellCard()}${installAddedCard()}
       <div class="card">
         <div class="sum-row"><span>Service</span><span>${esc(svc().label)}${S.rush ? ' · rush' : ''}${esc(dedLabel())} ${editBtn('0:service')}</span></div>
         ${reviewPieces()}
@@ -1808,7 +1977,7 @@ const siteReview = (title, a, goto) => {
     a.hours && ['Access hours', esc(a.hours)],
     showAccess && ['Access', accessBits.length ? accessText(a) : 'Not answered yet'],
     a.parkingRestricted && ['Parking / loading', esc(a.parkingNote || 'Restrictions')],
-    a === S.dropoff && hasHanging() && ['Hanging', `${esc(a.wallType || 'Wall type not sure')}${S.items.map((it, i) => isHung(it) ? '<br>' + esc(hangSummary(it, i)) + (it.hardware ? ' · ' + esc(hardwareText(it.hardware)) : '') : '').join('')}`],
+    a === S.dropoff && hasHanging() && ['Hanging', `${a.wallType ? 'Wall type: ' + esc(a.wallType) + '<br>' : ''}${S.items.map((it, i) => isHung(it) ? esc(hangSummary(it, i)) + (it.hardware ? ' · ' + esc(hardwareText(it.hardware)) : '') : '').filter(Boolean).join('<br>')}`],
     a.notes && ['Notes', esc(a.notes)],
   ].filter(Boolean);
   if (!rows.length) return '';
@@ -1947,6 +2116,7 @@ function missingFields(name = STEPS[step]) {
   }
   if (name === 'Pay') {
     if (existing) return out;
+    if (UI.installUpsell === 'ask') { addInstallUpsellGaps(add); return out; }
     { const nf = S.items.filter((it) => it.checkValue).length; if (nf) add('[data-checkvalues="review"]', 'Declared values', nf === 1 ? 'Please confirm the declared value of the copied piece above (or edit it).' : `Please confirm the declared values of the ${nf} copied pieces above (or edit them).`); }
     if (S.payer === 'other') {
       if (!String(S.payerOther.name || '').trim()) add('#f-payerOther.name', 'Payer name', 'Please enter the payer’s name.');
@@ -2116,12 +2286,43 @@ function refreshQuote() {
     if (!ok) { paintEstimate(); updateNext(); return; }
     quoteData = j; paintEstimate(); updateNext();
     if (S.discountCode && j.discount && !j.discount.applied && j.discount.note === 'invalid') { S.discountCode = ''; persist(); discountMsg = { ok: false, text: 'That code is no longer valid.' }; paintDiscount(); }
-    if (STEPS[step] === 'Pay' && !isShip()) { const pc = document.querySelector('[data-price]'); if (pc) pc.outerHTML = `<div data-price>${priceCard(quoteData, true)}</div>`; }
+    if (STEPS[step] === 'Pay' && !isShip()) {
+      const pc = document.querySelector('[data-price]'); if (pc) pc.outerHTML = `<div data-price>${priceCard(quoteData, true)}</div>`;
+      const st = document.querySelector('[data-upsell-status]');
+      if (st && quoteData && UI.installUpsell === 'ask') {
+        const hung = (S.items || []).filter(isHung);
+        const hwKnown = hung.every((it) => HARDWARE_OPTS.includes(it.hardware) && it.hardware !== 'not_sure');
+        const addOn = installUpsellBaseTotal ? (Number(quoteData.total) - installUpsellBaseTotal) : 0;
+        st.textContent = !hwKnown ? 'Estimated total with installation' : (addOn > 0 ? `Installation adds ${fmt(addOn)} · New order total ${fmt(quoteData.total)}` : `New order total ${fmt(quoteData.total)}`);
+      }
+      if (UI.installUpsell !== 'ask') {
+        const html = installUpsellCard();
+        const card = document.querySelector('[data-upsell]');
+        if (html && card) card.outerHTML = html;
+        else if (html && !card) {
+          const promise = document.querySelector('.promise, [data-panel="review"] .card');
+          const review = document.querySelector('[data-panel="review"]');
+          if (promise && promise.parentNode) promise.insertAdjacentHTML('afterend', html);
+          else if (review) {
+            const h1 = review.querySelector('h1');
+            const sub = review.querySelector('p.sub');
+            const anchor = sub || h1;
+            if (anchor) anchor.insertAdjacentHTML('afterend', html);
+            else review.insertAdjacentHTML('afterbegin', html);
+          }
+        } else if (!html && card) card.remove();
+      }
+    }
   }, 120);
 }
 // Description step only: the Next label names the following screen so people don't type size into the description.
 // One piece per p{i}a panel today; if that panel ever listed several pieces, use the generic "sizes" / "values" wording.
 function nextLabelsForStep() {
+  if (UI.installUpsell === 'ask' && STEPS[step] === 'Pay') {
+    const ids = panelIds();
+    if (ids.indexOf(sub) >= ids.length - 1) return ['Add to order'];
+    return ['Next'];
+  }
   if (returnToReview && STEPS[step] !== 'Pay' && !existing) return ['Back to review'];
   if (STEPS[step] !== 'What') return ['Next'];
   const m = /^p(\d+)a$/.exec(String(sub || ''));
@@ -2172,7 +2373,7 @@ function applyNextLabel(btn) {
 function paintButton() {
   const name = STEPS[step], btn = $('#nextBtn');
   const q = existing ? existing.quote : quoteData;
-  if (name === 'Pay' && isLastPanel()) {
+  if (name === 'Pay' && isLastPanel() && UI.installUpsell !== 'ask') {
     // Access "Not sure": the customer pays the base price now (Dot round 4).
     const payWhat = q && accessTbc(q) ? (q.paymentPlan === 'deposit' ? '50% of base price ' : 'base price ') : '';
     btn.classList.remove('next-desc');
@@ -2251,6 +2452,7 @@ function render() {
   const noDock = name === 'Done';
   $('#dock').classList.toggle('hide', noDock);
   app.classList.toggle('no-dock', noDock);
+  app.classList.toggle('upsell-open', UI.installUpsell === 'ask');
   paintButton();
   refreshQuote();
   if (name === 'Where') { checkZipCity('pickup'); checkZipCity('dropoff'); }
@@ -2623,6 +2825,10 @@ app.addEventListener('click', async (e) => {
     if (a.samePickup) applySamePickup(); else { a.contactName = ''; a.contactPhone = ''; a.contactRole = ''; a.contactRoleOther = ''; }
     persist(); render(); return;
   }
+  if (t.closest && t.closest('[data-upsell-yes]')) { startInstallUpsell(); return; }
+  if (t.closest && t.closest('[data-upsell-no]')) { dismissInstallUpsell(); return; }
+  if (t.closest && t.closest('[data-upsell-edit]')) { editInstallUpsell(); return; }
+  if (t.closest && t.closest('[data-upsell-remove]')) { removeInstallUpsell(); return; }
   if (t.dataset.goto != null) {
     // "1:pickup-addr" = Where, Pickup address. From the review screen, the next Next brings them straight back to it.
     const [gs, gp] = String(t.dataset.goto).split(':');
@@ -2742,7 +2948,7 @@ async function placeOrder() {
   const sig = JSON.stringify(payload());
   if (orderId && orderSig === sig) return { ok: true };
   const { ok, j } = await api('/api/orders', payload());
-  if (!ok) return { ok: false, error: j.error || 'Something went wrong. Please try again.', timeConflict: !!j.timeConflict };
+  if (!ok) return { ok: false, error: j.error || 'Something went wrong. Please try again.', timeConflict: !!j.timeConflict, installFit: !!j.installFit };
   orderId = j.id; orderSig = sig; quoteData = j.quote;
   if (j.status === 'pending_approval') return { ok: true, pending: j.order };
   return { ok: true };
@@ -2764,6 +2970,11 @@ async function pay(method) {
     if (!existing) {
       const r = await placeOrder();
       if (!r.ok && r.timeConflict) return backToTimes(r.error);
+      if (!r.ok && r.installFit) {
+        if (hasInstall()) { S.service = 'pickup_delivery'; persist(); UI.installUpsell = ''; saveUi(); }
+        installFitMsg = r.error || 'Installation doesn’t fit this delivery day. Your pickup and delivery stay as they are.';
+        sub = 'review'; render(); return;
+      }
       if (!r.ok) return showErr(r.error);
       if (r.pending) { confirmed = r.pending; sessionStorage.setItem('cad-done', confirmed.id); step = STEPS.indexOf('Done'); render(); return; }
     }
@@ -2790,6 +3001,7 @@ window.addEventListener('popstate', (e) => {
 $('#backBtn').addEventListener('click', () => {
   const ids = panelIds(); const i = ids.indexOf(sub);
   if (i > 0) { sub = ids[i - 1]; render(); return; }
+  if (UI.installUpsell === 'ask' && STEPS[step] === 'Pay') return cancelInstallUpsell();
   if (step === 0) return;
   step -= 1; sub = '__last'; render();
 });
@@ -2824,6 +3036,7 @@ async function goNext() {
   const ids = panelIds(); const idx = ids.indexOf(sub); const last = ids.length < 2 || idx >= ids.length - 1;
   if (name === 'Pay' && last && quotePending) return;
   if (missingNow().length) { revealFirstMissing(); return; }
+  if (name === 'Pay' && last && UI.installUpsell === 'ask') return confirmInstallUpsell();
   if (returnToReview && name !== 'Pay') return backToReview();
   if (returnToList && step === 0 && /^p\d+c$/.test(sub)) { returnToList = false; sub = 'pieces-more'; render(); return; }
   if (!last) { sub = ids[idx + 1]; render(); return; }
@@ -2875,7 +3088,7 @@ app.addEventListener('keydown', (e) => {
     else sessionStorage.removeItem('cad-done');
   } else if (S.service) {
     // Returning mid-booking: land on the step they were on (never past one that still needs answers).
-    try { const u = JSON.parse(draftStore.getItem('cad-ui') || 'null'); if (u) { UI.showContact = Array.isArray(u.showContact) ? u.showContact.filter((k) => k === 'pickup' || k === 'dropoff') : []; UI.showPayer = !!u.showPayer; UI.showList = !!u.showList; returnToReview = !!u.rtr; } } catch (_) { /* ignore */ }
+    try { const u = JSON.parse(draftStore.getItem('cad-ui') || 'null'); if (u) { UI.showContact = Array.isArray(u.showContact) ? u.showContact.filter((k) => k === 'pickup' || k === 'dropoff') : []; UI.showPayer = !!u.showPayer; UI.showList = !!u.showList; returnToReview = !!u.rtr; if (u.installUpsell === 'ask' || u.installUpsell === 'no' || u.installUpsell === 'done') UI.installUpsell = u.installUpsell; } } catch (_) { /* ignore */ }
     const saved = Math.min(Math.max(0, parseInt(draftStore.getItem('cad-step'), 10) || 0), STEPS.indexOf('Pay'));
     if (saved >= STEPS.indexOf('When') && !isShip()) {
       const r = await api('/api/availability', payload());
@@ -2887,6 +3100,8 @@ app.addEventListener('keydown', (e) => {
     if (step === STEPS.indexOf('Pay') && !isShip() && !S.schedule.date) step = STEPS.indexOf('When');
     // Same screen they were on, unless the step had to move.
     sub = step === saved ? (draftStore.getItem('cad-sub') || '') : '__last';
+    if (UI.installUpsell === 'done' && !hasInstall()) UI.installUpsell = '';
+    if (UI.installUpsell === 'ask' && hasInstall()) UI.installUpsell = 'done';
   }
   render();
   // A saved draft from before Nov 19 may carry member fields: drop them so they can never reach the quote.

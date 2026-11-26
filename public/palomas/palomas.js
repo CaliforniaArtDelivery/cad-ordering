@@ -13,6 +13,7 @@ const S = {
   payer: 'client', card: '', exp: '', cvc: '', payError: '', quoteBusy: false,
   pickupDate: '', deliveryDate: '', puDays: [], deDays: [], quote: null, submitting: false, errors: [], showErrors: false,
   dedicatedPickup: false, dedicatedDelivery: false, customDate: false, customDateNote: '', dedicatedBlocked: null,
+  service: 'pickup_delivery', installUpsell: '', wallType: '', installFitMsg: '', installBaseTotal: 0, upsellShownTracked: false, showInstallErrors: false,
 };
 let uid = 1, cat = 'All', quoteTok = 0, availTok = 0, qTimer = 0, aTimer = 0, availPending = false;
 
@@ -29,11 +30,15 @@ const delivery = () => ({
 });
 const access = () => ({ shape: $('#aShape').value, tight: $('#aTight').value, mode: $('#aMode').value, flights: $('#aFlights').value, flightsCount: $('#aFlightsN').value.trim(), floor: $('#aFloor').value.trim(), elevatorType: $('#aElevType').value, elevatorReserve: $('#aElevRes').checked, elevSteps: $('#aElevSteps').value, elevStepsN: $('#aElevStepsN').value.trim(), hours: $('#aHours').value.trim() });
 const outOfState = () => { const d = delivery(); const z = parseInt(d.zip.slice(0, 3), 10); return (d.state && d.state !== 'CA') || (/^\d{5}/.test(d.zip) && !(z >= 900 && z <= 961)); };
+const HUNG_PAL = ['Wall Decor', 'Wall sculptures', 'Tapestries & textiles', 'Mirror'];
+const isHungPal = (it) => !!(it && (HUNG_PAL.includes(it.kind) || /^(painting|photograph|print|drawing|canvas|poster|wall art)/i.test(String(it.kind || ''))));
+const hungPalItems = () => S.items.filter(isHungPal);
+const track = (name, extra) => { try { fetch('/api/events', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, ...(extra || {}) }) }); } catch (_) { /* ignore */ } };
 const payload = (payMode = 'now') => ({
-  payer: S.payer, payMode,
+  payer: S.payer, payMode, service: (S.service === 'delivery_install' || S.installUpsell === 'ask') ? 'delivery_install' : 'pickup_delivery',
   placedBy: { name: S.placedBy, other: S.placedOther }, pickupLocation: S.pickup, courtesy: S.courtesy, ...(S.unlocked ? { pin: S.pin } : {}),
-  items: S.items.map((i) => ({ name: i.name, kind: i.kind, qty: i.qty, catalogId: i.catalogId, custom: !!i.custom, w: i.w, h: i.h, value: i.value, ...(i.custom ? { d: i.d, weight: i.weight, weightUnsure: !!i.weightUnsure, photos: i.photos || [], photoLater: !!i.photoLater } : {}) })),
-  delivery: delivery(), access: needsDeliveryAccess() ? access() : { mode: 'ground', hours: ($('#aHours') && $('#aHours').value.trim()) || '' },
+  items: S.items.map((i) => ({ name: i.name, kind: i.kind, qty: i.qty, catalogId: i.catalogId, custom: !!i.custom, w: i.w, h: i.h, value: i.value, ...(i.custom ? { d: i.d, weight: i.weight, weightUnsure: !!i.weightUnsure, photos: i.photos || [], photoLater: !!i.photoLater } : {}), ...(isHungPal(i) ? { hardware: i.hardware || '', hangHeight: i.hangHeight || '', hangWhere: i.hangWhere || '', hangWhereOther: i.hangWhereOther || '', centerHeight: i.centerHeight || '' } : {}) })),
+  delivery: { ...delivery(), wallType: S.wallType || '' }, access: needsDeliveryAccess() ? access() : { mode: 'ground', hours: ($('#aHours') && $('#aHours').value.trim()) || '' },
   dedicatedPickup: !!S.dedicatedPickup, dedicatedDelivery: !!S.dedicatedDelivery, customDate: !!S.customDate,
   schedule: { date: S.pickupDate, deliveryDate: S.deliveryDate, customDateNote: S.customDateNote },
 });
@@ -104,7 +109,7 @@ async function runQuote() {
   if (!S.items.length) { S.quote = null; S.quoteBusy = false; renderSummary(); return; }
   const { ok, j } = await api('/api/palomas/quote', payload());
   if (tok !== quoteTok) return;
-  S.quote = ok ? j : null; S.quoteBusy = false; renderSummary(); renderDatesVisibility(); syncStairsQ();
+  S.quote = ok ? j : null; S.quoteBusy = false; renderSummary(); renderDatesVisibility(); syncStairsQ(); if (visibleSteps()[stepI] === 'review') renderReview();
 }
 function problems() {
   const out = [];
@@ -258,11 +263,11 @@ function renderSummary() {
     html += q.lines.map((l) => `<div class="li"><div class="li-l">${esc(l.label)}</div>
       <div class="li-p">${l.standard != null && l.standard !== l.amount ? `<s>${usd(l.standard)}</s> ` : ''}<b>${usd(l.amount)}</b>${l.standard != null && l.standard !== l.amount ? '<small> partnership price</small>' : ''}</div>
       ${extras ? `<div class="li-all"><span>After all discounts${esc(each(l))}</span><b>${usd(l.after)}</b></div>` : ''}</div>`).join('');
-    html += `<div class="sl partner"><span>Paloma's Home Furnishings partnership pricing<small>25% off standard pickup, delivery and placement. Access charges (like stairs) are additional.</small></span><span class="a"><s>${usd(q.standard)}</s>${usd(q.partner)}</span></div>`;
+    html += `<div class="sl partner"><span>Paloma's Home Furnishings partnership pricing<small>25% off standard pickup, delivery and placement. Stairs or tight access may add to the total.</small></span><span class="a"><s>${usd(q.standard)}</s>${usd(q.partner)}</span></div>`;
     if (q.volumeEligible) html += `<div class="sl disc"><span>Additional ${q.rules.volumePct}% off (delivery orders of $${q.rules.volumeThreshold.toLocaleString('en-US')}+ after partnership pricing)</span><span class="a">−${usd(q.volumeOff)}</span></div>`;
     html += `<div class="sum-note">${q.volumeEligible ? '✓ ' : ''}Delivery orders of $${q.rules.volumeThreshold.toLocaleString('en-US')} or more (after partnership pricing) get an additional ${q.rules.volumePct}% off the whole delivery price.</div>`;
     if (q.courtesy) html += `<div class="sl disc"><span>Manager's courtesy</span><span class="a">−${usd(q.courtesyOff)}</span></div>`;
-    html += `<div class="sl big rule"><span>${esc(q.totalLabel || 'Total')}</span><span class="a">${q.standard !== q.total ? `<s>${usd(q.standard)}</s>` : ''}${usd(q.total)}</span></div>`;
+    if (S.installUpsell !== 'ask') html += `<div class="sl big rule"><span>${esc(q.totalLabel || 'Total')}</span><span class="a">${q.standard !== q.total ? `<s>${usd(q.standard)}</s>` : ''}${usd(q.total)}</span></div>`;
     html += staffBlock(q);
     if (q.notes && q.notes.length) html += q.notes.filter((n) => !/access/i.test(n)).map((n) => `<p class="mini">${esc(n)}</p>`).join('');
     barTotal.textContent = S.quoteBusy ? 'Updating…' : usd(q.total);
@@ -271,7 +276,7 @@ function renderSummary() {
   const errs = S.showErrors ? problems() : [];
   if (errs.length) html += `<div class="errs" role="alert"><b>Still needed:</b>${errs.map((e) => esc(e.msg)).join(' · ')}</div>`;
   if (q.includesDedicated && !S.customDate) html += `<p class="mini">Includes a dedicated trip.</p>`;
-  html += (q.special || S.customDate) ? shippingButton() : payBlock(q);
+  if (S.installUpsell !== 'ask') html += (q.special || S.customDate) ? shippingButton() : payBlock(q);
   box.innerHTML = html;
 }
 
@@ -493,6 +498,13 @@ async function place(mode = 'now', wallet = '') {
   S.submitting = true; renderSummary();
   const fail = (msg, title) => { S.submitting = false; renderSummary(); $('#sumBody').insertAdjacentHTML('afterbegin', `<div class="errs" role="alert"><b>${title}</b>${esc(msg || 'Please try again.')}</div>`); };
   const created = await api('/api/palomas/orders', payload(special ? 'now' : mode));
+  if (!created.ok && created.j && created.j.installFit) {
+    S.submitting = false;
+    if (S.service === 'delivery_install') { S.service = 'pickup_delivery'; S.installUpsell = ''; }
+    S.installFitMsg = created.j.error || 'Installation doesn’t fit this delivery day. Your pickup and delivery stay as they are.';
+    scheduleQuote(); renderReview(); renderSummary();
+    return;
+  }
   if (!created.ok) return fail(created.j.error, "We couldn't place that order.");
   const j = created.j;
   if (special) { S.submitting = false; return showDone(j, S.customDate ? 'custom' : undefined); }
@@ -559,10 +571,20 @@ function clearStepErrors() {
   document.querySelectorAll('[data-stepmsg]').forEach((e) => e.remove());
   document.querySelectorAll('#form .bad').forEach((e) => e.classList.remove('bad'));
 }
+function paintPalInstallHints() {
+  if (S.installUpsell !== 'ask' || S.showInstallErrors) return;
+  installMissingPal().forEach((m) => {
+    const el = $(m.sel);
+    const field = el && el.closest ? el.closest('.field') : null;
+    if (field) field.classList.add('req-glow');
+    else if (el) el.classList.add('req-glow');
+  });
+}
 function paintHints() {
+
   const id = visibleSteps()[stepI];
   document.querySelectorAll('#form .req-glow, #form .need-ok').forEach((e) => e.classList.remove('req-glow', 'need-ok'));
-  if (id === 'review') return;
+  if (id === 'review') { paintPalInstallHints(); return; }
   const errs = problemsFor(id);
   const errSels = new Set(errs.map((e) => e.sel));
   const apply = (el, cls) => {
@@ -639,7 +661,10 @@ function showStep(i, { push = true } = {}) {
   document.querySelectorAll('[data-step]').forEach((el) => { el.hidden = el.dataset.step !== id; });
   $('#main').classList.toggle('single', !isLast);
   document.body.classList.toggle('compact', i > 0);
-  $('#backBtn').hidden = i === 0; $('#nextBtn').hidden = isLast;
+  const asking = isLast && S.installUpsell === 'ask';
+  $('#backBtn').hidden = i === 0 && !asking; $('#nextBtn').hidden = isLast && !asking;
+  if (asking) $('#nextBtn').textContent = 'Add to order'; else $('#nextBtn').textContent = 'Next';
+  document.body.classList.toggle('upsell-open', asking);
   let pct = frontLoadedPct(i, visibleSteps().length, isLast);
   if (goingBack) palProgressHigh = pct;
   else { pct = Math.max(pct, palProgressHigh); palProgressHigh = pct; }
@@ -662,7 +687,8 @@ async function waitSettled() { for (let t = 0; t < 4000 && (S.quoteBusy || avail
 const customPending = () => !$('#customForm').hidden && ['#cName', '#cL', '#cW', '#cH'].concat(asksWeightDraft() ? ['#cWt'] : []).some((id) => $(id).value.trim());
 async function goNext() {
   if (S.submitting) return;
-  const id = visibleSteps()[stepI]; if (id === 'review') return;
+  const id = visibleSteps()[stepI]; if (id === 'review' && S.installUpsell === 'ask') { await confirmPalInstall(); return; }
+  if (id === 'review') return;
   await waitSettled();
   if (id === 'items' && customPending()) {
     const err = $('#cErr'); err.hidden = false; err.textContent = 'You started a custom item. Tap “Add item” to include it, or clear the form.'; $('#cAdd').focus({ preventScroll: false }); return;
@@ -677,7 +703,15 @@ async function goNext() {
   }
   showStep(stepI + 1);
 }
-function goBack() { if (stepI > 0) showStep(stepI - 1); }
+function goBack() {
+  if (visibleSteps()[stepI] === 'review' && S.installUpsell === 'ask') {
+    S.installUpsell = S.service === 'delivery_install' ? 'done' : '';
+    S.showInstallErrors = false;
+    scheduleQuote(); renderReview(); renderSummary(); showStep(stepI, { push: false });
+    return;
+  }
+  if (stepI > 0) showStep(stepI - 1);
+}
 function accessSummary() {
   if (!needsDeliveryAccess()) return 'No stairs or doorway questions needed for these pieces.';
   const a = access(); const lab = (list, k) => ((list || []).find(([v]) => v === k) || [k, k])[1];
@@ -695,10 +729,178 @@ function accessSummary() {
   }
   return parts.join(' · ');
 }
+
+const WALL_OPTS = ['Not sure', 'Drywall', 'Plaster', 'Concrete / brick', 'Wood', 'Tile / stone', 'Glass'];
+const HANG_HEIGHTS_PAL = [['standard', 'Standard eye level (gallery height)'], ['higher', 'Higher than eye level']];
+const HANG_WHERES_PAL = [['mantel', 'Above a mantel or fireplace (stool or ladder needed)'], ['high', 'Higher than eye level (stool or ladder needed)'], ['stairwell', 'In a stairwell (ladder needed)'], ['other', 'Other']];
+function hwFeeTag(row) {
+  if (!row || row.unsure) return '';
+  const n = Number(row.fee) || 0;
+  return n > 0 ? ` +${usd(n)}` : '';
+}
+function installMissingPal() {
+  const out = [];
+  hungPalItems().forEach((it) => {
+    const n = it.name || 'this piece';
+    if (!it.hardware) out.push({ msg: `Hanging hardware for ${n}`, sel: `[data-hw="${it.uid}"]` });
+    if (!it.hangHeight) out.push({ msg: `Height and placement for ${n}`, sel: `[data-hh="${it.uid}"]` });
+    if (it.hangHeight === 'higher' && !it.hangWhere) out.push({ msg: `Where ${n} will hang`, sel: `[data-hwere="${it.uid}"]` });
+    if (it.hangHeight === 'higher' && it.hangWhere === 'other' && !String(it.hangWhereOther || '').trim()) out.push({ msg: `Where ${n} will hang`, sel: `[data-hwere-other="${it.uid}"]` });
+  });
+  return out;
+}
+function palInstallStatus() {
+  const q = S.quote || {};
+  const hung = hungPalItems();
+  const hwKnown = hung.length && hung.every((it) => it.hardware && it.hardware !== 'not_sure');
+  const addOn = S.installBaseTotal ? (Number(q.total) - S.installBaseTotal) : 0;
+  if (!hwKnown) return 'Estimated total with installation';
+  if (addOn > 0) return `Installation adds ${usd(addOn)} · New order total ${usd(q.total)}`;
+  return `New order total ${usd(q.total)}`;
+}
+function palUpsellCard() {
+  const u = S.quote && S.quote.installUpsell;
+  if (!(u && u.amount > 0) || !hungPalItems().length) return '';
+  if (S.installUpsell === 'no' || S.installUpsell === 'ask' || S.service === 'delivery_install') return '';
+  if (!S.upsellShownTracked) { S.upsellShownTracked = true; track('install_upsell_shown', { amount: u.amount, partner: 'palomas' }); }
+  const x = usd(u.amount);
+  const title = u.asLittle !== false ? `Add installation for <span class="upsell-aslittle">as little as ${x}</span>` : `Add installation for ${x}`;
+  return `<div class="upsell-card" data-upsell>
+    <p class="upsell-kicker">Optional add-on</p>
+    <p class="upsell-title">${title}</p>
+    <p class="upsell-copy">We hang it level and secure on the same visit.</p>
+    ${u.asLittle !== false ? '<p class="upsell-may">Hardware or special placement may add cost.</p>' : ''}
+    ${S.installFitMsg ? `<p class="upsell-fit">${esc(S.installFitMsg)}</p>` : ''}
+    <button type="button" class="btn primary" data-upsell-yes>Add installation</button>
+    <button type="button" class="upsell-no" data-upsell-no>No thanks</button>
+  </div>`;
+}
+function palAddedCard() {
+  if (S.service !== 'delivery_install' || S.installUpsell === 'ask' || !hungPalItems().length) return '';
+  const hw = (CFG && CFG.hangHardware) || {};
+  const bits = hungPalItems().map((it) => {
+    const lab = (hw[it.hardware] && hw[it.hardware].label) || it.hardware || '';
+    return `${esc(it.name)}${lab ? ': ' + esc(lab) : ''}`;
+  }).join('<br>');
+  const wall = S.wallType ? `Wall type: ${esc(S.wallType)}` : '';
+  return `<div class="upsell-card install-added" data-install-added>
+    <p class="install-added-head">Installation added</p>
+    <p class="upsell-copy">${bits}${wall ? '<br>' + wall : ''}</p>
+    <p><button type="button" class="linkbtn" data-upsell-edit>Edit</button> · <button type="button" class="linkbtn" data-upsell-remove>Remove</button></p>
+  </div>`;
+}
+function palInstallStep() {
+  const hw = (CFG && CFG.hangHardware) || {};
+  const miss = S.showInstallErrors ? installMissingPal() : [];
+  const glow = S.showInstallErrors ? '' : ' req-glow';
+  const segs = (opts, cur, key, uid) => `<div class="seg hang-seg" data-${key}="${uid}">${opts.map(([v, lab]) => `<button type="button" class="${cur === v ? 'on' : ''}" data-set="${key}" data-uid="${uid}" data-val="${esc(v)}">${esc(lab)}</button>`).join('')}</div>`;
+  const pieces = hungPalItems().map((it) => {
+    const needHw = !it.hardware;
+    const needHh = !it.hangHeight;
+    const needWhere = it.hangHeight === 'higher' && !it.hangWhere;
+    const needOther = it.hangHeight === 'higher' && it.hangWhere === 'other' && !String(it.hangWhereOther || '').trim();
+    const hwBtns = Object.entries(hw).map(([k, row]) => {
+      const note = (row && row.unsure) ? `<span class="mini">We’ll confirm on the visit. This may add to the total.</span>` : '';
+      return `<button type="button" class="${it.hardware === k ? 'on' : ''}" data-set="hardware" data-uid="${it.uid}" data-val="${esc(k)}">${esc((row && row.label) || k)}${esc(hwFeeTag(row))}${note}</button>`;
+    }).join('');
+    return `<div class="hang-piece">
+      <h3>${esc(it.name)}</h3>
+      <div class="field ${needHw ? (S.showInstallErrors ? 'bad' : glow) : ''}"><span class="lbl">Hanging hardware for ${esc(it.name)}</span>
+        <div class="seg hang-seg" data-hw="${it.uid}">${hwBtns}</div></div>
+      <div class="field ${needHh ? (S.showInstallErrors ? 'bad' : glow) : ''}"><span class="lbl">Height and placement for ${esc(it.name)}</span>
+        ${segs(HANG_HEIGHTS_PAL, it.hangHeight, 'hh', it.uid)}</div>
+      ${it.hangHeight === 'higher' ? `<div class="field ${needWhere ? (S.showInstallErrors ? 'bad' : glow) : ''}"><span class="lbl">Where ${esc(it.name)} will hang</span>${segs(HANG_WHERES_PAL, it.hangWhere, 'hwere', it.uid)}</div>` : ''}
+      ${it.hangHeight === 'higher' && it.hangWhere === 'other' ? `<label class="field ${needOther ? (S.showInstallErrors ? 'bad' : glow) : ''}"><span class="lbl">Where ${esc(it.name)} will hang</span><input data-hwere-other="${it.uid}" type="text" value="${esc(it.hangWhereOther || '')}" placeholder="Please describe the placement"></label>` : ''}
+    </div>`;
+  }).join('');
+  const missHtml = miss.length ? `<p class="upsell-fit" role="alert">${esc('Please fill in: ' + miss[0].msg + '.')}</p>` : '';
+  return `<div class="install-step" data-install-step>
+    <h2>Installation details</h2>
+    <p class="upsell-copy">Tell us about the pieces being hung.</p>
+    ${pieces}
+    ${missHtml}
+    <p class="upsell-status" data-upsell-status>${esc(palInstallStatus())}</p>
+    <label class="field"><span class="lbl">Wall type (optional)</span>
+      <select id="palWallType"><option value="">Please choose one</option>${WALL_OPTS.map((w) => `<option value="${esc(w)}"${S.wallType === w ? ' selected' : ''}>${esc(w)}</option>`).join('')}</select>
+    </label>
+  </div>`;
+}
+async function checkPalInstallFit() {
+  try {
+    const { ok, j } = await api('/api/install-visit-fit', { ...payload(), service: 'delivery_install' });
+    if (!ok) return { ok: true };
+    return j || { ok: true };
+  } catch (_) { return { ok: true }; }
+}
+async function startPalInstall() {
+  track('install_upsell_add', { partner: 'palomas' });
+  const fit = await checkPalInstallFit();
+  if (fit && fit.ok === false) {
+    S.installFitMsg = fit.message || 'Installation doesn’t fit this delivery day. Your pickup and delivery stay as they are.';
+    renderReview(); return;
+  }
+  S.installUpsell = 'ask';
+  S.installBaseTotal = (S.quote && S.quote.total) || 0;
+  S.showInstallErrors = false;
+  S.installFitMsg = '';
+  scheduleQuote();
+  renderReview(); renderSummary();
+  showStep(stepI, { push: false });
+  window.scrollTo({ top: Math.max(0, $('#main').offsetTop - 12), behavior: 'smooth' });
+}
+function dismissPalInstall() {
+  track('install_upsell_no_thanks', { partner: 'palomas' });
+  S.installUpsell = 'no';
+  renderReview();
+}
+async function confirmPalInstall() {
+  const miss = installMissingPal();
+  if (miss.length) { S.showInstallErrors = true; renderReview(); return false; }
+  const fit = await checkPalInstallFit();
+  if (fit && fit.ok === false) {
+    S.service = 'pickup_delivery';
+    S.installUpsell = '';
+    S.installFitMsg = fit.message || 'Installation doesn’t fit this delivery day. Your pickup and delivery stay as they are.';
+    scheduleQuote(); renderReview(); renderSummary(); showStep(stepI, { push: false });
+    return false;
+  }
+  S.service = 'delivery_install';
+  S.installUpsell = 'done';
+  S.showInstallErrors = false;
+  track('install_upsell_confirm', { partner: 'palomas' });
+  scheduleQuote(); renderReview(); renderSummary(); showStep(stepI, { push: false });
+  return true;
+}
+function removePalInstall() {
+  track('install_upsell_remove', { partner: 'palomas' });
+  S.service = 'pickup_delivery';
+  S.installUpsell = '';
+  scheduleQuote(); renderReview(); renderSummary();
+}
+function editPalInstall() {
+  S.installUpsell = 'ask';
+  S.installBaseTotal = Math.max(0, Number((S.quote && S.quote.total) || 0) - Number(((S.quote && S.quote.lines) || []).filter((l) => l.install).reduce((s, l) => s + (l.amount || 0), 0)));
+  S.showInstallErrors = false;
+  scheduleQuote(); renderReview(); renderSummary(); showStep(stepI, { push: false });
+}
+function applyPalHangSet(uid, key, val) {
+  const it = S.items.find((x) => String(x.uid) === String(uid));
+  if (!it) return;
+  if (key === 'hardware') it.hardware = val;
+  if (key === 'hh') { it.hangHeight = val; if (val !== 'higher') { it.hangWhere = ''; it.hangWhereOther = ''; } }
+  if (key === 'hwere') { it.hangWhere = val; if (val !== 'other') it.hangWhereOther = ''; }
+  scheduleQuote(); renderReview();
+}
+
 function renderReview() {
   const d = delivery(), who = S.placedBy === 'Other' ? S.placedOther : S.placedBy;
   const row = (label, html, to) => `<div class="rv"><div class="rv-l">${label}</div><div class="rv-v">${html}</div><button type="button" class="linkbtn rv-e" data-edit="${to}" aria-label="Edit ${esc(label)}">Edit</button></div>`;
-  const day = (arr, v) => (arr.find((x) => x.date === v) || {}).label || v;
+  const day = (arr, v) => {
+    const lab = v && ((arr || []).find((x) => x.date === v) || {}).label;
+    // Prefer a friendly weekday label; never fall back to a raw ISO date on Review.
+    if (lab && !/^\d{4}-\d{2}-\d{2}$/.test(String(lab))) return lab;
+    return shortDate(v) || '';
+  };
   const noDates = outOfState() || (S.quote && S.quote.special);
   const items = S.items.map((i) => `${i.qty} × ${esc(i.name)}${i.custom ? ` <span class="muted">(custom${i.w && i.d && i.h ? `, ${esc(i.w)} × ${esc(i.d)} × ${esc(i.h)} in` : ''})</span>` : ''}`).join('<br>');
   const extra = [d.client2 ? `${esc(d.client2.name)}${d.client2.phone ? ' · ' + esc(d.client2.phone) : ''}${d.client2.email ? ' · ' + esc(d.client2.email) : ''}` : ''].filter(Boolean).join('<br>');
@@ -714,6 +916,8 @@ function renderReview() {
       : S.customDate ? `Custom date request${S.customDateNote ? ': ' + esc(S.customDateNote) : ''}`
       : `Pickup ${esc(day(S.puDays, S.pickupDate) || shortDate(S.pickupDate) || '—')}${S.dedicatedPickup ? ' · dedicated trip' : ''}<br>Delivery ${esc(day(S.deDays, S.deliveryDate) || shortDate(S.deliveryDate) || '—')}${S.dedicatedDelivery ? ' · dedicated trip' : ''}`, 'dates'),
   ].filter(Boolean).join('');
+  if (S.installUpsell === 'ask') { $('#reviewBody').innerHTML = palInstallStep(); paintPalInstallHints(); }
+  else $('#reviewBody').innerHTML = palUpsellCard() + palAddedCard() + $('#reviewBody').innerHTML;
 }
 
 /* ---------- wiring ---------- */
@@ -895,7 +1099,24 @@ function bind() {
   $('#nextBtn').addEventListener('click', goNext);
   $('#backBtn').addEventListener('click', goBack);
   $('#skipLink').addEventListener('click', (e) => { e.preventDefault(); showStep(visibleSteps().indexOf('client')); });
-  $('#reviewBody').addEventListener('click', (e) => { const b = e.target.closest('[data-edit]'); if (!b) return; returnToReview = true; showStep(visibleSteps().indexOf(b.dataset.edit)); });
+  $('#reviewBody').addEventListener('click', (e) => {
+    const yes = e.target.closest('[data-upsell-yes]'); if (yes) { startPalInstall(); return; }
+    const no = e.target.closest('[data-upsell-no]'); if (no) { dismissPalInstall(); return; }
+    const ed = e.target.closest('[data-upsell-edit]'); if (ed) { editPalInstall(); return; }
+    const rm = e.target.closest('[data-upsell-remove]'); if (rm) { removePalInstall(); return; }
+    const set = e.target.closest('[data-set]');
+    if (set) { applyPalHangSet(set.dataset.uid, set.dataset.set, set.dataset.val); return; }
+    const b = e.target.closest('[data-edit]'); if (!b) return; returnToReview = true; showStep(visibleSteps().indexOf(b.dataset.edit));
+  });
+  $('#reviewBody').addEventListener('change', (e) => {
+    if (e.target && e.target.id === 'palWallType') { S.wallType = e.target.value === 'Not sure' ? 'Not sure' : e.target.value; }
+    const other = e.target && e.target.getAttribute && e.target.getAttribute('data-hwere-other');
+    if (other) { const it = S.items.find((x) => String(x.uid) === String(other)); if (it) it.hangWhereOther = e.target.value; }
+  });
+  $('#reviewBody').addEventListener('input', (e) => {
+    const other = e.target && e.target.getAttribute && e.target.getAttribute('data-hwere-other');
+    if (other) { const it = S.items.find((x) => String(x.uid) === String(other)); if (it) it.hangWhereOther = e.target.value; }
+  });
   window.addEventListener('popstate', (e) => {
     const n = e.state && e.state.palStep; if (n == null || S.submitting) return;
     showStep(Math.min(n, firstProblemStep()), { push: false });
@@ -944,5 +1165,16 @@ function restoreDraft() {
   const resume = restoreDraft() || 0;
   showStep(Math.min(resume, firstProblemStep()), { push: false });
   ['input', 'change', 'click'].forEach((ev) => document.addEventListener(ev, (e) => { if (e.target && e.target.closest && e.target.closest('#form')) saveDraft(); }));
+  window.__CAD_PALOMAS__ = {
+    bootReview(patch) {
+      Object.assign(S, patch || {});
+      const f = (patch && patch.fields) || {};
+      Object.entries(f).forEach(([id, v]) => { const el = document.getElementById(id); if (el) el.value = v; });
+      if (S.placedBy) { const sel = document.getElementById('placedBy'); if (sel) { sel.value = S.placedBy; S.placedBy = sel.value; } }
+      scheduleQuote();
+      showStep(visibleSteps().indexOf('review'), { push: false });
+    },
+    confirm: () => confirmPalInstall(),
+  };
 })();
 })();

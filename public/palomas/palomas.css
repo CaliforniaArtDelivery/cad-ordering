@@ -141,7 +141,7 @@ input.need-ok,select.need-ok,textarea.need-ok{
 .bar{position:fixed;left:0;right:0;bottom:0;z-index:20;background:#fff;border-top:1px solid var(--line);padding:10px 16px calc(10px + env(safe-area-inset-bottom));display:flex;align-items:center;justify-content:space-between;gap:12px;box-shadow:0 -6px 20px rgba(15,27,45,.08)}
 .bar-l{color:var(--muted);font-size:13px;margin-right:6px}.bar b{font-size:20px}
 @media(max-width:900px){
-  .layout{grid-template-columns:1fr}
+  .layout{grid-template-columns:minmax(0,1fr)}
   .sticky{position:static}
 }
 @media(max-width:560px){
@@ -356,3 +356,48 @@ html{scroll-padding-bottom:96px;scroll-padding-top:12px}
   .ded-box.in-col .ded-date input[type=date]{font-size:13px;padding:8px 6px;min-height:40px}
 }
 .no-route{margin:10px 0 6px;padding:10px 12px;border:1px solid #d9dee7;border-radius:10px;background:#f7f9fc;font-size:15px;line-height:1.35;color:var(--ink);overflow-wrap:break-word}
+
+/* Install upsell (same release as the main site, Chad t2095u v2). */
+.upsell-card{background:#f4f6f8;border:1px solid var(--line);box-shadow:0 1px 2px rgba(15,27,45,.04);padding:22px 20px 16px;margin:0 0 18px;border-radius:12px}
+.upsell-kicker{margin:0 0 8px;font-size:12px;font-weight:650;letter-spacing:.08em;text-transform:uppercase;color:#3264AE}
+.form .card h2.upsell-title,
+.upsell-card .upsell-title{
+  display:block;
+  text-align:left;
+  margin:0 0 8px;
+  font-size:clamp(20px,5.6vw,28px);
+  line-height:1.2;
+  letter-spacing:-.03em;
+  font-weight:650;
+  overflow-wrap:anywhere;
+}
+.upsell-aslittle{white-space:nowrap}
+.upsell-copy{margin:0 0 8px;color:var(--muted);font-size:16px;line-height:1.45}
+.upsell-may{margin:0 0 16px;color:var(--muted);font-size:14px;line-height:1.4}
+.upsell-fit{margin:0 0 14px;font-size:15px;line-height:1.4}
+.upsell-status{margin:12px 0 8px;color:var(--muted);font-size:15px;line-height:1.4}
+.upsell-card .btn.primary{width:100%}
+.upsell-no{display:flex;align-items:center;justify-content:center;width:100%;margin-top:4px;min-height:44px;padding:12px 8px;border:0;background:none;color:var(--muted);font:inherit;font-size:15px;cursor:pointer;text-align:center}
+.upsell-no:hover,.upsell-no:focus{color:var(--ink)}
+.install-added{background:#f4f6f8}
+.install-added-head{margin:0 0 6px;font-weight:600}
+.hang-piece{margin:0 0 18px}
+.hang-piece h3{margin:0 0 10px;font-size:17px}
+.hang-seg{display:flex;flex-wrap:wrap;gap:8px;margin-top:6px;min-width:0;max-width:100%}
+.hang-seg button{flex:1 1 calc(50% - 8px);min-width:0;max-width:100%;text-align:left;border:1px solid var(--line);background:#fff;border-radius:10px;padding:10px 12px;font:inherit;font-size:14px;cursor:pointer;min-height:44px;overflow-wrap:anywhere;white-space:normal;box-sizing:border-box}
+.hang-seg button.on{box-shadow:0 0 0 1.5px var(--navy), 0 1px 4px rgba(15,27,45,.08);font-weight:600}
+.hang-seg button .mini{display:block;font-weight:400;color:var(--muted)}
+.install-step,.hang-piece,#reviewBody,#sec-review{min-width:0;max-width:100%}
+.install-step .field, .install-step select, .install-step input{max-width:100%;min-width:0}
+.field.req-glow .hang-seg, .field.req-glow > input, .field.req-glow > select, .field.req-glow > textarea{
+  border-color:rgba(50,100,174,.55);
+  box-shadow:0 0 0 1.5px rgba(50,100,174,.42), 0 0 0 5px rgba(50,100,174,.14), 0 0 14px rgba(50,100,174,.22);
+}
+.field.req-glow .hang-seg{border-radius:12px;padding:6px;border:1.5px solid rgba(50,100,174,.55)}
+html,body{overflow-x:clip}
+.layout,.wrap,.card,.form{min-width:0;max-width:100%}
+body.upsell-open #sec-review, body.upsell-open #reviewBody{padding-bottom:calc(96px + 16px + 48px)}
+body.upsell-open{scroll-padding-bottom:160px}
+@media(max-width:400px){
+  .hang-seg button{flex-basis:100%}
+}

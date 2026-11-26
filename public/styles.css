@@ -213,6 +213,37 @@ input:focus,select:focus,textarea:focus{border-color:var(--navy);background:#fff
 #top .top-row{display:flex;justify-content:center;align-items:center}
 #top .brand{justify-self:center}
 
+/* Install upsell on Review (Chad t2095u / v2 reviews): light secondary card, never louder than Pay. */
+.upsell-card{
+  background:#f4f6f8;
+  border:1px solid var(--line);
+  box-shadow:0 1px 2px rgba(15,27,45,.04);
+  padding:22px 20px 16px;
+  margin:4px 0 22px;
+}
+.upsell-kicker{margin:0 0 8px;font-size:12px;font-weight:650;letter-spacing:.08em;text-transform:uppercase;color:#3264AE}
+.upsell-title{margin:0 0 8px;font-size:clamp(20px,5.6vw,30px);line-height:1.2;letter-spacing:-.03em;font-weight:650;overflow-wrap:anywhere}
+.upsell-aslittle{white-space:nowrap}
+.upsell-copy{margin:0 0 8px;color:var(--muted);font-size:16px;line-height:1.45}
+.upsell-may{margin:0 0 16px;color:var(--muted);font-size:14px;line-height:1.4}
+.upsell-fit{margin:0 0 14px;color:var(--ink);font-size:15px;line-height:1.4}
+.upsell-status{margin:0 0 14px;color:var(--muted);font-size:15px;line-height:1.4}
+.upsell-card .btn.primary{width:100%}
+.upsell-no{display:flex;align-items:center;justify-content:center;width:100%;margin-top:4px;min-height:44px;padding:12px 8px;border:0;background:none;color:var(--muted);font:inherit;font-size:15px;cursor:pointer;text-align:center}
+.upsell-no:hover,.upsell-no:focus{color:var(--ink)}
+.install-added{background:#f4f6f8;border:1px solid var(--line);box-shadow:0 1px 2px rgba(15,27,45,.04);margin:4px 0 16px}
+.install-added-head{font-weight:600;display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px}
+.install-added-head .edit{flex:0 0 auto}
+.seg.stack button{white-space:normal;text-align:left}
+.seg.stack button .fee{display:block;font-weight:400;margin-top:2px;white-space:normal;margin-left:0;overflow-wrap:anywhere}
+.app.upsell-open{padding-bottom:calc(var(--dock-h) + var(--kb-h, 0px) + 56px)}
+/* Paid hang / hardware choices: a clear selected state, not just a typographic change. */
+.seg button.on{background:#fff;color:var(--ink);box-shadow:0 0 0 1.5px var(--navy), 0 1px 4px rgba(15,27,45,.08);font-weight:600}
+@media (min-width:800px){
+  .upsell-card{padding:26px 28px 20px}
+  .upsell-title{font-size:32px}
+}
+
 /* Required-field cue: 2px solid underline on the bottom edge only — never a red box.
    Missing = brand red; when filled, the bar animates to green in ~250ms.
    Before Next, empty required fields get a soft accent-blue ring and glow instead. */
@@ -513,3 +544,11 @@ details.handling .handling-body .toggle{padding-bottom:0}
 .ded-toggle .sw i:before{width:23px;height:23px}
 .ded-toggle .sw input:checked+i:before{transform:translateX(17px)}
 .no-route{margin:10px 0 6px;padding:10px 12px;border:1px solid #d9dee7;border-radius:10px;background:#f7f9fc;font-size:15px;line-height:1.35;color:var(--ink,#0f1b2d);overflow-wrap:break-word}
+
+/* Install-upsell step: no horizontal scroll at 360–390px. */
+[data-panel="install-upsell"], [data-panel="install-upsell"] .card, [data-panel="install-upsell"] .field,
+[data-panel="install-upsell"] .seg, [data-panel="install-upsell"] select{
+  min-width:0;max-width:100%;box-sizing:border-box;
+}
+[data-panel="install-upsell"] .seg, [data-panel="install-upsell"] .seg button{min-width:0;max-width:100%;overflow-wrap:anywhere}
+[data-panel="install-upsell"] .seg button .fee{white-space:normal;overflow-wrap:anywhere}
